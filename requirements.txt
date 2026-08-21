@@ -1,0 +1,7 @@
+# Bắt buộc — GUI framework
+PySide6>=6.11
+
+# Tùy chọn — chỉ cần khi flash với phần cứng Vector thật
+# (VN1640A / VN1630). Không cần nếu chỉ dùng Virtual ECU Simulator.
+# Bỏ comment dòng dưới để cài, hoặc: pip install python-can
+# python-can>=4.3

@@ -1,0 +1,801 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1675</width>
+    <height>1166</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout_2">
+    <item>
+      <widget class="QTabWidget" name="tabWidget">
+       <property name="tabPosition">
+        <enum>QTabWidget::TabPosition::North</enum>
+       </property>
+       <property name="currentIndex">
+        <number>0</number>
+       </property>
+       <property name="elideMode">
+        <enum>Qt::TextElideMode::ElideRight</enum>
+       </property>
+       <widget class="QWidget" name="flashTab">
+        <attribute name="title">
+         <string>Flash</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="verticalLayout" stretch="0,0">
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout" stretch="1,10">
+            <item>
+             <widget class="QPushButton" name="flashButton">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>90</width>
+                <height>70</height>
+               </size>
+              </property>
+              <property name="text">
+               <string>Flash</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QProgressBar" name="progressBar">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>20</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>22</height>
+               </size>
+              </property>
+              <property name="value">
+               <number>0</number>
+              </property>
+              <property name="textVisible">
+               <bool>false</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="3,2">
+            <item>
+             <widget class="QTableWidget" name="stepsTable">
+              <column>
+               <property name="text">
+                <string>Timestamp</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Description</string>
+               </property>
+              </column>
+             </widget>
+            </item>
+            <item>
+             <widget class="QTableWidget" name="segmentsTable">
+              <column>
+               <property name="text">
+                <string>Status</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Start Address</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Length</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Type</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Datablock</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Segment</string>
+               </property>
+              </column>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+       </widget>
+       <widget class="QWidget" name="configureTab">
+        <attribute name="title">
+         <string>Configure</string>
+        </attribute>
+        <layout class="QHBoxLayout" name="horizontalLayout_3">
+         <item>
+          <widget class="QListWidget" name="navListWidget">
+           <property name="maximumSize">
+            <size>
+             <width>200</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string>Data</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Communication</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Miscellaneous</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Custom Actions</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QStackedWidget" name="stackedWidget">
+           <property name="currentIndex">
+            <number>0</number>
+           </property>
+           <widget class="QWidget" name="pageData">
+            <layout class="QVBoxLayout" name="verticalLayout_3">
+             <item>
+              <widget class="QLabel" name="labelDataTitle">
+               <property name="styleSheet">
+                <string notr="true">color: #2b579a; font-size: 20px;</string>
+               </property>
+               <property name="text">
+                <string>Data</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelDatablocks">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Datablocks</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QTableWidget" name="tableWidgetDatablocks">
+               <column>
+                <property name="text">
+                 <string/>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Type</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Datablock</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Checksum</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Signature</string>
+                </property>
+               </column>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelAddSetup">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Additional Setup</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="horizontalLayout_4">
+               <item>
+                <widget class="QLabel" name="labelChecksumMethod">
+                 <property name="text">
+                  <string>Checksum Method:</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QComboBox" name="comboBoxChecksum">
+                 <item>
+                  <property name="text">
+                   <string>Pre-Calculation: via file selection</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Calculate during flash</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item>
+                <spacer name="horizontalSpacer">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelDetails">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Details</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QTableWidget" name="tableWidgetDetails">
+               <attribute name="horizontalHeaderVisible">
+                <bool>false</bool>
+               </attribute>
+               <attribute name="verticalHeaderVisible">
+                <bool>false</bool>
+               </attribute>
+               <column>
+                <property name="text">
+                 <string>Property</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Value</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Timestamp</string>
+                </property>
+               </column>
+               <row>
+                <property name="text"><string>1</string></property>
+               </row>
+               <row>
+                <property name="text"><string>2</string></property>
+               </row>
+               <row>
+                <property name="text"><string>3</string></property>
+               </row>
+               <row>
+                <property name="text"><string>4</string></property>
+               </row>
+               <row>
+                <property name="text"><string>5</string></property>
+               </row>
+               <row>
+                <property name="text"><string>6</string></property>
+               </row>
+               <row>
+                <property name="text"><string>7</string></property>
+               </row>
+               <row>
+                <property name="text"><string>8</string></property>
+               </row>
+               <item row="0" column="0">
+                <property name="text"><string>File</string></property>
+               </item>
+               <item row="1" column="0">
+                <property name="text"><string>Checksum</string></property>
+               </item>
+               <item row="2" column="0">
+                <property name="text"><string>Signature</string></property>
+               </item>
+               <item row="3" column="0">
+                <property name="text"><string>Compression Method</string></property>
+               </item>
+               <item row="4" column="0">
+                <property name="text"><string>Encryption Method</string></property>
+               </item>
+               <item row="5" column="0">
+                <property name="text"><string>Start Address</string></property>
+               </item>
+               <item row="6" column="0">
+                <property name="text"><string>Memory Size</string></property>
+               </item>
+               <item row="7" column="0">
+                <property name="text"><string>Delta Download</string></property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <spacer name="verticalSpacer">
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>40</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="pageComm">
+            <layout class="QVBoxLayout" name="verticalLayout_comm">
+             <item>
+              <widget class="QLabel" name="labelCommTitle">
+               <property name="styleSheet">
+                <string notr="true">color: #2b579a; font-size: 20px;</string>
+               </property>
+               <property name="text">
+                <string>Communication</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelHardware">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Hardware configure</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboBoxHardware">
+               <item>
+                <property name="text">
+                 <string>VN1640A - Channel 1</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>VN1640A - Channel 2</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>VN1640A - Channel 3</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>VN1640A - Channel 4</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelRadarSide">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Radar Side</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboBoxRadarSide">
+               <item>
+                <property name="text">
+                 <string>Left (Tx 0x77B / Rx 0x78B)</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Right (Tx 0x77A / Rx 0x78A)</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelLogicalLink">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Logical Link</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboBoxLogicalLink">
+               <item>
+                <property name="text">
+                 <string>CAN</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>CAN FD</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <widget class="QTableWidget" name="tableWidgetCommDetails">
+               <attribute name="horizontalHeaderVisible">
+                <bool>false</bool>
+               </attribute>
+               <attribute name="verticalHeaderVisible">
+                <bool>false</bool>
+               </attribute>
+               <column>
+                <property name="text">
+                 <string>Property</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Value</string>
+                </property>
+               </column>
+               <row>
+                <property name="text"><string>1</string></property>
+               </row>
+               <row>
+                <property name="text"><string>2</string></property>
+               </row>
+               <row>
+                <property name="text"><string>3</string></property>
+               </row>
+               <row>
+                <property name="text"><string>4</string></property>
+               </row>
+               <row>
+                <property name="text"><string>5</string></property>
+               </row>
+               <row>
+                <property name="text"><string>6</string></property>
+               </row>
+               <row>
+                <property name="text"><string>7</string></property>
+               </row>
+               <item row="0" column="0">
+                <property name="text"><string>Baudrate</string></property>
+               </item>
+               <item row="1" column="0">
+                <property name="text"><string>Addressing Scheme</string></property>
+               </item>
+               <item row="2" column="0">
+                <property name="text"><string>Physical CAN ID Type</string></property>
+               </item>
+               <item row="3" column="0">
+                <property name="text"><string>Functional CAN ID Type</string></property>
+               </item>
+               <item row="4" column="0">
+                <property name="text"><string>Physical Request CAN ID</string></property>
+               </item>
+               <item row="5" column="0">
+                <property name="text"><string>Response CAN ID</string></property>
+               </item>
+               <item row="6" column="0">
+                <property name="text"><string>Functional Request CAN ID</string></property>
+               </item>
+               <item row="0" column="1">
+                <property name="text"><string>500,000 Baud</string></property>
+               </item>
+               <item row="1" column="1">
+                <property name="text"><string>Normal</string></property>
+               </item>
+               <item row="2" column="1">
+                <property name="text"><string>11-Bit</string></property>
+               </item>
+               <item row="3" column="1">
+                <property name="text"><string>11-Bit</string></property>
+               </item>
+               <item row="4" column="1">
+                <property name="text"><string>0x778</string></property>
+               </item>
+               <item row="5" column="1">
+                <property name="text"><string>0x788</string></property>
+               </item>
+               <item row="6" column="1">
+                <property name="text"><string>0x700</string></property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelCustomConfig">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Custom Configuration</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QTableWidget" name="tableWidgetCustomConfig">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>122</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>16777215</width>
+                 <height>122</height>
+                </size>
+               </property>
+               <attribute name="horizontalHeaderVisible">
+                <bool>false</bool>
+               </attribute>
+               <attribute name="verticalHeaderVisible">
+                <bool>false</bool>
+               </attribute>
+               <column>
+                <property name="text">
+                 <string>Property</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Value</string>
+                </property>
+               </column>
+               <row>
+                <property name="text"><string>1</string></property>
+               </row>
+               <row>
+                <property name="text"><string>2</string></property>
+               </row>
+               <row>
+                <property name="text"><string>3</string></property>
+               </row>
+               <row>
+                <property name="text"><string>4</string></property>
+               </row>
+               <item row="0" column="0">
+                <property name="text"><string>Erase Timeout</string></property>
+               </item>
+               <item row="1" column="0">
+                <property name="text"><string>Programming delay</string></property>
+               </item>
+               <item row="2" column="0">
+                <property name="text"><string>Post reset delay</string></property>
+               </item>
+               <item row="3" column="0">
+                <property name="text"><string>STmin override</string></property>
+               </item>
+               <item row="0" column="1">
+                <property name="text"><string>120 sec</string></property>
+               </item>
+               <item row="1" column="1">
+                <property name="text"><string>2 sec</string></property>
+               </item>
+               <item row="2" column="1">
+                <property name="text"><string>1 sec</string></property>
+               </item>
+               <item row="3" column="1">
+                <property name="text"><string>50 msec</string></property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <spacer name="verticalSpacer_comm">
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>40</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="pageMisc">
+            <layout class="QVBoxLayout" name="verticalLayout_misc">
+             <item>
+              <widget class="QLabel" name="labelMiscTitle">
+               <property name="styleSheet">
+                <string notr="true">color: #2b579a; font-size: 20px;</string>
+               </property>
+               <property name="text">
+                <string>Miscellaneous</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelFlashSequence">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Flash Sequence</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboBoxFlashSequence">
+               <item>
+                <property name="text">
+                 <string>Generic (Default)</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Suzuki SLP1 (Real Trace)</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelSecurityDll">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Security Access DLL (Optional)</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="horizontalLayout_securityDll">
+               <item>
+                <widget class="QLineEdit" name="lineEditSecurityDll">
+                 <property name="readOnly">
+                  <bool>true</bool>
+                 </property>
+                 <property name="placeholderText">
+                  <string>No DLL selected — using built-in seed/key algorithm</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="buttonBrowseSecurityDll">
+                 <property name="text">
+                  <string>Browse...</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <spacer name="verticalSpacer_misc">
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>40</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="pageCustom"/>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </item>
+     <item>
+      <widget class="QTabWidget" name="outputTabWidget">
+       <property name="currentIndex">
+        <number>0</number>
+       </property>
+       <widget class="QWidget" name="informationTab">
+        <attribute name="title">
+         <string>Information</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="verticalLayout_infoTab">
+         <item>
+          <widget class="QTextEdit" name="informationText"/>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="traceTab">
+        <attribute name="title">
+         <string>Trace</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="verticalLayout_traceTab">
+         <item>
+          <widget class="QTextEdit" name="traceText"/>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </item>
+    </layout>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1675</width>
+     <height>30</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>navListWidget</sender>
+   <signal>currentRowChanged(int)</signal>
+   <receiver>stackedWidget</receiver>
+   <slot>setCurrentIndex(int)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>0</x>
+     <y>0</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>0</x>
+     <y>0</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
