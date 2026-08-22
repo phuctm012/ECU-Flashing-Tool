@@ -90,6 +90,24 @@ class TestDefaultSequenceFlash(unittest.TestCase):
         result = _run_worker(worker)
         self.assertTrue(result["finished"])
 
+    def test_no_steps_still_cleans_up_keepalive_and_can(self):
+        # Regression: run() used to emit flash_finished on the
+        # empty-steps fast path WITHOUT calling _cleanup() first
+        # — start_keepalive() runs unconditionally near the top
+        # of run(), so this left a TesterPresentThread ticking
+        # in the background forever (never stopped) and the CAN
+        # interface never disconnected. That stray thread kept
+        # calling back into this worker's _on_uds_trace() for
+        # the rest of the test process's life, which could fire
+        # "RuntimeError: Signal source has been deleted" at any
+        # point later once the worker was torn down — an
+        # intermittent, hard-to-reproduce crash symptom.
+        worker = FlashWorker(steps=[], datablocks=[], use_virtual=True)
+        _run_worker(worker)
+
+        self.assertIsNone(worker._uds_client._tp_keepalive)
+        self.assertFalse(worker._can_interface.is_connected)
+
 
 class TestSuzukiSequenceFlash(unittest.TestCase):
 

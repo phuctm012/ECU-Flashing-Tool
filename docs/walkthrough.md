@@ -799,3 +799,249 @@ Theo yêu cầu: *"có cần cấu trúc lại file, thư mục cho dự án nà
 - Sanity check `MainWindow()` qua `QT_QPA_PLATFORM=offscreen` — khởi tạo OK, title đúng `"FFlash v1.1"`.
 - Chạy toàn bộ test suite: **111/111 pass** — không file test nào tham chiếu trực tiếp đường dẫn `main_window.ui`/`ui_main_window.py` nên không cần sửa gì ở `tests/`.
 - Dọn `__pycache__/ui_main_window.*.pyc` cũ ở root (bytecode stale của module đã move, không ảnh hưởng git vì đã gitignore).
+
+---
+
+## Phase 4.29: Xóa Combo "Checksum Method" Chết (GUI TODO #1)
+
+Xử lý mục #1 trong `docs/gui_todo.md` theo hướng (a) — xóa hẳn control thay vì implement, vì user chọn hướng này khi giao việc.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: xóa `comboBoxChecksum`, `labelChecksumMethod`, layout `horizontalLayout_checksumMethod` chứa chúng, và cả section header `labelAddSetup` ("Additional Setup") — header này chỉ tồn tại để bọc riêng control này, không còn gì bên dưới sau khi xóa nên xóa luôn thay vì để lại 1 header trống vô nghĩa. Regenerate `gui/ui_main_window.py`.
+- **`config/settings.py`**: xóa `CHECKSUM_METHODS` — hằng số định nghĩa sẵn khớp nội dung combo nhưng chưa từng được import ở đâu (dead code đi kèm).
+- **`docs/gui_todo.md`**: đánh dấu mục #1 thành ✅ Đã xử lý, ghi lại đúng những gì đã làm.
+
+### Đã kiểm tra
+
+- `grep` xác nhận không còn tham chiếu `comboBoxChecksum`/`CHECKSUM_METHODS` nào trong `.py`/`.ui`/`.md` ngoài `docs/gui_todo.md` (đã cập nhật) và dòng lịch sử trong `docs/walkthrough.md` Phase 4.19 (log cũ, giữ nguyên).
+- Chụp ảnh offscreen tab Data: layout chuyển thẳng từ "Datablocks" sang "Details", không còn khoảng trống hay control thừa.
+- Chạy toàn bộ test suite: **111/111 pass** — không file test nào tham chiếu `comboBoxChecksum` nên không cần sửa gì ở `tests/`.
+
+---
+
+## Phase 4.30: Checkbox Datablocks Giờ Thực Sự Lọc Flash Sequence (GUI TODO #2)
+
+Xử lý mục #2 trong `docs/gui_todo.md` theo hướng (b) — implement thật thay vì xóa checkbox, theo đúng yêu cầu user: *"đọc checkState() trong add_new_datablock()/flash_button_clicked() để lọc datablock trước khi build flash sequence"*.
+
+### Thiết kế
+
+- **`gui/configure_tab.py`**: thêm `ConfigureTabMixin.get_checked_datablocks()` — duyệt `self._loaded_datablocks`, đối chiếu `tableWidgetDatablocks.item(i, 0).checkState()` cho từng index, trả về subset đang tick. Dựa vào invariant có sẵn từ `add_new_datablock()`: datablock thứ i luôn nằm ở row i (rows chỉ được append theo đúng thứ tự append datablock, không có chức năng xóa row nào trong codebase) — ghi rõ invariant này trong docstring để cảnh báo nếu sau này ai thêm tính năng xóa row thì phải sửa hàm này theo. Nếu row bị thiếu (edge case không nên xảy ra), mặc định **include** thay vì âm thầm loại bỏ.
+- **`gui/flash_tab.py`**: `flash_button_clicked()` đổi `datablocks = getattr(self, '_loaded_datablocks', [])` thành gọi `self.get_checked_datablocks()`. List đã lọc này được dùng xuyên suốt — không chỉ cho `build_flash_sequence()`/`build_suzuki_slp1_flash_sequence()`/`FlashWorker(datablocks=...)`, mà còn cho **Segments table**, để tránh tạo ra 1 bug mới (hiển thị segment của file đã bỏ tick trong khi flash sequence thật không đụng tới nó — đúng kiểu inconsistency đã ghi ở mục #6 trong `gui_todo.md`).
+- `prepare_flash_ui()` và `add_segments_from_datablocks()` đổi sang nhận tham số `datablocks=None` tùy chọn (mặc định fallback về `self._loaded_datablocks` không lọc, giữ tương thích ngược cho caller khác nếu có) — `flash_button_clicked()` truyền list đã lọc vào, còn 2 hàm bên trong (`_total_bytes_all`, Segments table) tự động dùng đúng list đó thay vì tự đọc lại `self._loaded_datablocks`.
+
+### Đã kiểm tra
+
+- Thêm `tests/test_gui_smoke.py::TestCheckedDatablocksFilter` (5 test): mặc định mọi datablock đều tick → trả về hết; bỏ tick 1 row → bị loại đúng; row bị thiếu (edge case) → mặc định include chứ không mất datablock; `add_segments_from_datablocks([db1])` chỉ tạo segment của `db1`; `prepare_flash_ui([db1])` tính đúng `_total_bytes_all`/Segments table chỉ theo `db1`.
+- Chạy toàn bộ test suite: **116/116 pass** (111 cũ + 5 mới).
+- Sanity check `MainWindow()` qua `QT_QPA_PLATFORM=offscreen` — khởi tạo OK, không crash.
+
+---
+
+## Phase 4.31: Bỏ Fallback Demo + Chặn Flash Khi Chưa Nạp File (GUI TODO #6)
+
+Xử lý mục #6 — user đưa 2 hướng nối bằng "hoặc" (bỏ fallback demo / chặn bấm Flash), quyết định làm **cả hai** vì chúng bổ trợ nhau chứ không loại trừ: guard chặn để không chạy 1 lần "flash" vô nghĩa (chỉ có session/security/reset, không có Download step nào do `build_flash_sequence([])` không chèn `TYPE_DOWNLOAD` nếu rỗng datablocks — xem `core/flash_sequence.py`), còn bảng Segments để trống là hành vi đúng-tự-thân của `add_segments_from_datablocks()` bất kể ai gọi nó với list rỗng.
+
+### Thay đổi
+
+- **`gui/flash_tab.py`**: `add_segments_from_datablocks()` xóa hẳn nhánh `else` (5 dòng demo cứng `0x1000`/`0x2000`/`0x5000`/`0x100` không liên quan gì tới file thật) — giờ chỉ có 1 nhánh duy nhất, danh sách rỗng thì vòng lặp không chạy, bảng để trống tự nhiên.
+- **`flash_button_clicked()`**: thêm guard ngay sau khi tính `datablocks = self.get_checked_datablocks()` — nếu rỗng, hiện `QMessageBox.warning("No Firmware Loaded", ...)` rồi `return`, **trước** `prepare_flash_ui()` nên không đụng gì tới UI/thread. Guard này che luôn cả 2 trường hợp: chưa nạp file nào, và đã nạp nhưng bỏ tick hết checkbox (dùng chung logic lọc của Phase 4.30).
+
+### Bug phát sinh giữa chừng — hàm lọc checkbox vỡ với test dùng shortcut bơm thẳng `_loaded_datablocks`
+
+Sau khi thêm guard, chạy full suite bị **treo (hang)** ở `tests/test_flash_threading.py::TestAbortMidFlash` — nguyên nhân: 4 test trong `test_flash_threading.py` cố tình bỏ qua `QFileDialog` bằng cách gán thẳng `self.window._loaded_datablocks = [db]` mà không thêm row tương ứng vào `tableWidgetDatablocks` (chỉ có sẵn row placeholder "Please click here..."). `get_checked_datablocks()` (Phase 4.30) đọc nhầm `table.item(0, 0)` — chính là item placeholder — tưởng đó là checkbox của datablock 0, `checkState()` của nó khác `Qt.Checked` nên bị coi là "đã bỏ tick" → trả về `[]` → guard mới kích hoạt → `QMessageBox.warning()` bật lên **chờ click chuột thật**, treo test vô thời hạn (timeout 15s của `_wait_for_cleanup()` không cứu được vì dialog chặn cả event loop trước khi tới bước đó).
+
+**Sửa**: thêm điều kiện an toàn vào `get_checked_datablocks()` — chỉ tin tưởng đối chiếu row-theo-index khi `table.rowCount() >= len(datablocks) + 1` (đúng invariant thật: mỗi datablock có 1 row + 1 row placeholder cuối). Nếu không đủ row (bảng chưa được populate qua `add_new_datablock()` — đúng tình huống các test thread-lifecycle cố tình bypass), trả về nguyên `datablocks` không lọc thay vì đọc nhầm placeholder. Không cần sửa 4 test đó (giữ nguyên shortcut hợp lệ của chúng).
+
+### Đã kiểm tra
+
+- Chạy riêng `tests/test_flash_threading.py` (bộ test quan trọng nhất, theo rule CLAUDE.md) sau khi sửa: **4/4 pass**, không còn treo.
+- Thêm `tests/test_gui_smoke.py::TestEmptyDatablocksGuard` (3 test): `add_segments_from_datablocks([])` để bảng trống; `flash_button_clicked()` với `_loaded_datablocks = []` → hiện đúng 1 lần `QMessageBox.warning` (mock), không tạo `thread`/`worker`; tương tự khi có datablock nhưng bỏ tick hết.
+- Sanity check `MainWindow()` qua `QT_QPA_PLATFORM=offscreen` — Segments table rỗng ngay lúc khởi động (đúng như kỳ vọng, trước đây cũng vậy vì fallback demo chỉ chèn lúc bấm Flash, nhưng giờ nếu có bấm Flash mà rỗng thì cũng không còn demo).
+- Chạy toàn bộ test suite: **119/119 pass** (116 cũ + 3 mới).
+
+---
+
+## Phase 4.32: Lưu/Nạp Lại Cấu Hình (Profile) Qua QSettings (GUI TODO #7)
+
+Xử lý mục #7 — sau khi trao đổi về hướng cải thiện GUI để tiến gần hơn tới thay thế vFlash (xem Phase trước đó ghi lại 2 câu hỏi khảo sát nhóm tính năng Production/Traceability và Safety/Reliability), user chọn implement mục "Lưu/nạp lại cấu hình (profile)" trước.
+
+### Thiết kế
+
+- **`gui/settings_profile.py`** (mới): `SettingsProfileMixin` — `setup_settings_profile()` khởi tạo `self._settings`, gọi `load_profile()`, rồi connect `currentIndexChanged` của `comboBoxHardware`/`comboBoxRadarSide`/`comboBoxFlashSequence` tới `save_profile()`. `save_profile()`/`load_profile()` đọc/ghi 4 nhóm giá trị: hardware channel (tách `isVirtual` bool + `channel` int riêng thay vì lưu thẳng `currentData()` — tránh None bị serialize mơ hồ qua các backend QSettings khác nhau), Radar Side index, Flash Sequence index, Security DLL path.
+- `MainWindow` (`gui/main_window.py`) thêm `SettingsProfileMixin` vào danh sách kế thừa, gọi `self.setup_settings_profile()` ngay sau `self.setup_configure_tab()` — thứ tự bắt buộc vì `load_profile()` cần `comboBoxHardware` đã được `populate_hardware_combo()` điền item thật trước đó.
+- `browse_security_dll()` (`gui/configure_tab.py`) gọi thêm `self.save_profile()` ngay sau khi set `_security_dll_path` — không đợi tới lần đổi combo tiếp theo mới lưu.
+- Mỗi lần `save_profile()` chạy đều gọi `s.sync()` cuối cùng — flush ngay xuống đĩa thay vì đợi Qt tự sync định kỳ, đúng tinh thần "sống sót qua crash/force-quit" đã đặt ra khi thiết kế save-on-change thay vì chỉ save-lúc-đóng-app.
+
+### Phát hiện quan trọng — `QSettings(org, app)` không tôn trọng `setDefaultFormat()`/`setPath()`
+
+Ban đầu dùng constructor 2 tham số `QSettings(APP_AUTHOR, APP_NAME)` (dùng format native của OS theo mặc định). Để test không đụng vào settings thật của máy dev, đã thử gọi `QSettings.setDefaultFormat(QSettings.IniFormat)` + `QSettings.setPath(QSettings.IniFormat, UserScope, <temp dir>)` trong `tests/qt_test_utils.py::get_app()` trước khi tạo `MainWindow()`. Verify thực nghiệm phát hiện: **constructor 2 tham số hoàn toàn bỏ qua 2 lệnh trên**, luôn resolve về store native thật (`~/Library/Preferences/com.<org>.<app>.plist` trên macOS) — khiến 2 test (`TestCanConfig::test_default_is_radar_side_s0`, `TestSettingsProfile::test_fresh_profile_defaults_to_s0_and_suzuki`) fail vì đọc phải giá trị "S1" do 1 test khác trước đó (chạy trong cùng process) đã ghi thật vào file preferences thật của máy — và vô tình để lại 1 file `com.tranph9.FFlash.plist` thật trên máy dev (đã xóa thủ công sau khi phát hiện).
+
+**Sửa tận gốc**: đổi sang constructor 4 tham số tường minh `QSettings(QSettings.IniFormat, QSettings.UserScope, org, app)` trong `gui/settings_profile.py` — vừa fix được vấn đề test (giờ `setPath()` có tác dụng đúng vì format khớp), vừa là lựa chọn tốt hơn cho production: file `.ini` portable (`~/.config/tranph9/FFlash.ini` trên macOS/Linux, tương đương `%APPDATA%\tranph9\FFlash.ini` trên Windows) thay vì ghi thẳng vào Windows Registry.
+
+### Đã kiểm tra
+
+- `tests/qt_test_utils.py::get_app()` giờ gọi `QSettings.setPath(IniFormat, UserScope, <temp dir mới>)` **mỗi lần được gọi** (không chỉ 1 lần lúc import) — vì mọi test GUI đều gọi `get_app()` ngay trong `setUp()` trước khi tạo `MainWindow()`, nên mỗi test method có 1 store `.ini` cô lập hoàn toàn, không rò rỉ giữa các test lẫn vào settings thật của máy dev.
+- Thêm `tests/test_gui_smoke.py::TestSettingsProfile` (5 test): profile trống mặc định về đúng S0/Suzuki/Virtual; đổi Radar Side + Flash Sequence ở 1 `MainWindow` rồi tạo `MainWindow` mới (giả lập restart) → giữ đúng lựa chọn; Security DLL path còn tồn tại thì được nạp lại, path đã bị xóa thì bị bỏ qua (không trỏ tới file không tồn tại); channel hardware đã lưu nhưng không còn phát hiện được (máy khác/rút hardware) → fallback về Virtual, không crash.
+- Verify thủ công: `MainWindow()` thật (ngoài test) ghi đúng vào `~/.config/tranph9/FFlash.ini`, không đụng `~/Library/Preferences` — dọn sạch file test-artifact thật đã lỡ tạo ra trước khi fix.
+- Chạy toàn bộ test suite: **124/124 pass** (119 cũ + 5 mới).
+
+---
+
+## Phase 4.33: Xuất Báo Cáo Phiên Flash (HTML) — Nút Bấm Thủ Công (GUI TODO #8)
+
+Trước khi implement, hỏi lại user cách trigger report: (a) tự động sau mỗi lần flash, (b) nút bấm thủ công, hay (c) kết hợp cả hai. User chọn **(b) nút bấm thủ công** — giữ đúng pattern "Save Log" đã có (right-click context menu), đơn giản, không tự động tạo nhiều file khi test flash nhiều lần.
+
+### Thiết kế
+
+- **`gui/main_window.ui`**: thêm `QPushButton` **`buttonExportReport`** ("Export Report...") vào `horizontalLayout_flashHeader`, giữa `progressBar` và vị trí `statsLabel` được thêm lúc runtime (đổi `stretch="1,10"` → `"1,10,0"` cho khớp 3 item static, `statsLabel` vẫn nối vào cuối như cũ). Regenerate `ui_main_window.py`.
+- **`gui/report_export.py`** (mới): `ReportExportMixin` — theo đúng pattern tách đôi đã có ở `_write_log_file()`/`_write_trace_table_csv()`: `export_report()` (mở `QFileDialog.getSaveFileName`, tên mặc định `flash_report_<timestamp>.html`) chỉ là wrapper mỏng gọi `_write_report_file(path)` (pure — không dialog, test được trực tiếp).
+- Report **snapshot trạng thái hiện tại trên UI** thay vì phụ thuộc 1 signal/state riêng theo dõi suốt phiên flash — đọc thẳng từ `tableWidgetDatablocks`/`stepsTable`/`traceTable`/`informationText`/các combo Configure — giữ blast radius nhỏ nhất, không cần sửa `core/flash_controller.py`/hook thêm signal. Hệ quả: có thể bấm Export Report **bất cứ lúc nào**, không bắt buộc phải ngay sau khi flash xong.
+- Datablocks section đọc đúng theo checkbox (Included/Excluded) — nhất quán với logic lọc đã implement ở mục #2 (Phase 4.30), tránh report nói dối về file nào thực sự được flash.
+- Toàn bộ text nội suy vào HTML đều qua `html.escape()` — tránh filename/ECU string chứa ký tự `<`/`>`/`&` phá layout report.
+
+### Đã kiểm tra
+
+- Chạy 1 lần flash thật qua Virtual ECU (Suzuki sequence) rồi export report thủ công — đọc lại file HTML sinh ra, xác nhận đủ 5 section (Summary, Datablocks, Steps, Trace, Information Log), màu nền xanh của Steps giữ nguyên đúng như trên GUI, Trace table đủ 6 cột đúng dữ liệu request/response thật.
+- Thêm `tests/test_gui_smoke.py::TestReportExport` (5 test): nút bấm gọi đúng `export_report()`; report chứa đủ Summary/Datablocks/Steps/Trace từ dữ liệu đã nạp vào widget; datablock bị bỏ tick hiện đúng "Excluded" trong report; text chứa `<`/`>` được escape đúng (dùng `stepsTable` thay vì gõ trực tiếp vào `informationText`, vì `QTextEdit.append()` tự diễn giải text giống-HTML thành rich text trước khi code kịp xử lý — phát hiện giữa chừng lúc viết test, không phải bug ở code report, chỉ là hành vi sẵn có của `QTextEdit`); lỗi ghi file (`OSError`) không crash, có gọi `QMessageBox.critical`.
+- Chụp ảnh offscreen xác nhận nút "Export Report..." hiển thị đúng vị trí trên Flash tab.
+- Chạy toàn bộ test suite: **129/129 pass** (124 cũ + 5 mới).
+
+---
+
+## Phase 4.34: Menu Bar (File/Tools/Help) + Test Connection Trên GUI
+
+Theo yêu cầu: *"đối với ứng dụng này tôi có cần làm menu bar không, các tab menu bar cần làm là gì bạn có thể đề xuất cho tôi"*. Đề xuất cấu trúc tối giản (File/Tools/Help, không làm ribbon to như vFlash vì phần lớn thao tác đã có sẵn trong tab/nút) — user chọn làm **cả 4 nhóm** được hỏi lại: File (Load Firmware/Exit), Tools (Test Connection — mới, Export Report — trỏ nút có sẵn), Help (About/README).
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: `menubar` (boilerplate Designer trống từ đầu) giờ có `menuFile`/`menuTools`/`menuHelp` + 6 `<action>` khai báo tĩnh (`actionLoadFirmware`, `actionExit`, `actionTestConnection`, `actionExportReport`, `actionAbout`, `actionOpenReadme`). Regenerate `ui_main_window.py`.
+- **`gui/menu_bar.py`** (mới): `MenuBarMixin` — wire 6 action tới 6 handler `action_*`, tất cả đi qua handler riêng (kể cả `actionExit` → `action_exit()` → `self.close()`, thay vì connect thẳng `self.close` — để nhất quán và để mock được trong test, xem mục "Bug phát sinh" bên dưới).
+- **`core/test_connection.py`** (mới) — **`TestConnectionWorker(QObject)`**: port lại chính xác logic `cli.py::cmd_test_connection()` thành 1 worker chạy được trên `QThread`, chỉ tái dùng `FlashWorker._setup_uds_client()`/`_cleanup()` cho phần kết nối CAN/UDS (giống hệt cách `cli.py` đã làm) — không đi qua `FlashStep`/`build_flash_sequence()`, giữ đúng lý do đã ghi trong CLAUDE.md (cần `try/finally` đảm bảo luôn khôi phục Default session).
+- **`gui/test_connection_dialog.py`** (mới) — `TestConnectionDialog(QDialog)`: chạy `TestConnectionWorker` qua `QThread` theo đúng pattern threading đã học từ Phase 4.13 (`worker.finished` emit từ bên trong `run()` khi thread vẫn đang chạy → không được đụng `self._thread`/`self._worker` từ slot nối trực tiếp signal đó, chỉ `_cleanup_thread()` nối với `thread.finished` mới được làm việc đó).
+- `Tools > Test Connection...` dùng lại đúng cảnh báo xung đột CAN bus (`detect_can_conflict_warning()`, Phase 4.23) trước khi chạm hardware thật — cùng 1 nguy cơ với Flash.
+
+### Bug phát sinh giữa chừng — deadlock mới trong `closeEvent()` của dialog
+
+Viết xong, test `TestCloseDialogMidProbe::test_close_event_mid_probe_does_not_crash` (đóng dialog khi probe đang chạy) **treo vô thời hạn** — không phải bug cũ (QThread bị destroy khi đang chạy), mà là 1 biến thể mới: **deadlock**. Debug bằng `faulthandler.register(signal.SIGALRM, all_threads=True)` xác nhận main thread kẹt mãi tại `self._thread.wait()` trong `closeEvent()`.
+
+**Nguyên nhân**: `self._worker.finished.connect(self._thread.quit)` là **queued connection** (worker sống ở thread con, `quit()` gọi trên `self._thread` — chính object này lại có thread-affinity với main thread) — nghĩa là lệnh `quit()` chỉ thực sự được gọi khi **main thread quay lại xử lý event loop của chính nó**. Nhưng `closeEvent()` gọi `self._thread.wait()` **ngay trên main thread**, chặn đứng event loop đó — nên `quit()` không bao giờ được deliver → `wait()` không bao giờ trả về → deadlock kinh điển.
+
+**Sửa**: gọi `self._thread.quit()` **trực tiếp** (không qua signal) trước `wait()` trong `closeEvent()` — `QThread.quit()` an toàn gọi trực tiếp từ thread khác (thread-safe), giống hệt cách `MainWindow.closeEvent()` đã làm với `FlashWorker` từ trước (`self.worker.request_abort(); self.thread.quit(); self.thread.wait()`) — chỉ là lần này phát hiện ra **tại sao** pattern đó phải viết đúng thứ tự `quit()` trực tiếp rồi mới `wait()`, chứ không thể trông chờ vào signal `finished` tự động gọi `quit()` khi đang đứng chặn event loop.
+
+### Đã kiểm tra
+
+- Chạy `TestConnectionWorker` đồng bộ (không qua `QThread`) qua Virtual ECU: generic + suzuki (functional addressing đúng 3 bước đầu), đọc đúng ECU Identification, không bao giờ gửi SID `0x34`/`0x36`, khôi phục đúng Default session + re-enable Comm/DTC.
+- Chạy `TestConnectionDialog` qua `QThread` thật (mirror `test_flash_threading.py`): 1 lần chạy, lặp 5 lần, đóng dialog giữa chừng lúc đang probe — cả 3 đều không treo, không crash sau khi sửa deadlock.
+- Debug thủ công `action_test_connection()` qua script không dùng `.exec()` (poll bằng `QTimer` + `app.exec()` có timeout) — log output khớp chính xác với output CLI `test-connection --verbose` (cùng trace UDS, cùng thứ tự bước).
+- Thêm `tests/test_test_connection.py` (6 test, đồng bộ), `tests/test_test_connection_dialog.py` (3 test, QThread thật), `tests/test_gui_smoke.py::TestMenuBar` (7 test, wiring 6 action + guard xung đột CAN bus).
+- Chụp ảnh offscreen xác nhận menu bar đúng cấu trúc File/Tools/Help như đề xuất.
+- Chạy toàn bộ test suite: **145/145 pass** (129 cũ + 16 mới).
+
+---
+
+## Phase 4.35: `Help > Open Guideline` — File Hướng Dẫn Riêng Thay Vì README
+
+Theo yêu cầu: *"thay vì Help -> open README chứa quá nhiều thông tin cho user... viết 1 file .html chỉ giới thiệu tool và guide cách dùng GUI cơ bản để flashing, có ảnh capture, mở khi Help - Open Guideline"*. `README.md` là tài liệu hướng dẫn cho dev (kiến trúc, CLI, cấu hình hardware Vector chi tiết...) — không phù hợp cho end-user chỉ cần biết cách flash cơ bản.
+
+### Thay đổi
+
+- **`docs/user_guide.html`** (mới) — file HTML tự chứa (không phụ thuộc gì bên ngoài, ảnh nhúng base64), tiếng Việt, gồm: giới thiệu ngắn, 4 bước flash cơ bản (Nạp firmware → Cấu hình kết nối → Bấm Flash → Theo dõi tiến trình/Export Report) mỗi bước kèm 1 ảnh chụp thật từ app, mẹo về Test Connection, và 1 danh sách lưu ý an toàn ngắn khi flash ECU thật. Ảnh chụp bằng kỹ thuật offscreen (`QT_QPA_PLATFORM=offscreen` + `widget.grab()`) đã dùng xuyên suốt phiên làm việc này — 1 ảnh chạy qua Virtual ECU thật (không phải dàn dựng) để bảng Steps/Trace/Information hiện đúng dữ liệu thật.
+- **`gui/main_window.ui`**: đổi tên `actionOpenReadme` → `actionOpenGuideline`, text "Open README" → "Open Guideline". Regenerate `ui_main_window.py`.
+- **`gui/menu_bar.py`**: `action_open_readme()` → `action_open_guideline()`, trỏ `_GUIDELINE_PATH` tới `docs/user_guide.html` thay vì `README.md`.
+- **`build.bat`**: thêm `--add-data "docs\user_guide.html;docs"` vào lệnh PyInstaller — file này giờ là runtime dependency thật (mở qua path lúc chạy), phải bundle vào `.exe`, khác với nhận định "không cần `--add-data`" đã ghi ở Phase 4.26 (lúc đó đúng, vì chưa có file runtime nào ngoài code Python).
+- **`gui/menu_bar.py`**'s `_PROJECT_ROOT`: thêm nhánh kiểm tra `sys._MEIPASS` (thư mục PyInstaller `--onefile` giải nén lúc runtime) — dev mode vẫn dùng `__file__`-relative như cũ, nhưng khi chạy từ `.exe` đã build thì phải đọc từ `_MEIPASS`, nếu không sẽ tìm sai đường dẫn (không tồn tại trong bundle).
+
+### Đã kiểm tra
+
+- Render `docs/user_guide.html` bằng Chrome headless (`--headless --screenshot`) để xem trực quan — layout đẹp, đủ nội dung, không lỗi CSS, không còn placeholder `{img...}` sót lại sau khi nhúng base64.
+- Trigger `actionOpenGuideline.trigger()` thật (mock `QDesktopServices.openUrl` chỉ để bắt lại URL, không mock path resolution) — xác nhận `_GUIDELINE_PATH` trỏ đúng `docs/user_guide.html`, file tồn tại thật.
+- Sửa `tests/test_gui_smoke.py::TestMenuBar::test_open_readme_opens_existing_file` → `test_open_guideline_opens_existing_file` (đổi theo tên action mới).
+- **Không** viết test riêng cho nhánh `sys._MEIPASS` (PyInstaller frozen mode) — chỉ verify được thật trên `.exe` build từ Windows, môi trường dev hiện tại không có; đây là giới hạn tương tự đã ghi nhận ở Phase 4.26 cho toàn bộ `build.bat`.
+- Chạy toàn bộ test suite: **145/145 pass** (không đổi số lượng test, chỉ đổi tên 1 test).
+
+---
+
+## Phase 4.36: Fix Bug Rò Rỉ Thread — `RuntimeError: Signal source has been deleted`
+
+Trong lúc verify Phase 4.35, chạy full test suite bắt được 1 lần lỗi hiếm `RuntimeError: Signal source has been deleted` trong `core/flash_controller.py`. User yêu cầu điều tra sửa luôn thay vì chỉ ghi vào TODO.
+
+### Nguyên nhân gốc — không phải race hiếm, mà là bug 100% tái hiện
+
+`FlashWorker.run()` gọi `self._uds_client.start_keepalive(...)` (khởi động `TesterPresentThread` — 1 `threading.Thread` nền thật, gửi TesterPresent mỗi 2 giây) **vô điều kiện, ngay đầu `run()`**, trước khi biết `self.steps` có bao nhiêu bước. Nhánh xử lý `total_steps == 0` (không có step nào để chạy) emit `flash_finished` rồi `return` ngay — **quên gọi `self._cleanup()`** (hàm duy nhất gọi `stop_keepalive()` + ngắt CAN interface), khác với 3 điểm return khác trong `run()` đều có gọi `_cleanup()` trước khi emit kết quả.
+
+Hệ quả: `TesterPresentThread` chạy nền **vô thời hạn**, không bao giờ dừng, tiếp tục gọi `tester_present()` mỗi 2s vào 1 `VirtualCanInterface` không bao giờ bị ngắt. `tests/test_flash_controller.py::test_no_steps_finishes_immediately` (dùng `FlashWorker(steps=[])`) trúng đúng nhánh này — chạy sớm trong suite (~test thứ 5-6/146), để lại 1 thread rò rỉ sống suốt ~20s còn lại của lần chạy test, liên tục gọi callback `_on_uds_trace()`/`trace_row.emit()` vào 1 `FlashWorker` mà phần còn lại của test suite không còn giữ tham chiếu nào khác — đúng lúc nào đó trùng với việc GC/Qt dọn dẹp object là crash kiểu "Signal source has been deleted", **không xảy ra mỗi lần** vì phụ thuộc thời điểm interleaving giữa thread nền và main thread.
+
+### Sửa
+
+- **`core/flash_controller.py`**: thêm `self._cleanup()` vào nhánh `total_steps == 0` của `run()`, ngay trước `self.flash_finished.emit()` — khớp đúng pattern đã dùng ở 3 điểm return khác.
+
+### Đã kiểm tra
+
+- Thêm `tests/test_flash_controller.py::test_no_steps_still_cleans_up_keepalive_and_can` — verify sau `run()`, `worker._uds_client._tp_keepalive is None` (đã stop) và `worker._can_interface.is_connected` là `False` (đã disconnect). **Xác nhận test này catch đúng bug**: revert tạm fix bằng `git stash` → test fail đúng như dự đoán (`_tp_keepalive` vẫn là object `TesterPresentThread` sống) → khôi phục fix → test pass.
+- Chạy toàn bộ test suite **5 lần liên tiếp** sau khi sửa — cả 5 lần đều **146/146 pass**, sạch, không còn `RuntimeError` lẻ tẻ nào xuất hiện trên stderr (trước đó gặp ở 1/3 lần chạy).
+- Chạy riêng `tests/test_flash_threading.py` + `tests/test_test_connection_dialog.py` (2 bộ test threading quan trọng nhất) — 7/7 pass.
+- Sanity check `MainWindow()` qua `QT_QPA_PLATFORM=offscreen` — không crash.
+
+---
+
+## Phase 4.37: Dịch `docs/user_guide.html` Sang Tiếng Anh
+
+Theo yêu cầu: *"tôi vừa đọc guide thấy khá ổn, nhưng hãy viết lại guide bằng tiếng anh cho chuyên nghiệp"*.
+
+### Thay đổi
+
+- Viết lại toàn bộ nội dung text của `docs/user_guide.html` sang tiếng Anh (giữ nguyên cấu trúc, CSS, và 4 ảnh chụp base64 đã có — không cần chụp lại vì bản thân UI của app vốn đã tiếng Anh sẵn, ảnh không đổi). Đổi `lang="vi"` → `lang="en"`.
+- Kỹ thuật: thay vì viết lại cả file 364KB qua Edit tool (rủi ro với các dòng base64 cực dài), viết 1 script Python trích xuất 4 chuỗi base64 từ file hiện có bằng regex, rồi build lại HTML với template tiếng Anh + base64 cũ ghép vào đúng vị trí — tránh phải chụp/nhúng ảnh lại từ đầu.
+
+### Đã kiểm tra
+
+- Render bằng Chrome headless (`--headless --screenshot`) — layout đẹp, đủ nội dung, đúng ảnh minh hoạ ở đúng vị trí (không lệch thứ tự do hoán đổi biến khi ghép template).
+- Không đổi code Python nào — chỉ đổi nội dung tài liệu, không cần chạy lại test suite.
+
+---
+
+## Phase 4.38: Thiết Kế Icon App + Wire Vào `build.bat`
+
+Theo yêu cầu: *"thiết kế icon phong cách hiện đại, bỏ vào thư mục icon, update build.bat để build với icon"*.
+
+### Thiết kế
+
+- Icon flat/modern: nền hình vuông bo góc (squircle) gradient xanh dương (`#4a7fd6` → `#16244e`, tông màu khớp accent color `#2b579a` đã dùng xuyên suốt GUI), tia sét trắng ở giữa (biểu tượng "Flash"), kèm 4 chi tiết đường mạch điện tử (circuit trace) ở 4 góc gợi ý chủ đề ECU/electronics — không chỉ là icon "sét" chung chung.
+- Vẽ bằng SVG thuần (dễ chỉnh sửa, scale không mất nét), render ra PNG qua Chrome headless (`--headless --screenshot`, kỹ thuật đã dùng để render `docs/user_guide.html` ở Phase 4.35) tại 256×256, rồi dùng `sips` (macOS) resize xuống 16/32/48/64/128px — kiểm tra thủ công icon vẫn rõ ràng ở kích thước nhỏ (32px) trước khi chốt.
+- Đóng gói 6 kích thước thành 1 file `.ico` đa độ phân giải bằng script Python tự viết (dùng `struct`, không có PIL/ImageMagick trong môi trường dev) — mỗi entry nhúng thẳng PNG (hợp lệ từ Windows Vista trở lên, không cần encode BMP DIB thủ công). Verify bằng `file`/`sips` xác nhận đúng cấu trúc ICO 6 icon.
+
+### Thay đổi
+
+- **`resources/icons/icon.ico`** (mới) — icon đa kích thước dùng cho `--icon` của PyInstaller.
+- **`resources/icons/icon.svg`** (mới) — file nguồn vector, giữ lại để chỉnh sửa/thiết kế lại sau này thay vì chỉ có file `.ico` nhị phân.
+- **`build.bat`**: đổi `ICON_PATH` từ `resources\icon.ico` → `resources\icons\icon.ico` (khớp cấu trúc thư mục `resources/icons/` đã có sẵn — trước đó rỗng, không ai để ý). Thêm log rõ ràng: in `Using icon: ...` nếu tìm thấy, `[WARN] Icon not found...` nếu không — trước đây build chạy im lặng dù có icon hay không.
+- **`README.md`**: cập nhật mục Build `.exe` (icon giờ có sẵn trong repo, không cần user tự tạo/đặt vào trước khi build nữa) và cây thư mục project (thêm `resources/icons/`).
+
+### Đã kiểm tra
+
+- `file resources/icons/icon.ico` xác nhận: "MS Windows icon resource - 6 icons, 16x16 with PNG image data, ... 32x32 with PNG image data, ...". `sips` đọc được đúng `format: ico`, `pixelWidth/Height: 256` (icon lớn nhất).
+- Không thể chạy `build.bat`/PyInstaller thật trên môi trường dev (macOS) — giới hạn cố hữu đã ghi nhận từ Phase 4.26, cần verify thật trên máy Windows.
+- Review thủ công từng dòng batch mới thêm (khối `if/else` set `PYI_ICON_ARG` + echo) — biến `%PYI_ICON_ARG%` được đọc ở dòng lệnh PyInstaller **ngoài** khối `if/else` (không phải trong cùng block), nên không dính lỗi delayed-expansion kinh điển của batch.
+- Không đổi code Python nào — chỉ thêm resource + sửa `build.bat`/`README.md`, vẫn chạy lại full test suite theo thói quen: **146/146 pass**.
+
+---
+
+## Phase 4.39: Xoá Nút "Export Report..." Trên Tab Flash — Chỉ Dùng Menu Bar
+
+Theo yêu cầu: *"xoá nút nhấn export report, tôi có thể export từ menu bar"* — sau khi thêm menu `Tools → Export Report...` ở Phase 4.34, nút riêng trên tab Flash (thêm từ Phase 4.33) trở thành trùng lặp.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: xoá `QPushButton` `buttonExportReport` khỏi `horizontalLayout_flashHeader`, trả `stretch` về lại `"1,10"` (2 item: `flashButton`, `progressBar` — như trước Phase 4.33; `statsLabel` vẫn nối vào cuối lúc runtime như cũ). Regenerate `ui_main_window.py`.
+- **`gui/report_export.py`**: bỏ hẳn `setup_report_export()` (không còn nút nào để wire) — `export_report()`/`_write_report_file()`/... giữ nguyên, vẫn được gọi từ `gui/menu_bar.py`'s `actionExportReport.triggered`. Cập nhật docstring module phản ánh đúng: chỉ còn 1 điểm vào (menu), không phải "nút bấm" nữa.
+- **`gui/main_window.py`**: bỏ lời gọi `self.setup_report_export()`.
+- **`docs/user_guide.html`**: chụp lại 2 ảnh (tab Flash lúc chờ, và lúc flash xong) vì cả 2 đều lỡ chứa nút cũ trong ảnh — sửa text bước 4 từ "click Export Report..." sang "use the menu Tools → Export Report...".
+- **`README.md`**, **`docs/gui_todo.md`**: cập nhật mô tả tính năng Export Report từ "nút trên tab Flash" sang "menu Tools".
+
+### Đã kiểm tra
+
+- Xoá `tests/test_gui_smoke.py::TestReportExport::test_button_click_wired_to_export_report` (không còn nút để test) — `TestMenuBar::test_export_report_action_calls_export_report` đã sẵn có, giờ là test duy nhất (và đúng) cho việc trigger export qua UI.
+- Chụp ảnh offscreen xác nhận tab Flash gọn gàng, không còn nút thừa; `hasattr(ui, 'buttonExportReport')` → `False`; menu Tools vẫn có đúng "Export Report...".
+- Render lại `docs/user_guide.html` bằng Chrome headless — ảnh mới không còn nút cũ, text bước 4 đúng.
+- Chạy toàn bộ test suite: **145/145 pass** (146 cũ - 1 test xoá).

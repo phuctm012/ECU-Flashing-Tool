@@ -11,22 +11,35 @@
 from PySide6.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
     QMetaObject, QObject, QPoint, QRect,
     QSize, QTime, QUrl, Qt)
-from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
-    QFont, QFontDatabase, QGradient, QIcon,
-    QImage, QKeySequence, QLinearGradient, QPainter,
-    QPalette, QPixmap, QRadialGradient, QTransform)
+from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
+    QCursor, QFont, QFontDatabase, QGradient,
+    QIcon, QImage, QKeySequence, QLinearGradient,
+    QPainter, QPalette, QPixmap, QRadialGradient,
+    QTransform)
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMenuBar, QProgressBar,
-    QPushButton, QSizePolicy, QSpacerItem, QStackedWidget,
-    QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
-    QTextEdit, QVBoxLayout, QWidget)
+    QListWidgetItem, QMainWindow, QMenu, QMenuBar,
+    QProgressBar, QPushButton, QSizePolicy, QSpacerItem,
+    QStackedWidget, QStatusBar, QTabWidget, QTableWidget,
+    QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
         MainWindow.resize(1100, 850)
+        self.actionLoadFirmware = QAction(MainWindow)
+        self.actionLoadFirmware.setObjectName(u"actionLoadFirmware")
+        self.actionExit = QAction(MainWindow)
+        self.actionExit.setObjectName(u"actionExit")
+        self.actionTestConnection = QAction(MainWindow)
+        self.actionTestConnection.setObjectName(u"actionTestConnection")
+        self.actionExportReport = QAction(MainWindow)
+        self.actionExportReport.setObjectName(u"actionExportReport")
+        self.actionAbout = QAction(MainWindow)
+        self.actionAbout.setObjectName(u"actionAbout")
+        self.actionOpenGuideline = QAction(MainWindow)
+        self.actionOpenGuideline.setObjectName(u"actionOpenGuideline")
         self.centralwidget = QWidget(MainWindow)
         self.centralwidget.setObjectName(u"centralwidget")
         self.verticalLayout_root = QVBoxLayout(self.centralwidget)
@@ -157,33 +170,6 @@ class Ui_MainWindow(object):
         self.tableWidgetDatablocks.setObjectName(u"tableWidgetDatablocks")
 
         self.verticalLayout_dataTab.addWidget(self.tableWidgetDatablocks)
-
-        self.labelAddSetup = QLabel(self.pageData)
-        self.labelAddSetup.setObjectName(u"labelAddSetup")
-        self.labelAddSetup.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
-
-        self.verticalLayout_dataTab.addWidget(self.labelAddSetup)
-
-        self.horizontalLayout_checksumMethod = QHBoxLayout()
-        self.horizontalLayout_checksumMethod.setObjectName(u"horizontalLayout_checksumMethod")
-        self.labelChecksumMethod = QLabel(self.pageData)
-        self.labelChecksumMethod.setObjectName(u"labelChecksumMethod")
-
-        self.horizontalLayout_checksumMethod.addWidget(self.labelChecksumMethod)
-
-        self.comboBoxChecksum = QComboBox(self.pageData)
-        self.comboBoxChecksum.addItem("")
-        self.comboBoxChecksum.addItem("")
-        self.comboBoxChecksum.setObjectName(u"comboBoxChecksum")
-
-        self.horizontalLayout_checksumMethod.addWidget(self.comboBoxChecksum)
-
-        self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-
-        self.horizontalLayout_checksumMethod.addItem(self.horizontalSpacer)
-
-
-        self.verticalLayout_dataTab.addLayout(self.horizontalLayout_checksumMethod)
 
         self.labelDetails = QLabel(self.pageData)
         self.labelDetails.setObjectName(u"labelDetails")
@@ -533,10 +519,27 @@ class Ui_MainWindow(object):
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
         self.menubar.setGeometry(QRect(0, 0, 1675, 30))
+        self.menuFile = QMenu(self.menubar)
+        self.menuFile.setObjectName(u"menuFile")
+        self.menuTools = QMenu(self.menubar)
+        self.menuTools.setObjectName(u"menuTools")
+        self.menuHelp = QMenu(self.menubar)
+        self.menuHelp.setObjectName(u"menuHelp")
         MainWindow.setMenuBar(self.menubar)
         self.statusbar = QStatusBar(MainWindow)
         self.statusbar.setObjectName(u"statusbar")
         MainWindow.setStatusBar(self.statusbar)
+
+        self.menubar.addAction(self.menuFile.menuAction())
+        self.menubar.addAction(self.menuTools.menuAction())
+        self.menubar.addAction(self.menuHelp.menuAction())
+        self.menuFile.addAction(self.actionLoadFirmware)
+        self.menuFile.addSeparator()
+        self.menuFile.addAction(self.actionExit)
+        self.menuTools.addAction(self.actionTestConnection)
+        self.menuTools.addAction(self.actionExportReport)
+        self.menuHelp.addAction(self.actionAbout)
+        self.menuHelp.addAction(self.actionOpenGuideline)
 
         self.retranslateUi(MainWindow)
         self.navListWidget.currentRowChanged.connect(self.stackedWidget.setCurrentIndex)
@@ -551,6 +554,12 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
+        self.actionLoadFirmware.setText(QCoreApplication.translate("MainWindow", u"Load Firmware...", None))
+        self.actionExit.setText(QCoreApplication.translate("MainWindow", u"Exit", None))
+        self.actionTestConnection.setText(QCoreApplication.translate("MainWindow", u"Test Connection...", None))
+        self.actionExportReport.setText(QCoreApplication.translate("MainWindow", u"Export Report...", None))
+        self.actionAbout.setText(QCoreApplication.translate("MainWindow", u"About FFlash", None))
+        self.actionOpenGuideline.setText(QCoreApplication.translate("MainWindow", u"Open Guideline", None))
         self.flashButton.setText(QCoreApplication.translate("MainWindow", u"Flash", None))
         ___qtablewidgetitem = self.stepsTable.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"Timestamp", None))
@@ -592,11 +601,6 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem10.setText(QCoreApplication.translate("MainWindow", u"Checksum", None))
         ___qtablewidgetitem11 = self.tableWidgetDatablocks.horizontalHeaderItem(4)
         ___qtablewidgetitem11.setText(QCoreApplication.translate("MainWindow", u"Signature", None))
-        self.labelAddSetup.setText(QCoreApplication.translate("MainWindow", u"Additional Setup", None))
-        self.labelChecksumMethod.setText(QCoreApplication.translate("MainWindow", u"Checksum Method:", None))
-        self.comboBoxChecksum.setItemText(0, QCoreApplication.translate("MainWindow", u"Pre-Calculation: via file selection", None))
-        self.comboBoxChecksum.setItemText(1, QCoreApplication.translate("MainWindow", u"Calculate during flash", None))
-
         self.labelDetails.setText(QCoreApplication.translate("MainWindow", u"Details", None))
         ___qtablewidgetitem12 = self.tableWidgetDetails.horizontalHeaderItem(0)
         ___qtablewidgetitem12.setText(QCoreApplication.translate("MainWindow", u"Property", None))
@@ -761,5 +765,8 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem73 = self.traceTable.horizontalHeaderItem(5)
         ___qtablewidgetitem73.setText(QCoreApplication.translate("MainWindow", u"Response Data", None))
         self.outputTabWidget.setTabText(self.outputTabWidget.indexOf(self.traceTab), QCoreApplication.translate("MainWindow", u"Trace", None))
+        self.menuFile.setTitle(QCoreApplication.translate("MainWindow", u"File", None))
+        self.menuTools.setTitle(QCoreApplication.translate("MainWindow", u"Tools", None))
+        self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"Help", None))
     # retranslateUi
 

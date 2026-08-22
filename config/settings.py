@@ -82,12 +82,3 @@ FILE_FILTER = (
     "Binary Files (*.bin);;"
     "All Files (*)"
 )
-
-# --------------------------------------------------
-# Checksum methods
-# --------------------------------------------------
-
-CHECKSUM_METHODS = [
-    "Pre-Calculation: via file selection",
-    "Calculate during flash",
-]

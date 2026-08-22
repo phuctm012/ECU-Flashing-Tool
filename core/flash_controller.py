@@ -141,6 +141,7 @@ class FlashWorker(QObject):
             self.information_message.emit(
                 "No flash steps configured."
             )
+            self._cleanup()
             self.flash_finished.emit()
             return
 

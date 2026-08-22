@@ -15,6 +15,9 @@
 - **Security DLL loader**: có thể trỏ tới DLL ngoài (`ctypes`) để tính key bảo mật theo thuật toán riêng của OEM khi flash ECU thật.
 - **Đọc thông tin ECU (ReadDID)**: đọc SW/HW Version, Part Number, Serial Number trước và sau khi flash để xác nhận.
 - **GUI theo dõi tiến trình real-time**: bảng các bước UDS, tiến trình từng segment, progress bar, log kỹ thuật (trace CAN frame) và log dễ đọc (information) tách riêng.
+- **Menu bar (File/Tools/Help)**: Load Firmware..., **Test Connection...** (kiểm tra session + security access an toàn ngay trên GUI, không cần dùng CLI — không đụng Erase/Download), Export Report..., About, **Open Guideline** (hướng dẫn sử dụng nhanh dành cho end-user, `docs/user_guide.html`, có ảnh minh hoạ — ngắn gọn hơn README này).
+- **Export Report (HTML)**: xuất báo cáo tổng hợp 1 phiên flash (ECU info, checksum, các bước, trace) ra file HTML — menu **Tools → Export Report...**.
+- **Lưu cấu hình tự động**: Hardware/Radar Side/Security DLL/Flash Sequence được nhớ lại giữa các lần mở app.
 
 ---
 
@@ -26,16 +29,25 @@
 ├── cli.py                     ← Entry point (Command Line Interface)
 ├── build.bat                  ← Build file .exe cho Windows (PyInstaller)
 │
+├── resources/icons/           ← Icon app
+│   ├── flash_bolt_blue.ico       ← Dùng khi build .exe (nhiều kích thước)
+│   └── flash_bolt_blue.svg       ← File nguồn vector, chỉnh sửa/thiết kế lại tại đây
+│
 ├── gui/                       ← GUI logic + file UI
 │   ├── main_window.ui         ← Qt Designer file
 │   ├── ui_main_window.py      ← UI auto-generated (từ main_window.ui)
 │   ├── main_window.py         ← MainWindow (mixin pattern)
 │   ├── flash_tab.py           ← Tab Flash: chạy/theo dõi flash sequence
-│   └── configure_tab.py       ← Tab Configure: chọn file, cấu hình Communication
+│   ├── configure_tab.py       ← Tab Configure: chọn file, cấu hình Communication
+│   ├── menu_bar.py            ← Menu bar File/Tools/Help
+│   ├── test_connection_dialog.py  ← Dialog Tools > Test Connection...
+│   ├── report_export.py       ← Export Report... (HTML), gọi từ menu Tools
+│   └── settings_profile.py    ← Lưu/nạp cấu hình (QSettings)
 │
 ├── core/                      ← Business logic
 │   ├── flash_controller.py    ← FlashWorker (QThread) — chạy flash sequence qua UDS
-│   └── flash_sequence.py      ← Định nghĩa FlashStep + build_flash_sequence()
+│   ├── flash_sequence.py      ← Định nghĩa FlashStep + build_flash_sequence()
+│   └── test_connection.py     ← TestConnectionWorker (QThread) — session+security probe
 │
 ├── communication/              ← CAN + UDS protocol layer
 │   ├── can_interface.py        ← Interface trừu tượng (send/receive/ISO-TP)
@@ -55,6 +67,7 @@
 ├── tests/                      ← Bộ test tự động (unittest) + sample.hex
 └── docs/
     ├── walkthrough.md          ← Nhật ký triển khai chi tiết từng phase
+    ├── user_guide.html         ← Hướng dẫn dùng GUI cơ bản cho end-user (Help > Open Guideline)
     └── *_Report_Trace.csv      ← Log CAN trace thật, dùng để đối chiếu flash sequence
 ```
 
@@ -223,6 +236,8 @@ Chỉ thực hiện **Session Control + Security Access** (và đọc ECU Identi
 - **Luôn cố khôi phục ECU về trạng thái an toàn khi kết thúc**, dù thành công hay lỗi giữa chừng: bật lại DTC/Communication (nếu đã tắt) rồi trả về Default Session — nhờ `try/finally`, không phụ thuộc bước nào ở trên có pass hay không.
 - Kết quả in: `PASSED` (exit 0) hoặc `FAILED` kèm lý do cụ thể (exit 1) — ví dụ Security Access bị từ chối (NRC 0x35 Invalid Key) nghĩa là thuật toán/DLL security chưa đúng với ECU thật.
 
+**Có cả trên GUI**: menu **Tools → Test Connection...** chạy đúng logic này (cùng file `core/test_connection.py`), hiện kết quả trong 1 dialog nhỏ — không cần rời khỏi GUI để dùng CLI.
+
 ---
 
 ## Test Trên ECU Thật (Từ Máy Windows)
@@ -303,9 +318,11 @@ python -m unittest tests.test_parsers -v
 | `test_uds_client.py` | UDS Client qua Virtual ECU: session/security/read/write, functional addressing, NRC retry, ResponsePending (0x78), regression byte-order `RequestDownload` (ISO 14229) |
 | `test_flash_controller.py` | `FlashWorker.run()` end-to-end (đồng bộ) qua Virtual ECU — cả sequence generic lẫn Suzuki |
 | `test_flash_threading.py` | **Regression cho crash `QThread: Destroyed while thread is still running`** — chạy qua đúng `QThread` thật (`flash_button_clicked()` + `app.exec()`): 1 lần, lặp 5 lần, abort giữa chừng, đóng cửa sổ giữa chừng |
-| `test_gui_smoke.py` | Khởi tạo `MainWindow`, tồn tại widget, `get_can_config()` (Radar Side, channel, CAN FD), lưu log `.txt`/`.csv`, cảnh báo xung đột CAN bus (`detect_can_conflict_warning()`) |
+| `test_gui_smoke.py` | Khởi tạo `MainWindow`, tồn tại widget, `get_can_config()` (Radar Side, channel, CAN FD), lưu log `.txt`/`.csv`, cảnh báo xung đột CAN bus, lọc datablock theo checkbox, Export Report, lưu/nạp profile (`QSettings`), wiring menu bar |
 | `test_cli.py` | `cli.py` — `info`/`flash`/`list-hardware`/`test-connection`, `--dry-run`, Suzuki + Radar Side, `--quiet`/`--verbose`, cleanup khôi phục DTC/Comm, mã lỗi khi thiếu `python-can`/sai tham số |
 | `test_vector_can.py` | `detect_running_vector_tools()` (nhận diện CANoe/CANalyzer/CANape qua `tasklist`, chỉ Windows) và field `is_on_bus` trong `detect_vector_channels()` |
+| `test_test_connection.py` | `TestConnectionWorker.run()` đồng bộ qua Virtual ECU — generic/suzuki, đọc ECU ID, không bao giờ gửi SID `0x34`/`0x36`, khôi phục Default session |
+| `test_test_connection_dialog.py` | **Regression cho deadlock trong `TestConnectionDialog.closeEvent()`** — chạy qua đúng `QThread` thật: 1 lần, lặp 5 lần, đóng dialog giữa chừng lúc đang probe |
 
 **Lưu ý cho `test_flash_threading.py`**: đây là bộ test quan trọng nhất để tránh crash — nó cố tình chạy qua `QThread` thật thay vì gọi `FlashWorker.run()` trực tiếp (cách nhanh nhưng **không** phát hiện được race condition giữa Python và vòng đời `QThread`). Khi sửa bất kỳ logic nào liên quan tới `gui/flash_tab.py` (đặc biệt phần connect signal `flash_finished`/`flash_aborted`/`thread.finished`), luôn chạy lại file này.
 
@@ -320,8 +337,8 @@ REM Trên máy Windows, trong thư mục gốc project:
 build.bat
 ```
 
-`build.bat` tự động: cài `requirements.txt` + `requirements_build.txt` (chỉ có `pyinstaller`), dọn `build/`/`dist/`/`*.spec` cũ, rồi chạy PyInstaller (`--onefile --windowed`). Kết quả nằm ở `dist\FFlash.exe`.
+`build.bat` tự động: cài `requirements.txt` + `requirements_build.txt` (chỉ có `pyinstaller`), dọn `build/`/`dist/`/`*.spec` cũ, rồi chạy PyInstaller (`--onefile --windowed`, kèm `--add-data` bundle sẵn `docs/user_guide.html` để menu Help > Open Guideline hoạt động đúng trong bản `.exe`). Kết quả nằm ở `dist\FFlash.exe`.
 
 - **Không cần cài Vector XL Driver/`python-can` để build** — `.exe` chạy tốt với Virtual ECU Simulator ngay cả khi build trên máy không có `python-can`. Muốn bản `.exe` hỗ trợ luôn hardware Vector thật: bỏ comment dòng `python-can` trong `requirements_build.txt` **trước khi** chạy `build.bat` (không thể thêm vào sau khi đã build, vì `.exe` là 1 file đóng gói sẵn — Vector XL Driver Library vẫn phải cài riêng trên máy chạy `.exe`, xem mục [Sử Dụng Với Phần Cứng Vector Thật](#sử-dụng-với-phần-cứng-vector-thật)).
-- Muốn có icon riêng: đặt file `resources\icon.ico` trước khi build — `build.bat` tự nhận nếu tồn tại, bỏ qua nếu không có.
+- Icon app: `resources\icons\flash_bolt_blue.ico` (đã có sẵn trong repo, nhiều kích thước) — `build.bat` tự dùng nếu tồn tại, bỏ qua (build không icon) nếu không có. File nguồn dạng vector ở `resources\icons\flash_bolt_blue.svg` nếu muốn chỉnh sửa/thiết kế lại.
 - `build.bat` chỉ đóng gói GUI (`main.py`); `cli.py` vẫn chạy trực tiếp qua `python cli.py ...` như bình thường (không cần `.exe` riêng).

@@ -127,13 +127,32 @@ class FlashTabMixin:
                     if choice != QMessageBox.Yes:
                         return
 
-            # Start
-            self.prepare_flash_ui()
-
-            # Build flash sequence from loaded datablocks
-            datablocks = getattr(
-                self, '_loaded_datablocks', []
+            # Build flash sequence from checked datablocks
+            # only — unticking a row's checkbox excludes it
+            # from both the flash sequence and the Segments
+            # table (see ConfigureTabMixin.get_checked_datablocks()).
+            datablocks = (
+                self.get_checked_datablocks()
+                if hasattr(self, 'get_checked_datablocks')
+                else getattr(self, '_loaded_datablocks', [])
             )
+
+            # Nothing to flash — block instead of running a
+            # pointless session/security/reset sequence with
+            # no Download step and an empty Segments table.
+            if not datablocks:
+                QMessageBox.warning(
+                    self,
+                    "No Firmware Loaded",
+                    "No firmware file is loaded (or ticked) "
+                    "to flash.\n\nLoad a datablock in the Data "
+                    "tab first, or tick at least one row in "
+                    "the Datablocks table.",
+                )
+                return
+
+            # Start
+            self.prepare_flash_ui(datablocks)
 
             use_suzuki_sequence = False
             if hasattr(self.ui, 'comboBoxFlashSequence'):
@@ -268,7 +287,19 @@ class FlashTabMixin:
     # Prepare UI before flash
     # ==================================================
 
-    def prepare_flash_ui(self):
+    def prepare_flash_ui(self, datablocks=None):
+        """
+        datablocks: the datablocks that will actually be
+        flashed (already filtered by checkbox state — see
+        flash_button_clicked()). Defaults to every loaded
+        datablock, unfiltered, for callers that don't care
+        about the checkbox distinction.
+        """
+
+        if datablocks is None:
+            datablocks = getattr(
+                self, '_loaded_datablocks', []
+            )
 
         # Button
         self.ui.flashButton.setText("Abort")
@@ -280,10 +311,8 @@ class FlashTabMixin:
         self._total_bytes_sent = 0
         self._total_bytes_all = 0
 
-        # Calculate total bytes from all datablocks
-        datablocks = getattr(
-            self, '_loaded_datablocks', []
-        )
+        # Calculate total bytes from the datablocks that
+        # will actually be flashed
         for db in datablocks:
             self._total_bytes_all += db.total_size
 
@@ -301,8 +330,9 @@ class FlashTabMixin:
         self.ui.informationText.clear()
         self.ui.traceTable.setRowCount(0)
 
-        # Add segments from loaded datablocks
-        self.add_segments_from_datablocks()
+        # Add segments from the datablocks that will
+        # actually be flashed
+        self.add_segments_from_datablocks(datablocks)
 
     # ==================================================
     # Step signal
@@ -548,62 +578,39 @@ class FlashTabMixin:
     # Segments from datablocks
     # ==================================================
 
-    def add_segments_from_datablocks(self):
+    def add_segments_from_datablocks(self, datablocks=None):
         """
-        Populate segments table from loaded datablocks.
-        Falls back to demo data if no datablocks loaded.
+        Populate segments table from the given datablocks
+        (defaults to every loaded datablock, unfiltered).
+        Leaves the table empty if the list is empty — no demo/
+        placeholder rows (flash_button_clicked() blocks
+        starting a flash with nothing loaded, see below, so
+        this should only ever be reached with a non-empty list
+        in practice).
         """
 
-        datablocks = getattr(
-            self, '_loaded_datablocks', []
-        )
+        if datablocks is None:
+            datablocks = getattr(
+                self, '_loaded_datablocks', []
+            )
 
-        if datablocks:
-
-            for db_idx, datablock in enumerate(datablocks):
-                for seg_idx, segment in enumerate(
-                    datablock.segments
-                ):
-                    row = self.ui.segmentsTable.rowCount()
-                    self.ui.segmentsTable.insertRow(row)
-
-                    items = [
-                        "Waiting",
-                        f"0x{segment.start_address:X}",
-                        str(segment.length),
-                        "Data",
-                        str(db_idx + 1),
-                        str(seg_idx + 1),
-                    ]
-
-                    for col, value in enumerate(items):
-                        self.ui.segmentsTable.setItem(
-                            row, col,
-                            QTableWidgetItem(value)
-                        )
-
-        else:
-
-            # Demo segments (fallback)
-            demo_segments = [
-                ("Waiting", "0x1000", "400",
-                 "Data", "1", "1"),
-                ("Waiting", "0x2000", "800",
-                 "Data", "1", "2"),
-                ("Waiting", "0x5000", "900000",
-                 "Data", "1", "3"),
-                ("Waiting", "0x100", "400",
-                 "Data", "2", "1"),
-                ("Waiting", "0x1000", "800",
-                 "Data", "2", "2"),
-            ]
-
-            for segment in demo_segments:
-
+        for db_idx, datablock in enumerate(datablocks):
+            for seg_idx, segment in enumerate(
+                datablock.segments
+            ):
                 row = self.ui.segmentsTable.rowCount()
                 self.ui.segmentsTable.insertRow(row)
 
-                for col, value in enumerate(segment):
+                items = [
+                    "Waiting",
+                    f"0x{segment.start_address:X}",
+                    str(segment.length),
+                    "Data",
+                    str(db_idx + 1),
+                    str(seg_idx + 1),
+                ]
+
+                for col, value in enumerate(items):
                     self.ui.segmentsTable.setItem(
                         row, col,
                         QTableWidgetItem(value)

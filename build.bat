@@ -17,7 +17,7 @@ setlocal
 cd /d "%~dp0"
 
 set APP_NAME=FFlash
-set ICON_PATH=resources\icon.ico
+set ICON_PATH=resources\icons\flash_bolt_blue.ico
 
 echo ==================================================
 echo  %APP_NAME% - Build .exe
@@ -48,9 +48,14 @@ echo.
 
 echo [3/3] Running PyInstaller...
 set PYI_ICON_ARG=
-if exist "%ICON_PATH%" set PYI_ICON_ARG=--icon "%ICON_PATH%"
+if exist "%ICON_PATH%" (
+    set PYI_ICON_ARG=--icon "%ICON_PATH%"
+    echo Using icon: %ICON_PATH%
+) else (
+    echo [WARN] Icon not found at %ICON_PATH% - building without a custom icon.
+)
 
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name "%APP_NAME%" %PYI_ICON_ARG% main.py
+python -m PyInstaller --noconfirm --clean --onefile --windowed --name "%APP_NAME%" --add-data "docs\user_guide.html;docs" %PYI_ICON_ARG% main.py
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] PyInstaller build failed.
     exit /b 1

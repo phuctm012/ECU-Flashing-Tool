@@ -23,6 +23,9 @@ from PySide6.QtWidgets import (
 from gui.ui_main_window import Ui_MainWindow
 from gui.flash_tab import FlashTabMixin
 from gui.configure_tab import ConfigureTabMixin
+from gui.settings_profile import SettingsProfileMixin
+from gui.report_export import ReportExportMixin
+from gui.menu_bar import MenuBarMixin
 from config.settings import (
     APP_NAME,
     APP_VERSION,
@@ -34,6 +37,9 @@ from config.settings import (
 class MainWindow(
     FlashTabMixin,
     ConfigureTabMixin,
+    SettingsProfileMixin,
+    ReportExportMixin,
+    MenuBarMixin,
     QMainWindow
 ):
 
@@ -72,6 +78,14 @@ class MainWindow(
 
         self.setup_flash_tab()
         self.setup_configure_tab()
+        self.setup_menu_bar()
+
+        # Restore the saved profile (Hardware/Radar Side/
+        # Security DLL/Flash Sequence) — must run after
+        # setup_configure_tab() so the combos it populates
+        # (comboBoxHardware in particular) already have their
+        # real items to select from.
+        self.setup_settings_profile()
 
         # ==========================================
         # Logs

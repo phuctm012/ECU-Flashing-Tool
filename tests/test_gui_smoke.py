@@ -19,11 +19,15 @@ sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
 
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel, QTableWidgetItem, QMessageBox
+from PySide6.QtCore import Qt
 
 from tests.qt_test_utils import get_app
 from gui.main_window import MainWindow
 from config.settings import APP_NAME, APP_VERSION
+from parsers.auto_parser import parse_firmware_file
+
+SAMPLE_HEX = os.path.join(os.path.dirname(__file__), "sample.hex")
 
 
 class TestMainWindowConstruction(unittest.TestCase):
@@ -240,6 +244,415 @@ class TestCanConflictWarning(unittest.TestCase):
         ):
             warning = self.window.detect_can_conflict_warning()
         self.assertIsNotNone(warning)
+
+
+class TestCheckedDatablocksFilter(unittest.TestCase):
+    """
+    Covers ConfigureTabMixin.get_checked_datablocks() and its
+    use in flash_tab.py's prepare_flash_ui()/
+    add_segments_from_datablocks() — unticking a Datablocks
+    row's checkbox must exclude it from both the Segments
+    table and the flash sequence built from
+    flash_button_clicked(), instead of always flashing
+    everything loaded (see docs/gui_todo.md item #2).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def _load_two_datablocks(self):
+        db1 = parse_firmware_file(SAMPLE_HEX)
+        db2 = parse_firmware_file(SAMPLE_HEX)
+        self.window._loaded_datablocks = [db1, db2]
+
+        table = self.window.ui.tableWidgetDatablocks
+        for row in range(2):
+            table.insertRow(row)
+            item = QTableWidgetItem("")
+            item.setCheckState(Qt.Checked)
+            table.setItem(row, 0, item)
+
+        return db1, db2
+
+    def test_all_checked_by_default_returns_everything(self):
+        db1, db2 = self._load_two_datablocks()
+        self.assertEqual(
+            self.window.get_checked_datablocks(), [db1, db2]
+        )
+
+    def test_unchecked_row_excluded(self):
+        db1, db2 = self._load_two_datablocks()
+        self.window.ui.tableWidgetDatablocks.item(
+            1, 0
+        ).setCheckState(Qt.Unchecked)
+        self.assertEqual(
+            self.window.get_checked_datablocks(), [db1]
+        )
+
+    def test_missing_row_defaults_to_included(self):
+        # No row at all for a loaded datablock (edge case
+        # that shouldn't happen in practice, but must not
+        # silently drop the datablock if it does).
+        db1 = parse_firmware_file(SAMPLE_HEX)
+        self.window._loaded_datablocks = [db1]
+        self.window.ui.tableWidgetDatablocks.setRowCount(0)
+        self.assertEqual(
+            self.window.get_checked_datablocks(), [db1]
+        )
+
+    def test_add_segments_uses_only_given_datablocks(self):
+        db1, db2 = self._load_two_datablocks()
+        self.window.add_segments_from_datablocks([db1])
+        self.assertEqual(
+            self.window.ui.segmentsTable.rowCount(),
+            len(db1.segments),
+        )
+
+    def test_prepare_flash_ui_totals_only_given_datablocks(self):
+        db1, db2 = self._load_two_datablocks()
+        self.window.prepare_flash_ui([db1])
+        self.assertEqual(
+            self.window._total_bytes_all, db1.total_size
+        )
+        self.assertEqual(
+            self.window.ui.segmentsTable.rowCount(),
+            len(db1.segments),
+        )
+
+
+class TestEmptyDatablocksGuard(unittest.TestCase):
+    """
+    Covers flash_button_clicked() blocking (instead of running
+    a no-op flash) when no datablock is loaded/ticked, and
+    add_segments_from_datablocks() leaving the Segments table
+    empty instead of falling back to fake demo rows (see
+    docs/gui_todo.md item #6).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_add_segments_leaves_table_empty_when_no_datablocks(self):
+        self.window.add_segments_from_datablocks([])
+        self.assertEqual(
+            self.window.ui.segmentsTable.rowCount(), 0
+        )
+
+    def test_flash_button_blocks_when_no_datablocks_loaded(self):
+        self.window._loaded_datablocks = []
+
+        with unittest.mock.patch(
+            "gui.flash_tab.QMessageBox.warning"
+        ) as mock_warning:
+            self.window.flash_button_clicked()
+
+        mock_warning.assert_called_once()
+        self.assertIsNone(self.window.thread)
+        self.assertIsNone(self.window.worker)
+        self.assertEqual(
+            self.window.ui.segmentsTable.rowCount(), 0
+        )
+
+    def test_flash_button_blocks_when_nothing_ticked(self):
+        db = parse_firmware_file(SAMPLE_HEX)
+        self.window._loaded_datablocks = [db]
+
+        table = self.window.ui.tableWidgetDatablocks
+        table.insertRow(0)
+        item = QTableWidgetItem("")
+        item.setCheckState(Qt.Unchecked)
+        table.setItem(0, 0, item)
+
+        with unittest.mock.patch(
+            "gui.flash_tab.QMessageBox.warning"
+        ) as mock_warning:
+            self.window.flash_button_clicked()
+
+        mock_warning.assert_called_once()
+        self.assertIsNone(self.window.thread)
+
+
+class TestSettingsProfile(unittest.TestCase):
+    """
+    Covers SettingsProfileMixin (gui/settings_profile.py) —
+    Hardware/Radar Side/Security DLL/Flash Sequence should
+    survive an app restart via QSettings (docs/gui_todo.md
+    item #7). get_app() redirects QSettings to a fresh
+    throwaway .ini per test method (see tests/qt_test_utils.py)
+    so these tests never touch a developer's real saved
+    profile, and don't leak into each other.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+
+    def test_fresh_profile_defaults_to_s0_and_suzuki(self):
+        # No saved settings yet (first-ever run) — must fall
+        # back to the same .ui-declared defaults as before
+        # this feature existed, not error out or leave blank.
+        window = MainWindow()
+        self.assertIn("S0", window.ui.comboBoxRadarSide.currentText())
+        self.assertIn(
+            "Suzuki", window.ui.comboBoxFlashSequence.currentText()
+        )
+        self.assertEqual(window.ui.comboBoxHardware.currentIndex(), 0)
+
+    def test_radar_side_and_flash_sequence_persist_across_restart(self):
+        window1 = MainWindow()
+        window1.ui.comboBoxRadarSide.setCurrentIndex(1)  # S1
+        window1.ui.comboBoxFlashSequence.setCurrentIndex(1)  # Generic
+
+        # Simulate reopening the app: same QSettings store
+        # (get_app() not called again), fresh MainWindow.
+        window2 = MainWindow()
+        self.assertEqual(window2.ui.comboBoxRadarSide.currentIndex(), 1)
+        self.assertEqual(
+            window2.ui.comboBoxFlashSequence.currentIndex(), 1
+        )
+
+    def test_security_dll_path_persists_if_file_still_exists(self):
+        with tempfile.NamedTemporaryFile(
+            suffix=".dll", delete=False
+        ) as f:
+            dll_path = f.name
+
+        try:
+            window1 = MainWindow()
+            window1._security_dll_path = dll_path
+            window1.ui.lineEditSecurityDll.setText(dll_path)
+            window1.save_profile()
+
+            window2 = MainWindow()
+            self.assertEqual(
+                window2._security_dll_path, dll_path
+            )
+            self.assertEqual(
+                window2.ui.lineEditSecurityDll.text(), dll_path
+            )
+        finally:
+            os.unlink(dll_path)
+
+    def test_security_dll_path_ignored_if_file_no_longer_exists(self):
+        window1 = MainWindow()
+        window1._security_dll_path = "/no/such/security.dll"
+        window1.save_profile()
+
+        window2 = MainWindow()
+        self.assertEqual(
+            getattr(window2, '_security_dll_path', ''), ''
+        )
+        self.assertEqual(window2.ui.lineEditSecurityDll.text(), "")
+
+    def test_saved_real_hardware_channel_not_present_falls_back_to_virtual(self):
+        # Simulates a saved profile from a run where a real
+        # Vector channel was selected, on a machine/session
+        # where that channel (or any real hardware) isn't
+        # currently detected — must not crash or get stuck on
+        # a nonexistent combo entry.
+        window1 = MainWindow()
+        window1._settings.setValue("hardware/isVirtual", False)
+        window1._settings.setValue("hardware/channel", 3)
+        window1._settings.sync()
+
+        window2 = MainWindow()
+        self.assertIsNone(window2.ui.comboBoxHardware.currentData())
+
+
+class TestReportExport(unittest.TestCase):
+    """
+    Covers ReportExportMixin (gui/report_export.py) — the
+    manual "Export Report..." button on the Flash tab
+    (docs/gui_todo.md item #8). _write_report_file() is a pure
+    snapshot of whatever's currently on screen, so these tests
+    populate the relevant widgets directly instead of running
+    a real flash.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def _load_one_checked_datablock(self):
+        db = parse_firmware_file(SAMPLE_HEX)
+        table = self.window.ui.tableWidgetDatablocks
+        table.insertRow(0)
+        check_item = QTableWidgetItem("")
+        check_item.setCheckState(Qt.Checked)
+        table.setItem(0, 0, check_item)
+        table.setItem(0, 1, QTableWidgetItem(db.file_type))
+        table.setItem(0, 2, QTableWidgetItem(db.file_name))
+        table.setItem(
+            0, 3, QTableWidgetItem(f"0x{db.checksum:08X}")
+        )
+        return db
+
+    def test_report_contains_summary_datablocks_steps_and_trace(self):
+        db = self._load_one_checked_datablock()
+        self.window.add_step("Start Programming Session")
+        self.window.log_trace_row({
+            "req_ts": 0.01, "req_target": "0x77B",
+            "req_data": "10 02",
+            "resp_ts": 0.02, "resp_source": "0x78B",
+            "resp_data": "50 02",
+        })
+        self.window.log_information("ECU unlocked")
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False
+        ) as f:
+            path = f.name
+
+        try:
+            self.window._write_report_file(path)
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+
+            self.assertIn(APP_NAME, content)
+            self.assertIn("Virtual ECU Simulator", content)
+            self.assertIn(db.file_name, content)
+            self.assertIn(f"0x{db.checksum:08X}", content)
+            self.assertIn("Start Programming Session", content)
+            self.assertIn("0x77B", content)
+            self.assertIn("10 02", content)
+            self.assertIn("ECU unlocked", content)
+        finally:
+            os.unlink(path)
+
+    def test_unchecked_datablock_marked_excluded_in_report(self):
+        self._load_one_checked_datablock()
+        self.window.ui.tableWidgetDatablocks.item(
+            0, 0
+        ).setCheckState(Qt.Unchecked)
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False
+        ) as f:
+            path = f.name
+
+        try:
+            self.window._write_report_file(path)
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn("Excluded", content)
+        finally:
+            os.unlink(path)
+
+    def test_report_html_escapes_untrusted_text(self):
+        # add_step() writes to stepsTable (a QTableWidgetItem,
+        # plain text — unlike QTextEdit.append(), which
+        # auto-detects and interprets "<...>"-looking text as
+        # rich text itself, before this code ever sees it).
+        self.window.add_step("<b>bold</b> description")
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False
+        ) as f:
+            path = f.name
+
+        try:
+            self.window._write_report_file(path)
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+            self.assertNotIn("<b>bold</b>", content)
+            self.assertIn("&lt;b&gt;bold&lt;/b&gt;", content)
+        finally:
+            os.unlink(path)
+
+    def test_write_report_file_failure_does_not_raise(self):
+        # Writing to a directory (not a file) — OSError must be
+        # caught internally, not propagate. QMessageBox.critical
+        # patched to a no-op to avoid a real modal dialog.
+        with unittest.mock.patch(
+            "gui.report_export.QMessageBox.critical"
+        ) as mock_critical:
+            self.window._write_report_file(tempfile.gettempdir())
+        mock_critical.assert_called_once()
+
+
+class TestMenuBar(unittest.TestCase):
+    """
+    Covers MenuBarMixin (gui/menu_bar.py) — File/Tools/Help
+    menu actions declared in gui/main_window.ui, wired in
+    setup_menu_bar(). Each test triggers the QAction and
+    checks the right handler ran, mocking anything that would
+    otherwise pop a real dialog/open a real URL.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_load_firmware_switches_to_data_tab_and_opens_dialog(self):
+        self.window.ui.tabWidget.setCurrentIndex(0)  # start on Flash
+
+        with unittest.mock.patch.object(
+            self.window, 'add_new_datablock'
+        ) as mock_add:
+            self.window.ui.actionLoadFirmware.trigger()
+
+        self.assertEqual(self.window.ui.tabWidget.currentIndex(), 1)
+        self.assertEqual(self.window.ui.navListWidget.currentRow(), 0)
+        mock_add.assert_called_once()
+
+    def test_exit_action_calls_close(self):
+        with unittest.mock.patch.object(
+            self.window, 'close'
+        ) as mock_close:
+            self.window.ui.actionExit.trigger()
+        mock_close.assert_called_once()
+
+    def test_export_report_action_calls_export_report(self):
+        with unittest.mock.patch.object(
+            self.window, 'export_report'
+        ) as mock_export:
+            self.window.ui.actionExportReport.trigger()
+        mock_export.assert_called_once()
+
+    def test_about_action_shows_message_box(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.QMessageBox.about"
+        ) as mock_about:
+            self.window.ui.actionAbout.trigger()
+        mock_about.assert_called_once()
+        self.assertIn(APP_NAME, mock_about.call_args[0][1])
+
+    def test_open_guideline_opens_existing_file(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.QDesktopServices.openUrl"
+        ) as mock_open:
+            self.window.ui.actionOpenGuideline.trigger()
+        mock_open.assert_called_once()
+
+    def test_test_connection_action_opens_dialog(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.TestConnectionDialog"
+        ) as MockDialog:
+            self.window.ui.actionTestConnection.trigger()
+        MockDialog.assert_called_once()
+        MockDialog.return_value.exec.assert_called_once()
+
+    def test_test_connection_respects_can_conflict_warning(self):
+        # Same guard as Flash: on real hardware, a detected
+        # conflict shows a Yes/No warning; answering No must
+        # skip opening the dialog entirely.
+        combo = self.window.ui.comboBoxHardware
+        combo.addItem("VN1640A - Channel 1", userData=0)
+        combo.setCurrentIndex(combo.count() - 1)
+
+        with unittest.mock.patch.object(
+            self.window, 'detect_can_conflict_warning',
+            return_value="Something is on the bus",
+        ), unittest.mock.patch(
+            "gui.menu_bar.QMessageBox.warning",
+            return_value=QMessageBox.No,
+        ), unittest.mock.patch(
+            "gui.menu_bar.TestConnectionDialog"
+        ) as MockDialog:
+            self.window.ui.actionTestConnection.trigger()
+
+        MockDialog.assert_not_called()
 
 
 class TestLogSaving(unittest.TestCase):

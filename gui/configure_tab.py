@@ -219,6 +219,59 @@ class ConfigureTabMixin:
         )
 
     # ==================================================
+    # Checked Datablocks (respects the checkbox column)
+    # ==================================================
+
+    def get_checked_datablocks(self):
+        """
+        Returns the subset of self._loaded_datablocks whose
+        checkbox (column 0 of tableWidgetDatablocks) is
+        checked — used by flash_button_clicked() to exclude
+        unchecked files from the flash sequence/segments
+        table instead of always flashing everything loaded.
+
+        Relies on datablock i (in self._loaded_datablocks)
+        being at table row i: add_new_datablock() only ever
+        appends rows in the same order it appends datablocks,
+        and there is no remove-row functionality, so the two
+        stay in lockstep — rowCount() is always
+        len(_loaded_datablocks) + 1 (the trailing "add a
+        Datablock" placeholder row) once that's true.
+
+        If self._loaded_datablocks was populated some other
+        way (e.g. tests injecting a Datablock directly to skip
+        the file dialog) that invariant doesn't hold — row 0
+        would be the placeholder, not a real checkbox for
+        datablock 0 — so this falls back to returning
+        everything unfiltered rather than misreading the
+        placeholder as "unchecked".
+        """
+
+        datablocks = getattr(self, '_loaded_datablocks', [])
+
+        if not hasattr(self.ui, 'tableWidgetDatablocks'):
+            return datablocks
+
+        table = self.ui.tableWidgetDatablocks
+
+        if table.rowCount() < len(datablocks) + 1:
+            return datablocks
+
+        checked = []
+
+        for i, datablock in enumerate(datablocks):
+            check_item = table.item(i, 0)
+            if check_item is None:
+                # Row missing for some reason — default to
+                # included rather than silently dropping it.
+                checked.append(datablock)
+                continue
+            if check_item.checkState() == Qt.Checked:
+                checked.append(datablock)
+
+        return checked
+
+    # ==================================================
     # Parse Firmware File
     # ==================================================
 
@@ -532,6 +585,9 @@ class ConfigureTabMixin:
                 f"Security DLL selected: "
                 f"{os.path.basename(file_path)}"
             )
+
+        if hasattr(self, 'save_profile'):
+            self.save_profile()
 
     # ==================================================
     # CAN Bus Conflict Detection (CANoe/CANalyzer/CANape)
