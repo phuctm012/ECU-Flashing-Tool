@@ -175,9 +175,17 @@ class FlashTabMixin:
                 self.worker.deleteLater
             )
 
-            self.thread.finished.connect(
-                self.thread.deleteLater
-            )
+            # NOTE: intentionally NOT connecting
+            # thread.finished -> thread.deleteLater here.
+            # _cleanup_thread() below is the single owner
+            # of the QThread's lifetime: it wait()s for the
+            # OS thread to fully stop, THEN drops the last
+            # Python reference. Having both deleteLater()
+            # (deferred, C++-side) and a Python callback
+            # clearing self.thread (immediate, refcount-
+            # triggered) racing on the same finished signal
+            # is what caused "QThread: Destroyed while
+            # thread is still running" crashes.
 
             # Connect signals
             self.worker.step_started.connect(
@@ -194,6 +202,10 @@ class FlashTabMixin:
 
             self.worker.trace_message.connect(
                 self.on_trace_message
+            )
+
+            self.worker.trace_row.connect(
+                self.on_trace_row
             )
 
             self.worker.segment_progress.connect(
@@ -219,6 +231,12 @@ class FlashTabMixin:
             self.thread.start()
 
     def _cleanup_thread(self):
+
+        # thread.finished only fires once the QThread has
+        # genuinely stopped, so this is the single safe
+        # place to drop the last references to it.
+        if self.thread is not None:
+            self.thread.wait()
 
         self.thread = None
         self.worker = None
@@ -258,7 +276,7 @@ class FlashTabMixin:
 
         # Clear logs
         self.ui.informationText.clear()
-        self.ui.traceText.clear()
+        self.ui.traceTable.setRowCount(0)
 
         # Add segments from loaded datablocks
         self.add_segments_from_datablocks()
@@ -386,6 +404,10 @@ class FlashTabMixin:
 
         self.log_trace(message)
 
+    def on_trace_row(self, row):
+
+        self.log_trace_row(row)
+
     # ==================================================
     # Flash finished
     # ==================================================
@@ -421,8 +443,17 @@ class FlashTabMixin:
                 f"Done | {elapsed:.1f}s"
             )
 
-        self.thread = None
-        self.worker = None
+        # NOTE: do NOT touch self.thread/self.worker here.
+        # flash_finished is emitted from inside FlashWorker.
+        # run() itself, i.e. WHILE the worker thread is still
+        # executing (run() hasn't returned yet) — dropping the
+        # last Python reference to self.thread at this point
+        # destroys the QThread object that is, at that exact
+        # moment, still actively running, which crashes with
+        # "QThread: Destroyed while thread is still running".
+        # _cleanup_thread() (connected to thread.finished,
+        # which only fires once the thread has genuinely
+        # stopped) is the single place that clears these.
 
     # ==================================================
     # Flash aborted
@@ -448,8 +479,8 @@ class FlashTabMixin:
             "ETA: -- | Speed: Aborted"
         )
 
-        self.thread = None
-        self.worker = None
+        # See note in on_flash_finished() — do not touch
+        # self.thread/self.worker from here.
 
     # ==================================================
     # Add step

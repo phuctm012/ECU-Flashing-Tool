@@ -15,12 +15,12 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QComboBox, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMenuBar, QProgressBar, QPushButton,
-    QSizePolicy, QSpacerItem, QStackedWidget, QStatusBar,
-    QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMainWindow, QMenuBar, QProgressBar,
+    QPushButton, QSizePolicy, QSpacerItem, QStackedWidget,
+    QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
+    QTextEdit, QVBoxLayout, QWidget)
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -483,10 +483,27 @@ class Ui_MainWindow(object):
         self.traceTab.setObjectName(u"traceTab")
         self.verticalLayout_traceTab = QVBoxLayout(self.traceTab)
         self.verticalLayout_traceTab.setObjectName(u"verticalLayout_traceTab")
-        self.traceText = QTextEdit(self.traceTab)
-        self.traceText.setObjectName(u"traceText")
+        self.traceTable = QTableWidget(self.traceTab)
+        if (self.traceTable.columnCount() < 6):
+            self.traceTable.setColumnCount(6)
+        __qtablewidgetitem69 = QTableWidgetItem()
+        self.traceTable.setHorizontalHeaderItem(0, __qtablewidgetitem69)
+        __qtablewidgetitem70 = QTableWidgetItem()
+        self.traceTable.setHorizontalHeaderItem(1, __qtablewidgetitem70)
+        __qtablewidgetitem71 = QTableWidgetItem()
+        self.traceTable.setHorizontalHeaderItem(2, __qtablewidgetitem71)
+        __qtablewidgetitem72 = QTableWidgetItem()
+        self.traceTable.setHorizontalHeaderItem(3, __qtablewidgetitem72)
+        __qtablewidgetitem73 = QTableWidgetItem()
+        self.traceTable.setHorizontalHeaderItem(4, __qtablewidgetitem73)
+        __qtablewidgetitem74 = QTableWidgetItem()
+        self.traceTable.setHorizontalHeaderItem(5, __qtablewidgetitem74)
+        self.traceTable.setObjectName(u"traceTable")
+        self.traceTable.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.traceTable.setAlternatingRowColors(True)
+        self.traceTable.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
-        self.verticalLayout_traceTab.addWidget(self.traceText)
+        self.verticalLayout_traceTab.addWidget(self.traceTable)
 
         self.outputTabWidget.addTab(self.traceTab, "")
 
@@ -714,6 +731,18 @@ class Ui_MainWindow(object):
         self.buttonBrowseSecurityDll.setText(QCoreApplication.translate("MainWindow", u"Browse...", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.configureTab), QCoreApplication.translate("MainWindow", u"Configure", None))
         self.outputTabWidget.setTabText(self.outputTabWidget.indexOf(self.informationTab), QCoreApplication.translate("MainWindow", u"Information", None))
+        ___qtablewidgetitem68 = self.traceTable.horizontalHeaderItem(0)
+        ___qtablewidgetitem68.setText(QCoreApplication.translate("MainWindow", u"Request TimeStamp", None))
+        ___qtablewidgetitem69 = self.traceTable.horizontalHeaderItem(1)
+        ___qtablewidgetitem69.setText(QCoreApplication.translate("MainWindow", u"Request Target", None))
+        ___qtablewidgetitem70 = self.traceTable.horizontalHeaderItem(2)
+        ___qtablewidgetitem70.setText(QCoreApplication.translate("MainWindow", u"Request Data", None))
+        ___qtablewidgetitem71 = self.traceTable.horizontalHeaderItem(3)
+        ___qtablewidgetitem71.setText(QCoreApplication.translate("MainWindow", u"Response TimeStamp", None))
+        ___qtablewidgetitem72 = self.traceTable.horizontalHeaderItem(4)
+        ___qtablewidgetitem72.setText(QCoreApplication.translate("MainWindow", u"Response Source", None))
+        ___qtablewidgetitem73 = self.traceTable.horizontalHeaderItem(5)
+        ___qtablewidgetitem73.setText(QCoreApplication.translate("MainWindow", u"Response Data", None))
         self.outputTabWidget.setTabText(self.outputTabWidget.indexOf(self.traceTab), QCoreApplication.translate("MainWindow", u"Trace", None))
     # retranslateUi
 

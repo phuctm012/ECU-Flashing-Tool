@@ -4,6 +4,8 @@
 
 APP_NAME = "VectorFlash Tool"
 APP_VERSION = "1.0.0"
+APP_AUTHOR = "tranph9"
+APP_AUTHOR_NAME = "TRAN Phuc"
 
 # --------------------------------------------------
 # Default Communication Settings
@@ -79,7 +81,8 @@ LOGICAL_LINK_OPTIONS = [
 
 FILE_FILTER = (
     "Hex Files (*.hex);;"
-    "S19 Files (*.s19);;"
+    "S-Record Files "
+    "(*.s19 *.s28 *.s37 *.s1 *.s2 *.s3 *.srec *.mot);;"
     "Binary Files (*.bin);;"
     "All Files (*)"
 )

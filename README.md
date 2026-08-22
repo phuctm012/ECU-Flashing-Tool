@@ -154,4 +154,26 @@ Xem chi tiết từng phase (kiến trúc, file mới, kết quả test) trong [
 
 ## Chạy Test
 
-Không có bộ test tự động (`pytest`) — hiện tại verify bằng cách chạy flash sequence end-to-end qua Virtual ECU Simulator như hướng dẫn ở trên, dùng file mẫu `tests/sample.hex`.
+Bộ test tự động dùng `unittest` (built-in, không cần cài thêm gì). Chạy toàn bộ:
+
+```bash
+conda activate pyside6
+python -m unittest discover -s tests -p "test_*.py" -v
+```
+
+Hoặc chạy riêng từng file (vd. chỉ test parser):
+
+```bash
+python -m unittest tests.test_parsers -v
+```
+
+| File | Nội dung |
+|---|---|
+| `test_parsers.py` | Intel HEX, S-Record (bao gồm `.s3`/32-bit address), Binary — parse đúng, lỗi checksum/record type/file không tồn tại |
+| `test_flash_sequence.py` | `build_flash_sequence()` (generic) và `build_suzuki_slp1_flash_sequence()` — thứ tự bước, functional addressing, địa chỉ 5-byte, BCD date |
+| `test_uds_client.py` | UDS Client qua Virtual ECU: session/security/read/write, functional addressing, NRC retry, ResponsePending (0x78), regression byte-order `RequestDownload` (ISO 14229) |
+| `test_flash_controller.py` | `FlashWorker.run()` end-to-end (đồng bộ) qua Virtual ECU — cả sequence generic lẫn Suzuki |
+| `test_flash_threading.py` | **Regression cho crash `QThread: Destroyed while thread is still running`** — chạy qua đúng `QThread` thật (`flash_button_clicked()` + `app.exec()`): 1 lần, lặp 5 lần, abort giữa chừng, đóng cửa sổ giữa chừng |
+| `test_gui_smoke.py` | Khởi tạo `MainWindow`, tồn tại widget, `get_can_config()` (Radar Side, channel, CAN FD), lưu log `.txt`/`.csv` |
+
+**Lưu ý cho `test_flash_threading.py`**: đây là bộ test quan trọng nhất để tránh crash — nó cố tình chạy qua `QThread` thật thay vì gọi `FlashWorker.run()` trực tiếp (cách nhanh nhưng **không** phát hiện được race condition giữa Python và vòng đời `QThread`). Khi sửa bất kỳ logic nào liên quan tới `gui/flash_tab.py` (đặc biệt phần connect signal `flash_finished`/`flash_aborted`/`thread.finished`), luôn chạy lại file này.

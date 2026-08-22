@@ -245,7 +245,11 @@ class ConfigureTabMixin:
             if ext == ".hex":
                 datablock = parse_hex_file(file_path)
 
-            elif ext in (".s19", ".srec", ".s37"):
+            elif ext in (
+                ".s19", ".s28", ".s37",
+                ".s1", ".s2", ".s3",
+                ".srec", ".mot",
+            ):
                 datablock = parse_srec_file(file_path)
 
             elif ext == ".bin":

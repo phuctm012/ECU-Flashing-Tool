@@ -759,7 +759,47 @@
         </attribute>
         <layout class="QVBoxLayout" name="verticalLayout_traceTab">
          <item>
-          <widget class="QTextEdit" name="traceText"/>
+          <widget class="QTableWidget" name="traceTable">
+           <property name="editTriggers">
+            <enum>QAbstractItemView::EditTrigger::NoEditTriggers</enum>
+           </property>
+           <property name="alternatingRowColors">
+            <bool>true</bool>
+           </property>
+           <property name="selectionBehavior">
+            <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+           </property>
+           <column>
+            <property name="text">
+             <string>Request TimeStamp</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Request Target</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Request Data</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Response TimeStamp</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Response Source</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Response Data</string>
+            </property>
+           </column>
+          </widget>
          </item>
         </layout>
        </widget>

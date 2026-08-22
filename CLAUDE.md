@@ -1,0 +1,82 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+VectorFlash Tool — a PySide6 desktop app that flashes ECU firmware over CAN using UDS (ISO 14229). It can run against a fully-simulated Virtual ECU (no hardware) or real Vector VN1640A/VN1630 hardware via `python-can`.
+
+## Commands
+
+```bash
+# Setup (conda/miniforge recommended — see requirements.txt for the exact deps)
+conda activate pyside6
+pip install -r requirements.txt          # PySide6 only; python-can is commented out
+pip install python-can                   # only needed for real Vector hardware
+
+# Run the app
+python main.py
+
+# Run all tests
+python -m unittest discover -s tests -p "test_*.py" -v
+
+# Run one test file / one test
+python -m unittest tests.test_parsers -v
+python -m unittest tests.test_flash_threading.TestSingleFlashRun -v
+
+# Regenerate ui_main_window.py after editing main_window.ui in Qt Designer
+pyside6-uic main_window.ui -o ui_main_window.py
+```
+
+There is no configured linter/formatter in this repo — don't invent lint commands.
+
+## Rules
+
+- **GUI changes go in `main_window.ui` first, `.py` code second.** If a change can be expressed as a widget/layout/property in the `.ui` XML (adding a widget, moving it, changing a size policy, resize behavior, etc.), make it there and regenerate `ui_main_window.py` with `pyside6-uic` — don't build the equivalent widget by hand in Python. Only fall back to Python-side widget construction for things Designer/the `.ui` format genuinely can't express (e.g. logic-driven content). See "GUI: mixin composition + Designer/generated-code split" below.
+- **Before ending a session that touched the app, run the full test suite and confirm the app itself still launches without crashing** — `python -m unittest discover -s tests -p "test_*.py" -v`, and if `gui/flash_tab.py` or anything QThread-related changed, don't skip `tests/test_flash_threading.py` specifically (see "Threading model" below for why). A green test run is not optional polish here — this codebase has a history of a real crash (`QThread: Destroyed while thread is still running`) that shipped silently because it was only exercised by hand.
+
+## Architecture
+
+### Layering
+
+`gui/` → `core/` → `communication/` → `parsers/`, with `config/settings.py` holding shared constants (hardware option lists, default CAN config, app metadata). GUI code never talks to CAN/UDS directly — it always goes through `core.flash_controller.FlashWorker`.
+
+### GUI: mixin composition + Designer/generated-code split
+
+`gui/main_window.py`'s `MainWindow` is composed via multiple inheritance from `FlashTabMixin` (`gui/flash_tab.py`) and `ConfigureTabMixin` (`gui/configure_tab.py`), both `QMainWindow`. All three share one `self.ui` (a `Ui_MainWindow` instance from `ui_main_window.py`) and call each other's methods directly (e.g. `flash_tab.py` calls `self.get_can_config()`, defined in `configure_tab.py`).
+
+**`main_window.ui` is the source of truth; `ui_main_window.py` is generated** — never hand-edit the generated file. Edit the `.ui` XML directly (there's no Qt Designer GUI available in this environment; edits are made as raw XML via the Edit tool) and regenerate with `pyside6-uic`. Widgets added purely at runtime in Python (bypassing the `.ui`) are a maintenance smell in this codebase — several were migrated into `.ui` XML specifically so Designer could show them (see `docs/walkthrough.md` Phase 4.8).
+
+### Threading model — read before touching `flash_tab.py`
+
+`FlashWorker` (in `core/flash_controller.py`) is a plain `QObject` moved to a `QThread` via `moveToThread()` in `flash_tab.py`'s `flash_button_clicked()`. **`FlashWorker.flash_finished`/`flash_aborted` are emitted from inside `FlashWorker.run()` itself, before `run()` returns** — i.e., while the worker thread is still actively executing. Any slot connected to those two signals must never touch `self.thread`/`self.worker` (dropping the last Python reference to a `QThread` object while it's still running crashes with `QThread: Destroyed while thread is still running`, a real bug that was hit and fixed in Phase 4.13 of `docs/walkthrough.md`). The only safe place to null out `self.thread`/`self.worker` is `_cleanup_thread()`, connected to `self.thread.finished` — Qt's own signal that fires only once the thread has genuinely stopped.
+
+Corollary for testing: calling `FlashWorker.run()` directly (synchronously, bypassing `QThread`) — which is what `tests/test_flash_controller.py` does to test flash-sequence logic cheaply — **cannot catch thread-lifecycle bugs**. `tests/test_flash_threading.py` exists specifically to exercise the real `QThread` path and must be re-run after any change to `flash_button_clicked()`'s signal wiring.
+
+### CAN / UDS layer
+
+`communication/can_interface.py` defines the abstract `CanInterface` (`connect`/`send`/`receive`/`set_filter`) plus `CanMessage`. Two concrete implementations, both providing `send_isotp(data, target_id=None)` / `receive_isotp(timeout)` for ISO-TP framing:
+- `virtual_can.py` — in-memory bus wired directly to `ecu_simulator.py`'s `EcuSimulator`, which implements the ECU-side UDS state machine (session/security/download) so the whole flash flow can run with zero hardware.
+- `vector_can.py` — real hardware via `python-can` (`interface='vector'`), lazily imports `can` so the app runs fine without `python-can` installed when only using the simulator.
+
+`uds_client.py`'s `UdsClient` wraps a `CanInterface` and implements the ISO 14229 services (session control, security access, routine control, download/transfer, DID read/write, DTC/comm control, tester present). Notable behaviors:
+- **Functional vs physical addressing**: pass `functional=True` to send to `UdsClient(functional_id=...)` instead of the physical request ID — used by the Suzuki sequence for network-wide session/DTC/comm-control steps (see below).
+- **NRC retry**: `_send_request()` retries on `RETRYABLE_NRC` (busy, conditions-not-correct) and loops on `0x78` ResponsePending using `p2_star_timeout`, independent of the retry counter.
+- **Security key resolution order**: explicit `key_function` arg > loaded Security DLL (`load_security_dll()`, `ctypes`) > `EcuSimulator.compute_key()` fallback — the fallback is intentional even on real hardware when the target ECU also runs "dummy" security access.
+- **`RequestDownload` (0x34) byte order**: ISO 14229-1 requires `SID, dataFormatIdentifier, addressAndLengthFormatIdentifier, address, size`. This was previously swapped in both `uds_client.py` (encode) and `ecu_simulator.py` (decode) — self-consistent so the Virtual ECU never caught it, only found by diffing against a real ECU trace log. If you touch `request_download()` or `_handle_download()`, keep both sides in sync and re-run `tests/test_uds_client.py::TestRequestDownloadByteOrder`.
+
+### Flash sequences are data, not code
+
+`core/flash_sequence.py` defines `FlashStep` (a step type + params dict) and two step lists: `DEFAULT_FLASH_SEQUENCE` (generic/simulated) and `SUZUKI_SLP1_FLASH_SEQUENCE` (reverse-engineered from a real capture, `docs/*_Report_Trace.csv` — see `docs/walkthrough.md` Phase 4.6 for the byte-level analysis). `build_flash_sequence()` / `build_suzuki_slp1_flash_sequence()` take a step-list template plus the loaded datablocks and splice in one `TYPE_DOWNLOAD` step per segment right after the step named `"Erase Memory"`. `FlashWorker._execute_step()` dispatches each step to an `_execute_*` handler by `step.step_type`; adding a new step type means adding both a `FlashStep.TYPE_*` constant and a handler.
+
+The Suzuki sequence differs from the generic one in several ISO-14229-relevant ways that must stay consistent with the real trace if extended further: no `ReadDataByIdentifier` calls at all, a single `0xFF00` routine call (no separate precondition-check step), functional addressing for the first three steps and the final post-reset session check, a 5-byte `RequestDownload` address field, and `optionRecord` bytes on the erase/verify routine calls.
+
+### Trace/logging: two parallel channels into two different widgets
+
+`FlashWorker` emits `trace_message` (plain narrative strings — "Executing: ...", errors) and `trace_row` (structured dicts built by `_on_uds_trace()`, which pairs a TX with its final RX — collapsing intermediate `0x78` ResponsePending frames into one row, matching how the reference CSV trace looks). In `gui/main_window.py`, `log_trace()` renders narrative messages as `SYSTEM` rows and `log_trace_row()` renders structured rows, both into the same `traceTable` (columns match `docs/*_Report_Trace.csv`: Request/Response Timestamp, Target/Source, Data). Information tab (`informationText`, plain `QTextEdit`) and Trace tab (`traceTable`, `QTableWidget`) have independent right-click "Save Log" actions saving `.txt` and `.csv` respectively — see `_write_log_file()` vs `_write_trace_table_csv()`, both split from their dialog-opening counterparts specifically so tests can exercise the write logic without popping a real `QFileDialog`/`QMessageBox`.
+
+## Reference docs
+
+- `README.md` — user-facing setup/usage (Vietnamese).
+- `docs/walkthrough.md` — phase-by-phase development log; read it before assuming something is unimplemented, and check it for the reasoning behind non-obvious decisions (e.g. why `RequestDownload` uses specific byte orders, why the Suzuki sequence has no `ReadDID` calls).
+- `docs/*_Report_Trace.csv` — real ECU CAN trace used to validate `SUZUKI_SLP1_FLASH_SEQUENCE` and the byte-order fix above.

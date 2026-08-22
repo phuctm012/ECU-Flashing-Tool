@@ -30,7 +30,9 @@ class FlashWorker(QObject):
 
     information_message = Signal(str)   # user-facing log
 
-    trace_message = Signal(str)         # technical trace log
+    trace_message = Signal(str)         # narrative trace log (non-frame)
+
+    trace_row = Signal(dict)            # paired UDS request/response row
 
     segment_progress = Signal(         # (seg_idx, sent, total)
         int, int, int
@@ -84,11 +86,18 @@ class FlashWorker(QObject):
         # CAN interface reference (for cleanup)
         self._can_interface = None
 
+        # Structured trace row builder (see _on_uds_trace)
+        self._functional_id = 0x700
+        self._flash_start_time = None
+        self._pending_trace_row = None
+
     # ==========================================
     # Run
     # ==========================================
 
     def run(self):
+
+        self._flash_start_time = time.time()
 
         self.information_message.emit(
             "Starting Flash..."
@@ -270,7 +279,7 @@ class FlashWorker(QObject):
         self._uds_client = UdsClient(
             self._can_interface,
             trace_callback=self._on_uds_trace,
-            functional_id=0x700,
+            functional_id=self._functional_id,
         )
 
         # Load external Security Access DLL, if configured.
@@ -290,17 +299,109 @@ class FlashWorker(QObject):
     # ==========================================
     # UDS Trace Callback
     # ==========================================
+    #
+    # Builds one table row per logical UDS transaction —
+    # a TX frame paired with its (final) RX response —
+    # matching the column layout of a real CAN trace tool
+    # export (docs/*_Report_Trace.csv): Request TimeStamp,
+    # Request Target, Request Data, Response TimeStamp,
+    # Response Source, Response Data.
+    #
+    # NRC 0x78 (ResponsePending) keeps the row open instead
+    # of flushing it, so a long-running routine (e.g. Erase)
+    # still ends up as a single row with its final response —
+    # same as the reference trace.
+    # ==========================================
+
+    def _elapsed(self):
+
+        if self._flash_start_time is None:
+            return 0.0
+
+        return time.time() - self._flash_start_time
+
+    def _flush_pending_trace_row(self):
+
+        if self._pending_trace_row is not None:
+            self.trace_row.emit(self._pending_trace_row)
+            self._pending_trace_row = None
 
     def _on_uds_trace(self, direction, data):
-        """Log UDS request/response as hex."""
 
-        hex_str = " ".join(
-            f"{b:02X}" for b in data
-        )
+        elapsed = self._elapsed()
 
-        self.trace_message.emit(
-            f"UDS {direction}: [{hex_str}]"
-        )
+        if direction in ("TX", "TX(FUNC)"):
+
+            hex_str = " ".join(f"{b:02X}" for b in data)
+
+            # Flush any still-open row (e.g. a suppressed
+            # TesterPresent that never got a response).
+            self._flush_pending_trace_row()
+
+            target = (
+                f"FuncGroup-0x{self._functional_id:03X}"
+                if direction == "TX(FUNC)"
+                else f"0x{self._can_tx_id:03X}"
+            )
+
+            self._pending_trace_row = {
+                "req_ts": elapsed,
+                "req_target": target,
+                "req_data": hex_str,
+                "resp_ts": None,
+                "resp_source": None,
+                "resp_data": None,
+            }
+
+        elif direction == "RX":
+
+            hex_str = " ".join(f"{b:02X}" for b in data)
+            source = f"0x{self._can_rx_id:03X}"
+
+            if self._pending_trace_row is None:
+                # Unexpected standalone RX — emit alone.
+                self.trace_row.emit({
+                    "req_ts": None,
+                    "req_target": None,
+                    "req_data": None,
+                    "resp_ts": elapsed,
+                    "resp_source": source,
+                    "resp_data": hex_str,
+                })
+                return
+
+            self._pending_trace_row["resp_ts"] = elapsed
+            self._pending_trace_row["resp_source"] = source
+            self._pending_trace_row["resp_data"] = hex_str
+
+            # NRC 0x78 (ResponsePending): keep the row open,
+            # the ECU will send a further response later.
+            is_pending = (
+                len(data) >= 3
+                and data[0] == 0x7F
+                and data[2] == 0x78
+            )
+
+            if not is_pending:
+                self._flush_pending_trace_row()
+
+        else:
+            # RETRY / INFO / TP_ERR / any other narrative tag
+            self._flush_pending_trace_row()
+
+            try:
+                text = bytes(data).decode()
+            except (UnicodeDecodeError, AttributeError):
+                text = " ".join(f"{b:02X}" for b in data)
+
+            self.trace_row.emit({
+                "req_ts": elapsed,
+                "req_target": direction,
+                "req_data": text,
+                "resp_ts": None,
+                "resp_source": None,
+                "resp_data": None,
+            })
 
     # ==========================================
     # Execute Step (Real UDS)
@@ -682,6 +783,9 @@ class FlashWorker(QObject):
 
     def _cleanup(self):
         """Stop keepalive and disconnect CAN."""
+
+        # Flush any still-open trace row
+        self._flush_pending_trace_row()
 
         # Stop TesterPresent keepalive
         if self._uds_client is not None:
