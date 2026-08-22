@@ -30,17 +30,17 @@ python -m unittest discover -s tests -p "test_*.py" -v
 python -m unittest tests.test_parsers -v
 python -m unittest tests.test_flash_threading.TestSingleFlashRun -v
 
-# Regenerate ui_main_window.py after editing main_window.ui in Qt Designer
-pyside6-uic main_window.ui -o ui_main_window.py
+# Regenerate gui/ui_main_window.py after editing gui/main_window.ui in Qt Designer
+pyside6-uic gui/main_window.ui -o gui/ui_main_window.py
 ```
 
 There is no configured linter/formatter in this repo — don't invent lint commands.
 
 ## Rules
 
-- **GUI changes go in `main_window.ui` first, `.py` code second.** If a change can be expressed as a widget/layout/property in the `.ui` XML (adding a widget, moving it, changing a size policy, resize behavior, etc.), make it there and regenerate `ui_main_window.py` with `pyside6-uic` — don't build the equivalent widget by hand in Python. Only fall back to Python-side widget construction for things Designer/the `.ui` format genuinely can't express (e.g. logic-driven content). See "GUI: mixin composition + Designer/generated-code split" below.
+- **GUI changes go in `gui/main_window.ui` first, `.py` code second.** If a change can be expressed as a widget/layout/property in the `.ui` XML (adding a widget, moving it, changing a size policy, resize behavior, etc.), make it there and regenerate `gui/ui_main_window.py` with `pyside6-uic` — don't build the equivalent widget by hand in Python. Only fall back to Python-side widget construction for things Designer/the `.ui` format genuinely can't express (e.g. logic-driven content). See "GUI: mixin composition + Designer/generated-code split" below.
 - **Before ending a session that touched the app, run the full test suite and confirm the app itself still launches without crashing** — `python -m unittest discover -s tests -p "test_*.py" -v`, and if `gui/flash_tab.py` or anything QThread-related changed, don't skip `tests/test_flash_threading.py` specifically (see "Threading model" below for why). A green test run is not optional polish here — this codebase has a history of a real crash (`QThread: Destroyed while thread is still running`) that shipped silently because it was only exercised by hand.
-- **Name every widget and layout in `main_window.ui` meaningfully — never leave Designer's auto-numbered defaults** (`verticalLayout_2`, `horizontalLayout_3`, `label_5`, ...). Use a name that says what it is/where it lives, matching the existing style: `verticalLayout_flashTab`, `horizontalLayout_checksumMethod`, `verticalLayout_comm`. If you add or move a widget and it still has a generic Designer name, rename it before moving on. Before renaming an existing one, `grep` `gui/*.py` for `self.ui.<name>` first — a few layouts are referenced directly at runtime (e.g. `flash_tab.py` adds `statsLabel` into `horizontalLayout_flashHeader`), so the Python side must be updated in the same change.
+- **Name every widget and layout in `gui/main_window.ui` meaningfully — never leave Designer's auto-numbered defaults** (`verticalLayout_2`, `horizontalLayout_3`, `label_5`, ...). Use a name that says what it is/where it lives, matching the existing style: `verticalLayout_flashTab`, `horizontalLayout_checksumMethod`, `verticalLayout_comm`. If you add or move a widget and it still has a generic Designer name, rename it before moving on. Before renaming an existing one, `grep` `gui/*.py` for `self.ui.<name>` first — a few layouts are referenced directly at runtime (e.g. `flash_tab.py` adds `statsLabel` into `horizontalLayout_flashHeader`), so the Python side must be updated in the same change.
 
 ## Architecture
 
@@ -50,9 +50,9 @@ There is no configured linter/formatter in this repo — don't invent lint comma
 
 ### GUI: mixin composition + Designer/generated-code split
 
-`gui/main_window.py`'s `MainWindow` is composed via multiple inheritance from `FlashTabMixin` (`gui/flash_tab.py`) and `ConfigureTabMixin` (`gui/configure_tab.py`), both `QMainWindow`. All three share one `self.ui` (a `Ui_MainWindow` instance from `ui_main_window.py`) and call each other's methods directly (e.g. `flash_tab.py` calls `self.get_can_config()`, defined in `configure_tab.py`).
+`gui/main_window.py`'s `MainWindow` is composed via multiple inheritance from `FlashTabMixin` (`gui/flash_tab.py`) and `ConfigureTabMixin` (`gui/configure_tab.py`), both `QMainWindow`. All three share one `self.ui` (a `Ui_MainWindow` instance from `gui/ui_main_window.py`) and call each other's methods directly (e.g. `flash_tab.py` calls `self.get_can_config()`, defined in `configure_tab.py`).
 
-**`main_window.ui` is the source of truth; `ui_main_window.py` is generated** — never hand-edit the generated file. Edit the `.ui` XML directly (there's no Qt Designer GUI available in this environment; edits are made as raw XML via the Edit tool) and regenerate with `pyside6-uic`. Widgets added purely at runtime in Python (bypassing the `.ui`) are a maintenance smell in this codebase — several were migrated into `.ui` XML specifically so Designer could show them (see `docs/walkthrough.md` Phase 4.8).
+**`gui/main_window.ui` is the source of truth; `gui/ui_main_window.py` is generated** — never hand-edit the generated file. Edit the `.ui` XML directly (there's no Qt Designer GUI available in this environment; edits are made as raw XML via the Edit tool) and regenerate with `pyside6-uic`. Widgets added purely at runtime in Python (bypassing the `.ui`) are a maintenance smell in this codebase — several were migrated into `.ui` XML specifically so Designer could show them (see `docs/walkthrough.md` Phase 4.8). Both files live in `gui/` alongside the mixins that use them (moved there from the project root in Phase 4.28 for consistency).
 
 ### Threading model — read before touching `flash_tab.py`
 

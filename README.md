@@ -24,10 +24,11 @@
 06_PYSIDE6/
 ├── main.py                    ← Entry point (GUI)
 ├── cli.py                     ← Entry point (Command Line Interface)
-├── main_window.ui             ← Qt Designer file
-├── ui_main_window.py          ← UI auto-generated (từ main_window.ui)
+├── build.bat                  ← Build file .exe cho Windows (PyInstaller)
 │
-├── gui/                       ← GUI logic
+├── gui/                       ← GUI logic + file UI
+│   ├── main_window.ui         ← Qt Designer file
+│   ├── ui_main_window.py      ← UI auto-generated (từ main_window.ui)
 │   ├── main_window.py         ← MainWindow (mixin pattern)
 │   ├── flash_tab.py           ← Tab Flash: chạy/theo dõi flash sequence
 │   └── configure_tab.py       ← Tab Configure: chọn file, cấu hình Communication

@@ -1,6 +1,6 @@
 # GUI TODO — Component Chưa Hoạt Động / Chưa Implement
 
-Ghi lại từ audit ngày 2026-08-22: đối chiếu từng widget có tên trong `main_window.ui`
+Ghi lại từ audit ngày 2026-08-22: đối chiếu từng widget có tên trong `gui/main_window.ui`
 với usage thật trong `gui/*.py` để tìm các component không có tác dụng, hiển thị dữ
 liệu giả, hoặc chưa được implement logic đứng sau. Cập nhật trạng thái ở đây khi xử lý.
 
@@ -9,7 +9,7 @@ liệu giả, hoặc chưa được implement logic đứng sau. Cập nhật tr
 ### 1. Combo "Checksum Method" — hoàn toàn chết (dead)
 
 - **Trạng thái**: ⬜ Chưa xử lý
-- **Vị trí**: [main_window.ui:250](../main_window.ui#L250) — `comboBoxChecksum` (tab Data → "Additional Setup")
+- **Vị trí**: [gui/main_window.ui:250](../gui/main_window.ui#L250) — `comboBoxChecksum` (tab Data → "Additional Setup")
 - **Vấn đề**: 2 lựa chọn "Pre-Calculation: via file selection" / "Calculate during flash", nhưng không có dòng code Python nào đọc giá trị của nó. Checksum thực tế luôn tính CRC32 lúc parse file, bất kể chọn gì ở combo này.
 - **Liên quan**: `CHECKSUM_METHODS` trong `config/settings.py:90` — hằng số định nghĩa sẵn nhưng không nơi nào import.
 - **Hướng xử lý**: (a) xóa hẳn control này khỏi `.ui`, hoặc (b) implement thật — đọc giá trị combo, áp dụng logic checksum tương ứng trong `parsers/`.
@@ -38,7 +38,7 @@ liệu giả, hoặc chưa được implement logic đứng sau. Cập nhật tr
 ### 5. Bảng "Custom Configuration" (tab Custom Actions) — decoration, sửa được nhưng vô nghĩa
 
 - **Trạng thái**: ⬜ Chưa xử lý
-- **Vị trí**: [main_window.ui:663](../main_window.ui#L663) — `tableWidgetCustomConfig`
+- **Vị trí**: [gui/main_window.ui:663](../gui/main_window.ui#L663) — `tableWidgetCustomConfig`
 - **Vấn đề**: hiển thị 4 dòng trông như config thật (Erase Timeout: 120 sec, Programming delay: 2 sec, Post reset delay: 1 sec, STmin override: 50 msec). Bảng không bị khóa read-only (khác `traceTable`) nên user double-click sửa số được — nhưng không có code nào trong `core/flash_controller.py`/`uds_client.py` đọc giá trị từ bảng này; sửa gì cũng không ảnh hưởng lúc flash thật.
 - **Hướng xử lý**: (a) implement thật — đọc 4 giá trị này và truyền vào `FlashWorker`/`UdsClient` (vd. override timeout Erase Memory, delay giữa các bước, STmin ISO-TP), hoặc (b) khóa read-only + ghi rõ đây chỉ là hiển thị tham khảo nếu chưa có kế hoạch implement.
 
@@ -51,5 +51,5 @@ liệu giả, hoặc chưa được implement logic đứng sau. Cập nhật tr
 
 ## Ghi chú
 
-- Audit thực hiện bằng cách liệt kê toàn bộ `name="..."` trong `main_window.ui`, đối chiếu số lần xuất hiện trong `gui/*.py`/`main.py` qua `self.ui.<name>`/`self.<name>`. Các widget layout/label/container có 0 usage là bình thường (không cần wiring). Danh sách trên chỉ gồm các widget **tương tác được** (combo/checkbox/table có thể sửa) mà không có logic backend thật.
+- Audit thực hiện bằng cách liệt kê toàn bộ `name="..."` trong `gui/main_window.ui`, đối chiếu số lần xuất hiện trong `gui/*.py`/`main.py` qua `self.ui.<name>`/`self.<name>`. Các widget layout/label/container có 0 usage là bình thường (không cần wiring). Danh sách trên chỉ gồm các widget **tương tác được** (combo/checkbox/table có thể sửa) mà không có logic backend thật.
 - Không phải bug crash — app vẫn chạy ổn định, đây là các điểm UI "trông như hoạt động nhưng thực chất không" hoặc "chưa có tính năng thật đứng sau", cần quyết định implement thật hay dọn bỏ.

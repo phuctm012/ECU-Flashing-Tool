@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
 )
 
-from ui_main_window import Ui_MainWindow
+from gui.ui_main_window import Ui_MainWindow
 from gui.flash_tab import FlashTabMixin
 from gui.configure_tab import ConfigureTabMixin
 from config.settings import (
