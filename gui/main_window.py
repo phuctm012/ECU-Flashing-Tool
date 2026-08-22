@@ -25,6 +25,7 @@ from gui.flash_tab import FlashTabMixin
 from gui.configure_tab import ConfigureTabMixin
 from config.settings import (
     APP_NAME,
+    APP_VERSION,
     APP_AUTHOR,
     APP_AUTHOR_NAME,
 )
@@ -46,11 +47,18 @@ class MainWindow(
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
 
         # ==========================================
-        # Status Bar (author credit, bottom-right)
+        # Status Bar
         # ==========================================
+        # Version label: bottom-left (addWidget — normal,
+        # non-permanent slot). Author credit: bottom-right
+        # (addPermanentWidget).
+
+        version_label = QLabel(f"Version: v{APP_VERSION}")
+        version_label.setStyleSheet("color: gray;")
+        self.ui.statusbar.addWidget(version_label)
 
         author_label = QLabel(
             f"Author: {APP_AUTHOR} ({APP_AUTHOR_NAME})"

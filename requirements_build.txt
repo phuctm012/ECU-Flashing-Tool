@@ -1,0 +1,21 @@
+# ==================================================
+# Build dependencies — chỉ cần khi build FFlash thành
+# file .exe cho Windows (KHÔNG cần để chạy app bình
+# thường bằng "python main.py").
+#
+# Cài cùng với requirements.txt:
+#   pip install -r requirements.txt -r requirements_build.txt
+#
+# Hoặc để build.bat tự cài (xem build.bat).
+# ==================================================
+
+# Bắt buộc — đóng gói app Python thành 1 file .exe
+pyinstaller>=6.10
+
+# Tùy chọn — chỉ bỏ comment dòng dưới nếu muốn bản .exe build ra
+# hỗ trợ luôn hardware Vector thật (VN1640A/VN1630). Nếu không cài
+# lúc build, file .exe vẫn chạy tốt với Virtual ECU Simulator, chỉ
+# thiếu tùy chọn "--hardware vector" / kết nối hardware thật — vì
+# python-can không được đóng gói bên trong .exe. Không thể cài
+# thêm vào sau khi đã build (.exe là 1 file đóng gói sẵn).
+# python-can>=4.3

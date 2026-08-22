@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-VectorFlash Tool — a PySide6 desktop app that flashes ECU firmware over CAN using UDS (ISO 14229). It can run against a fully-simulated Virtual ECU (no hardware) or real Vector VN1640A/VN1630 hardware via `python-can`.
+FFlash (v1.1) — a PySide6 desktop app that flashes ECU firmware over CAN using UDS (ISO 14229). It can run against a fully-simulated Virtual ECU (no hardware) or real Vector VN1640A/VN1630 hardware via `python-can`.
 
 ## Commands
 
@@ -14,8 +14,14 @@ conda activate pyside6
 pip install -r requirements.txt          # PySide6 only; python-can is commented out
 pip install python-can                   # only needed for real Vector hardware
 
-# Run the app
+# Run the app (GUI)
 python main.py
+
+# Run the app (CLI — see README.md for full flag reference)
+python cli.py info tests/sample.hex
+python cli.py flash tests/sample.hex --dry-run
+python cli.py flash tests/sample.hex --sequence suzuki --radar-side s1
+python cli.py test-connection --sequence suzuki --verbose  # session+security only, no Erase/Download
 
 # Run all tests
 python -m unittest discover -s tests -p "test_*.py" -v
@@ -34,6 +40,7 @@ There is no configured linter/formatter in this repo — don't invent lint comma
 
 - **GUI changes go in `main_window.ui` first, `.py` code second.** If a change can be expressed as a widget/layout/property in the `.ui` XML (adding a widget, moving it, changing a size policy, resize behavior, etc.), make it there and regenerate `ui_main_window.py` with `pyside6-uic` — don't build the equivalent widget by hand in Python. Only fall back to Python-side widget construction for things Designer/the `.ui` format genuinely can't express (e.g. logic-driven content). See "GUI: mixin composition + Designer/generated-code split" below.
 - **Before ending a session that touched the app, run the full test suite and confirm the app itself still launches without crashing** — `python -m unittest discover -s tests -p "test_*.py" -v`, and if `gui/flash_tab.py` or anything QThread-related changed, don't skip `tests/test_flash_threading.py` specifically (see "Threading model" below for why). A green test run is not optional polish here — this codebase has a history of a real crash (`QThread: Destroyed while thread is still running`) that shipped silently because it was only exercised by hand.
+- **Name every widget and layout in `main_window.ui` meaningfully — never leave Designer's auto-numbered defaults** (`verticalLayout_2`, `horizontalLayout_3`, `label_5`, ...). Use a name that says what it is/where it lives, matching the existing style: `verticalLayout_flashTab`, `horizontalLayout_checksumMethod`, `verticalLayout_comm`. If you add or move a widget and it still has a generic Designer name, rename it before moving on. Before renaming an existing one, `grep` `gui/*.py` for `self.ui.<name>` first — a few layouts are referenced directly at runtime (e.g. `flash_tab.py` adds `statsLabel` into `horizontalLayout_flashHeader`), so the Python side must be updated in the same change.
 
 ## Architecture
 
@@ -74,6 +81,22 @@ The Suzuki sequence differs from the generic one in several ISO-14229-relevant w
 ### Trace/logging: two parallel channels into two different widgets
 
 `FlashWorker` emits `trace_message` (plain narrative strings — "Executing: ...", errors) and `trace_row` (structured dicts built by `_on_uds_trace()`, which pairs a TX with its final RX — collapsing intermediate `0x78` ResponsePending frames into one row, matching how the reference CSV trace looks). In `gui/main_window.py`, `log_trace()` renders narrative messages as `SYSTEM` rows and `log_trace_row()` renders structured rows, both into the same `traceTable` (columns match `docs/*_Report_Trace.csv`: Request/Response Timestamp, Target/Source, Data). Information tab (`informationText`, plain `QTextEdit`) and Trace tab (`traceTable`, `QTableWidget`) have independent right-click "Save Log" actions saving `.txt` and `.csv` respectively — see `_write_log_file()` vs `_write_trace_table_csv()`, both split from their dialog-opening counterparts specifically so tests can exercise the write logic without popping a real `QFileDialog`/`QMessageBox`.
+
+### Hardware combo is never hardcoded — always detected
+
+`comboBoxHardware` starts with exactly one item, "Virtual ECU Simulator" (`userData=None`), and `gui/configure_tab.py`'s `populate_hardware_combo()` (called at startup and from the "Refresh" button) appends one entry per real Vector channel returned by `communication.vector_can.detect_vector_channels()`, each with `userData=<channel index>`. There used to be 6 hardcoded "VN1640A/VN1630 - Channel N" placeholder entries in `main_window.ui` regardless of whether any hardware was actually connected — removed because they were misleading (looked selectable/real but weren't backed by anything). `detect_vector_channels()` calls into `can.interfaces.vector.canlib.get_channel_configs()` wrapped in a broad `try/except` returning `[]` on any failure (no `python-can`, no XL Driver, nothing plugged in) — treat all of those as normal states, not something to surface as an error. `get_can_config()` reads the channel from `comboBoxHardware.currentData()`, not by parsing the display text — don't reintroduce text-parsing (e.g. regex on "Channel N") for this.
+
+### CAN bus conflict warning (CANoe/CANalyzer/CANape)
+
+Before touching real hardware (never for the Virtual ECU Simulator), the app checks for a likely conflict with another Vector desktop tool — added because users forget CANoe is still open with a measurement running, and its own TesterPresent/diagnostic traffic can collide with this tool's UDS session. Two independent, best-effort, never-raising signals feed this: `communication.vector_can.detect_running_vector_tools()` (Windows-only, greps `tasklist` output for `canoe`/`canalyzer`/`canape` process names) and the `is_on_bus` field on each dict from `detect_vector_channels()` (straight from the Vector driver, signals *some* app already has the selected channel open, regardless of which one). `gui/configure_tab.py`'s `ConfigureTabMixin.detect_can_conflict_warning()` combines both into one warning string (or `None`) — it does not filter by which hardware is selected; that's the caller's job. `gui/flash_tab.py`'s `flash_button_clicked()` only calls it when `use_virtual` is False, and on a hit shows a Yes/No `QMessageBox` defaulting to **No** (selecting No aborts the flash start before `prepare_flash_ui()` runs, so nothing gets cleared). `cli.py`'s `_warn_can_conflict()` mirrors the same two signals but only prints to stderr and continues — it must never prompt interactively, since the CLI has to stay scriptable.
+
+### CLI (`cli.py`) and the shared firmware-parser dispatch
+
+`cli.py` is a second entry point (`info`/`flash`/`list-hardware`/`test-connection` subcommands, argparse) that drives the same `core.flash_sequence`/`core.flash_controller` layer as the GUI, headless — no widgets are created, only Qt's signal/slot mechanism is used to receive progress. `parsers/auto_parser.py`'s `parse_firmware_file(path, base_address=...)` holds the extension → parser routing (`.hex` → HEX, `.s19`/`.s3`/etc. → S-Record, `.bin` → Binary at `base_address`) and is the **single shared source of truth** for that routing — both `cli.py` and `gui/configure_tab.py`'s `_parse_firmware_file()` call it. If you add a new firmware format/extension, add it here, not in either caller.
+
+`test-connection` deliberately does **not** go through `build_flash_sequence()`/`FlashStep` — it only reuses `FlashWorker._setup_uds_client()` for CAN/UDS connection setup (virtual vs. Vector, Security DLL loading, trace wiring), then drives `UdsClient` calls directly inside its own `try/finally` in `cmd_test_connection()`. The linear FlashStep sequence aborts-on-first-failure and has no way to guarantee a cleanup step runs when an earlier step fails — but `test-connection` promises to always try to restore the ECU to Default session (re-enabling DTC/Communication if it disabled them) no matter where it stopped, which needs that `finally`. Keep this in mind if you're tempted to reuse `build_suzuki_slp1_flash_sequence()` for a "partial" run instead — it won't give you that guarantee.
+
+`cli.py` uses `QApplication` (not the lighter `QCoreApplication`) specifically so it can share one Qt singleton instance with GUI code when both run in the same process — Qt allows only one `QCoreApplication`-family instance per process, and once one exists you cannot swap it for a different subclass. This mattered concretely: `tests/test_cli.py` and `tests/test_gui_smoke.py` both run under `python -m unittest discover`, in the same process — a `QCoreApplication` created first would make every later `QApplication.instance()` call (needed to construct `MainWindow`) fail with "Cannot create a QWidget without QApplication". If you ever need a truly minimal headless entry point again, make sure nothing else in the same test run needs real widgets, or keep everyone on `QApplication`.
 
 ## Reference docs
 

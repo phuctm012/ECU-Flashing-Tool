@@ -26,21 +26,21 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(1675, 1166)
+        MainWindow.resize(1100, 850)
         self.centralwidget = QWidget(MainWindow)
         self.centralwidget.setObjectName(u"centralwidget")
-        self.verticalLayout_2 = QVBoxLayout(self.centralwidget)
-        self.verticalLayout_2.setObjectName(u"verticalLayout_2")
+        self.verticalLayout_root = QVBoxLayout(self.centralwidget)
+        self.verticalLayout_root.setObjectName(u"verticalLayout_root")
         self.tabWidget = QTabWidget(self.centralwidget)
         self.tabWidget.setObjectName(u"tabWidget")
         self.tabWidget.setTabPosition(QTabWidget.TabPosition.North)
         self.tabWidget.setElideMode(Qt.TextElideMode.ElideRight)
         self.flashTab = QWidget()
         self.flashTab.setObjectName(u"flashTab")
-        self.verticalLayout = QVBoxLayout(self.flashTab)
-        self.verticalLayout.setObjectName(u"verticalLayout")
-        self.horizontalLayout = QHBoxLayout()
-        self.horizontalLayout.setObjectName(u"horizontalLayout")
+        self.verticalLayout_flashTab = QVBoxLayout(self.flashTab)
+        self.verticalLayout_flashTab.setObjectName(u"verticalLayout_flashTab")
+        self.horizontalLayout_flashHeader = QHBoxLayout()
+        self.horizontalLayout_flashHeader.setObjectName(u"horizontalLayout_flashHeader")
         self.flashButton = QPushButton(self.flashTab)
         self.flashButton.setObjectName(u"flashButton")
         sizePolicy = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -50,7 +50,7 @@ class Ui_MainWindow(object):
         self.flashButton.setSizePolicy(sizePolicy)
         self.flashButton.setMinimumSize(QSize(90, 70))
 
-        self.horizontalLayout.addWidget(self.flashButton)
+        self.horizontalLayout_flashHeader.addWidget(self.flashButton)
 
         self.progressBar = QProgressBar(self.flashTab)
         self.progressBar.setObjectName(u"progressBar")
@@ -64,15 +64,15 @@ class Ui_MainWindow(object):
         self.progressBar.setValue(0)
         self.progressBar.setTextVisible(False)
 
-        self.horizontalLayout.addWidget(self.progressBar)
+        self.horizontalLayout_flashHeader.addWidget(self.progressBar)
 
-        self.horizontalLayout.setStretch(0, 1)
-        self.horizontalLayout.setStretch(1, 10)
+        self.horizontalLayout_flashHeader.setStretch(0, 1)
+        self.horizontalLayout_flashHeader.setStretch(1, 10)
 
-        self.verticalLayout.addLayout(self.horizontalLayout)
+        self.verticalLayout_flashTab.addLayout(self.horizontalLayout_flashHeader)
 
-        self.horizontalLayout_2 = QHBoxLayout()
-        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
+        self.horizontalLayout_flashTables = QHBoxLayout()
+        self.horizontalLayout_flashTables.setObjectName(u"horizontalLayout_flashTables")
         self.stepsTable = QTableWidget(self.flashTab)
         if (self.stepsTable.columnCount() < 2):
             self.stepsTable.setColumnCount(2)
@@ -82,7 +82,7 @@ class Ui_MainWindow(object):
         self.stepsTable.setHorizontalHeaderItem(1, __qtablewidgetitem1)
         self.stepsTable.setObjectName(u"stepsTable")
 
-        self.horizontalLayout_2.addWidget(self.stepsTable)
+        self.horizontalLayout_flashTables.addWidget(self.stepsTable)
 
         self.segmentsTable = QTableWidget(self.flashTab)
         if (self.segmentsTable.columnCount() < 6):
@@ -101,18 +101,18 @@ class Ui_MainWindow(object):
         self.segmentsTable.setHorizontalHeaderItem(5, __qtablewidgetitem7)
         self.segmentsTable.setObjectName(u"segmentsTable")
 
-        self.horizontalLayout_2.addWidget(self.segmentsTable)
+        self.horizontalLayout_flashTables.addWidget(self.segmentsTable)
 
-        self.horizontalLayout_2.setStretch(0, 3)
-        self.horizontalLayout_2.setStretch(1, 2)
+        self.horizontalLayout_flashTables.setStretch(0, 3)
+        self.horizontalLayout_flashTables.setStretch(1, 2)
 
-        self.verticalLayout.addLayout(self.horizontalLayout_2)
+        self.verticalLayout_flashTab.addLayout(self.horizontalLayout_flashTables)
 
         self.tabWidget.addTab(self.flashTab, "")
         self.configureTab = QWidget()
         self.configureTab.setObjectName(u"configureTab")
-        self.horizontalLayout_3 = QHBoxLayout(self.configureTab)
-        self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
+        self.horizontalLayout_configureTab = QHBoxLayout(self.configureTab)
+        self.horizontalLayout_configureTab.setObjectName(u"horizontalLayout_configureTab")
         self.navListWidget = QListWidget(self.configureTab)
         QListWidgetItem(self.navListWidget)
         QListWidgetItem(self.navListWidget)
@@ -121,25 +121,25 @@ class Ui_MainWindow(object):
         self.navListWidget.setObjectName(u"navListWidget")
         self.navListWidget.setMaximumSize(QSize(200, 16777215))
 
-        self.horizontalLayout_3.addWidget(self.navListWidget)
+        self.horizontalLayout_configureTab.addWidget(self.navListWidget)
 
         self.stackedWidget = QStackedWidget(self.configureTab)
         self.stackedWidget.setObjectName(u"stackedWidget")
         self.pageData = QWidget()
         self.pageData.setObjectName(u"pageData")
-        self.verticalLayout_3 = QVBoxLayout(self.pageData)
-        self.verticalLayout_3.setObjectName(u"verticalLayout_3")
+        self.verticalLayout_dataTab = QVBoxLayout(self.pageData)
+        self.verticalLayout_dataTab.setObjectName(u"verticalLayout_dataTab")
         self.labelDataTitle = QLabel(self.pageData)
         self.labelDataTitle.setObjectName(u"labelDataTitle")
         self.labelDataTitle.setStyleSheet(u"color: #2b579a; font-size: 20px;")
 
-        self.verticalLayout_3.addWidget(self.labelDataTitle)
+        self.verticalLayout_dataTab.addWidget(self.labelDataTitle)
 
         self.labelDatablocks = QLabel(self.pageData)
         self.labelDatablocks.setObjectName(u"labelDatablocks")
         self.labelDatablocks.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
 
-        self.verticalLayout_3.addWidget(self.labelDatablocks)
+        self.verticalLayout_dataTab.addWidget(self.labelDatablocks)
 
         self.tableWidgetDatablocks = QTableWidget(self.pageData)
         if (self.tableWidgetDatablocks.columnCount() < 5):
@@ -156,40 +156,40 @@ class Ui_MainWindow(object):
         self.tableWidgetDatablocks.setHorizontalHeaderItem(4, __qtablewidgetitem12)
         self.tableWidgetDatablocks.setObjectName(u"tableWidgetDatablocks")
 
-        self.verticalLayout_3.addWidget(self.tableWidgetDatablocks)
+        self.verticalLayout_dataTab.addWidget(self.tableWidgetDatablocks)
 
         self.labelAddSetup = QLabel(self.pageData)
         self.labelAddSetup.setObjectName(u"labelAddSetup")
         self.labelAddSetup.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
 
-        self.verticalLayout_3.addWidget(self.labelAddSetup)
+        self.verticalLayout_dataTab.addWidget(self.labelAddSetup)
 
-        self.horizontalLayout_4 = QHBoxLayout()
-        self.horizontalLayout_4.setObjectName(u"horizontalLayout_4")
+        self.horizontalLayout_checksumMethod = QHBoxLayout()
+        self.horizontalLayout_checksumMethod.setObjectName(u"horizontalLayout_checksumMethod")
         self.labelChecksumMethod = QLabel(self.pageData)
         self.labelChecksumMethod.setObjectName(u"labelChecksumMethod")
 
-        self.horizontalLayout_4.addWidget(self.labelChecksumMethod)
+        self.horizontalLayout_checksumMethod.addWidget(self.labelChecksumMethod)
 
         self.comboBoxChecksum = QComboBox(self.pageData)
         self.comboBoxChecksum.addItem("")
         self.comboBoxChecksum.addItem("")
         self.comboBoxChecksum.setObjectName(u"comboBoxChecksum")
 
-        self.horizontalLayout_4.addWidget(self.comboBoxChecksum)
+        self.horizontalLayout_checksumMethod.addWidget(self.comboBoxChecksum)
 
         self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        self.horizontalLayout_4.addItem(self.horizontalSpacer)
+        self.horizontalLayout_checksumMethod.addItem(self.horizontalSpacer)
 
 
-        self.verticalLayout_3.addLayout(self.horizontalLayout_4)
+        self.verticalLayout_dataTab.addLayout(self.horizontalLayout_checksumMethod)
 
         self.labelDetails = QLabel(self.pageData)
         self.labelDetails.setObjectName(u"labelDetails")
         self.labelDetails.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
 
-        self.verticalLayout_3.addWidget(self.labelDetails)
+        self.verticalLayout_dataTab.addWidget(self.labelDetails)
 
         self.tableWidgetDetails = QTableWidget(self.pageData)
         if (self.tableWidgetDetails.columnCount() < 3):
@@ -238,11 +238,11 @@ class Ui_MainWindow(object):
         self.tableWidgetDetails.horizontalHeader().setVisible(False)
         self.tableWidgetDetails.verticalHeader().setVisible(False)
 
-        self.verticalLayout_3.addWidget(self.tableWidgetDetails)
+        self.verticalLayout_dataTab.addWidget(self.tableWidgetDetails)
 
         self.verticalSpacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
 
-        self.verticalLayout_3.addItem(self.verticalSpacer)
+        self.verticalLayout_dataTab.addItem(self.verticalSpacer)
 
         self.stackedWidget.addWidget(self.pageData)
         self.pageComm = QWidget()
@@ -261,14 +261,20 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_comm.addWidget(self.labelHardware)
 
+        self.horizontalLayout_hardware = QHBoxLayout()
+        self.horizontalLayout_hardware.setObjectName(u"horizontalLayout_hardware")
         self.comboBoxHardware = QComboBox(self.pageComm)
-        self.comboBoxHardware.addItem("")
-        self.comboBoxHardware.addItem("")
-        self.comboBoxHardware.addItem("")
-        self.comboBoxHardware.addItem("")
         self.comboBoxHardware.setObjectName(u"comboBoxHardware")
 
-        self.verticalLayout_comm.addWidget(self.comboBoxHardware)
+        self.horizontalLayout_hardware.addWidget(self.comboBoxHardware)
+
+        self.buttonRefreshHardware = QPushButton(self.pageComm)
+        self.buttonRefreshHardware.setObjectName(u"buttonRefreshHardware")
+
+        self.horizontalLayout_hardware.addWidget(self.buttonRefreshHardware)
+
+
+        self.verticalLayout_comm.addLayout(self.horizontalLayout_hardware)
 
         self.labelRadarSide = QLabel(self.pageComm)
         self.labelRadarSide.setObjectName(u"labelRadarSide")
@@ -353,55 +359,6 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_comm.addWidget(self.tableWidgetCommDetails)
 
-        self.labelCustomConfig = QLabel(self.pageComm)
-        self.labelCustomConfig.setObjectName(u"labelCustomConfig")
-        self.labelCustomConfig.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
-
-        self.verticalLayout_comm.addWidget(self.labelCustomConfig)
-
-        self.tableWidgetCustomConfig = QTableWidget(self.pageComm)
-        if (self.tableWidgetCustomConfig.columnCount() < 2):
-            self.tableWidgetCustomConfig.setColumnCount(2)
-        __qtablewidgetitem55 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setHorizontalHeaderItem(0, __qtablewidgetitem55)
-        __qtablewidgetitem56 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setHorizontalHeaderItem(1, __qtablewidgetitem56)
-        if (self.tableWidgetCustomConfig.rowCount() < 4):
-            self.tableWidgetCustomConfig.setRowCount(4)
-        __qtablewidgetitem57 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setVerticalHeaderItem(0, __qtablewidgetitem57)
-        __qtablewidgetitem58 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setVerticalHeaderItem(1, __qtablewidgetitem58)
-        __qtablewidgetitem59 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setVerticalHeaderItem(2, __qtablewidgetitem59)
-        __qtablewidgetitem60 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setVerticalHeaderItem(3, __qtablewidgetitem60)
-        __qtablewidgetitem61 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setItem(0, 0, __qtablewidgetitem61)
-        __qtablewidgetitem62 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setItem(1, 0, __qtablewidgetitem62)
-        __qtablewidgetitem63 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setItem(2, 0, __qtablewidgetitem63)
-        __qtablewidgetitem64 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setItem(3, 0, __qtablewidgetitem64)
-        __qtablewidgetitem65 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setItem(0, 1, __qtablewidgetitem65)
-        __qtablewidgetitem66 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setItem(1, 1, __qtablewidgetitem66)
-        __qtablewidgetitem67 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setItem(2, 1, __qtablewidgetitem67)
-        __qtablewidgetitem68 = QTableWidgetItem()
-        self.tableWidgetCustomConfig.setItem(3, 1, __qtablewidgetitem68)
-        self.tableWidgetCustomConfig.setObjectName(u"tableWidgetCustomConfig")
-        sizePolicy1.setHeightForWidth(self.tableWidgetCustomConfig.sizePolicy().hasHeightForWidth())
-        self.tableWidgetCustomConfig.setSizePolicy(sizePolicy1)
-        self.tableWidgetCustomConfig.setMinimumSize(QSize(0, 122))
-        self.tableWidgetCustomConfig.setMaximumSize(QSize(16777215, 122))
-        self.tableWidgetCustomConfig.horizontalHeader().setVisible(False)
-        self.tableWidgetCustomConfig.verticalHeader().setVisible(False)
-
-        self.verticalLayout_comm.addWidget(self.tableWidgetCustomConfig)
-
         self.verticalSpacer_comm = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
 
         self.verticalLayout_comm.addItem(self.verticalSpacer_comm)
@@ -459,13 +416,74 @@ class Ui_MainWindow(object):
         self.stackedWidget.addWidget(self.pageMisc)
         self.pageCustom = QWidget()
         self.pageCustom.setObjectName(u"pageCustom")
+        self.verticalLayout_custom = QVBoxLayout(self.pageCustom)
+        self.verticalLayout_custom.setObjectName(u"verticalLayout_custom")
+        self.labelCustomTitle = QLabel(self.pageCustom)
+        self.labelCustomTitle.setObjectName(u"labelCustomTitle")
+        self.labelCustomTitle.setStyleSheet(u"color: #2b579a; font-size: 20px;")
+
+        self.verticalLayout_custom.addWidget(self.labelCustomTitle)
+
+        self.labelCustomConfig = QLabel(self.pageCustom)
+        self.labelCustomConfig.setObjectName(u"labelCustomConfig")
+        self.labelCustomConfig.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
+
+        self.verticalLayout_custom.addWidget(self.labelCustomConfig)
+
+        self.tableWidgetCustomConfig = QTableWidget(self.pageCustom)
+        if (self.tableWidgetCustomConfig.columnCount() < 2):
+            self.tableWidgetCustomConfig.setColumnCount(2)
+        __qtablewidgetitem55 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setHorizontalHeaderItem(0, __qtablewidgetitem55)
+        __qtablewidgetitem56 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setHorizontalHeaderItem(1, __qtablewidgetitem56)
+        if (self.tableWidgetCustomConfig.rowCount() < 4):
+            self.tableWidgetCustomConfig.setRowCount(4)
+        __qtablewidgetitem57 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setVerticalHeaderItem(0, __qtablewidgetitem57)
+        __qtablewidgetitem58 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setVerticalHeaderItem(1, __qtablewidgetitem58)
+        __qtablewidgetitem59 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setVerticalHeaderItem(2, __qtablewidgetitem59)
+        __qtablewidgetitem60 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setVerticalHeaderItem(3, __qtablewidgetitem60)
+        __qtablewidgetitem61 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setItem(0, 0, __qtablewidgetitem61)
+        __qtablewidgetitem62 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setItem(1, 0, __qtablewidgetitem62)
+        __qtablewidgetitem63 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setItem(2, 0, __qtablewidgetitem63)
+        __qtablewidgetitem64 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setItem(3, 0, __qtablewidgetitem64)
+        __qtablewidgetitem65 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setItem(0, 1, __qtablewidgetitem65)
+        __qtablewidgetitem66 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setItem(1, 1, __qtablewidgetitem66)
+        __qtablewidgetitem67 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setItem(2, 1, __qtablewidgetitem67)
+        __qtablewidgetitem68 = QTableWidgetItem()
+        self.tableWidgetCustomConfig.setItem(3, 1, __qtablewidgetitem68)
+        self.tableWidgetCustomConfig.setObjectName(u"tableWidgetCustomConfig")
+        sizePolicy1.setHeightForWidth(self.tableWidgetCustomConfig.sizePolicy().hasHeightForWidth())
+        self.tableWidgetCustomConfig.setSizePolicy(sizePolicy1)
+        self.tableWidgetCustomConfig.setMinimumSize(QSize(0, 122))
+        self.tableWidgetCustomConfig.setMaximumSize(QSize(16777215, 122))
+        self.tableWidgetCustomConfig.horizontalHeader().setVisible(False)
+        self.tableWidgetCustomConfig.verticalHeader().setVisible(False)
+
+        self.verticalLayout_custom.addWidget(self.tableWidgetCustomConfig)
+
+        self.verticalSpacer_custom = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+
+        self.verticalLayout_custom.addItem(self.verticalSpacer_custom)
+
         self.stackedWidget.addWidget(self.pageCustom)
 
-        self.horizontalLayout_3.addWidget(self.stackedWidget)
+        self.horizontalLayout_configureTab.addWidget(self.stackedWidget)
 
         self.tabWidget.addTab(self.configureTab, "")
 
-        self.verticalLayout_2.addWidget(self.tabWidget)
+        self.verticalLayout_root.addWidget(self.tabWidget)
 
         self.outputTabWidget = QTabWidget(self.centralwidget)
         self.outputTabWidget.setObjectName(u"outputTabWidget")
@@ -507,8 +525,10 @@ class Ui_MainWindow(object):
 
         self.outputTabWidget.addTab(self.traceTab, "")
 
-        self.verticalLayout_2.addWidget(self.outputTabWidget)
+        self.verticalLayout_root.addWidget(self.outputTabWidget)
 
+        self.verticalLayout_root.setStretch(0, 3)
+        self.verticalLayout_root.setStretch(1, 2)
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QMenuBar(MainWindow)
         self.menubar.setObjectName(u"menubar")
@@ -623,14 +643,10 @@ class Ui_MainWindow(object):
 
         self.labelCommTitle.setText(QCoreApplication.translate("MainWindow", u"Communication", None))
         self.labelHardware.setText(QCoreApplication.translate("MainWindow", u"Hardware configure", None))
-        self.comboBoxHardware.setItemText(0, QCoreApplication.translate("MainWindow", u"VN1640A - Channel 1", None))
-        self.comboBoxHardware.setItemText(1, QCoreApplication.translate("MainWindow", u"VN1640A - Channel 2", None))
-        self.comboBoxHardware.setItemText(2, QCoreApplication.translate("MainWindow", u"VN1640A - Channel 3", None))
-        self.comboBoxHardware.setItemText(3, QCoreApplication.translate("MainWindow", u"VN1640A - Channel 4", None))
-
+        self.buttonRefreshHardware.setText(QCoreApplication.translate("MainWindow", u"Refresh", None))
         self.labelRadarSide.setText(QCoreApplication.translate("MainWindow", u"Radar Side", None))
-        self.comboBoxRadarSide.setItemText(0, QCoreApplication.translate("MainWindow", u"Left (Tx 0x77B / Rx 0x78B)", None))
-        self.comboBoxRadarSide.setItemText(1, QCoreApplication.translate("MainWindow", u"Right (Tx 0x77A / Rx 0x78A)", None))
+        self.comboBoxRadarSide.setItemText(0, QCoreApplication.translate("MainWindow", u"S0 (77B/78B)", None))
+        self.comboBoxRadarSide.setItemText(1, QCoreApplication.translate("MainWindow", u"S1 (77A/78A)", None))
 
         self.labelLogicalLink.setText(QCoreApplication.translate("MainWindow", u"Logical Link", None))
         self.comboBoxLogicalLink.setItemText(0, QCoreApplication.translate("MainWindow", u"CAN", None))
@@ -687,6 +703,15 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem53.setText(QCoreApplication.translate("MainWindow", u"0x700", None))
         self.tableWidgetCommDetails.setSortingEnabled(__sortingEnabled2)
 
+        self.labelMiscTitle.setText(QCoreApplication.translate("MainWindow", u"Miscellaneous", None))
+        self.labelFlashSequence.setText(QCoreApplication.translate("MainWindow", u"Flash Sequence", None))
+        self.comboBoxFlashSequence.setItemText(0, QCoreApplication.translate("MainWindow", u"Suzuki SLP1 (Real Trace) (Default)", None))
+        self.comboBoxFlashSequence.setItemText(1, QCoreApplication.translate("MainWindow", u"Generic", None))
+
+        self.labelSecurityDll.setText(QCoreApplication.translate("MainWindow", u"Security Access DLL (Optional)", None))
+        self.lineEditSecurityDll.setPlaceholderText(QCoreApplication.translate("MainWindow", u"No DLL selected \u2014 using built-in seed/key algorithm", None))
+        self.buttonBrowseSecurityDll.setText(QCoreApplication.translate("MainWindow", u"Browse...", None))
+        self.labelCustomTitle.setText(QCoreApplication.translate("MainWindow", u"Custom Actions", None))
         self.labelCustomConfig.setText(QCoreApplication.translate("MainWindow", u"Custom Configuration", None))
         ___qtablewidgetitem54 = self.tableWidgetCustomConfig.horizontalHeaderItem(0)
         ___qtablewidgetitem54.setText(QCoreApplication.translate("MainWindow", u"Property", None))
@@ -721,14 +746,6 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem67.setText(QCoreApplication.translate("MainWindow", u"50 msec", None))
         self.tableWidgetCustomConfig.setSortingEnabled(__sortingEnabled3)
 
-        self.labelMiscTitle.setText(QCoreApplication.translate("MainWindow", u"Miscellaneous", None))
-        self.labelFlashSequence.setText(QCoreApplication.translate("MainWindow", u"Flash Sequence", None))
-        self.comboBoxFlashSequence.setItemText(0, QCoreApplication.translate("MainWindow", u"Generic (Default)", None))
-        self.comboBoxFlashSequence.setItemText(1, QCoreApplication.translate("MainWindow", u"Suzuki SLP1 (Real Trace)", None))
-
-        self.labelSecurityDll.setText(QCoreApplication.translate("MainWindow", u"Security Access DLL (Optional)", None))
-        self.lineEditSecurityDll.setPlaceholderText(QCoreApplication.translate("MainWindow", u"No DLL selected \u2014 using built-in seed/key algorithm", None))
-        self.buttonBrowseSecurityDll.setText(QCoreApplication.translate("MainWindow", u"Browse...", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.configureTab), QCoreApplication.translate("MainWindow", u"Configure", None))
         self.outputTabWidget.setTabText(self.outputTabWidget.indexOf(self.informationTab), QCoreApplication.translate("MainWindow", u"Information", None))
         ___qtablewidgetitem68 = self.traceTable.horizontalHeaderItem(0)

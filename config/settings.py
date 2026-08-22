@@ -2,8 +2,8 @@
 # Application Settings & Defaults
 # ==================================================
 
-APP_NAME = "VectorFlash Tool"
-APP_VERSION = "1.0.0"
+APP_NAME = "FFlash"
+APP_VERSION = "1.1"
 APP_AUTHOR = "tranph9"
 APP_AUTHOR_NAME = "TRAN Phuc"
 
@@ -40,13 +40,13 @@ CAN_CONFIGS = {
 # Suzuki Radar ECU — Physical CAN IDs
 # --------------------------------------------------
 #
-# The vehicle has two Radar ECUs (Left/Right), each with
-# its own physical Tx/Rx CAN ID. Left is the default;
-# the user switches to Right from Configure -> Communication.
+# The vehicle has two Radar ECUs (S0/S1), each with its own
+# physical Tx/Rx CAN ID. S0 is the default; the user switches
+# to S1 from Configure -> Communication.
 
 SUZUKI_RADAR_CAN_IDS = {
-    "Left": {"tx_id": "0x77B", "rx_id": "0x78B"},
-    "Right": {"tx_id": "0x77A", "rx_id": "0x78A"},
+    "S0": {"tx_id": "0x77B", "rx_id": "0x78B"},
+    "S1": {"tx_id": "0x77A", "rx_id": "0x78A"},
 }
 
 CUSTOM_CONFIG_DEFAULTS = [
@@ -59,16 +59,12 @@ CUSTOM_CONFIG_DEFAULTS = [
 # --------------------------------------------------
 # Hardware
 # --------------------------------------------------
-
-HARDWARE_OPTIONS = [
-    "Virtual ECU Simulator (No Hardware)",
-    "VN1640A - Channel 1",
-    "VN1640A - Channel 2",
-    "VN1640A - Channel 3",
-    "VN1640A - Channel 4",
-    "VN1630 - Channel 1",
-    "VN1630 - Channel 2",
-]
+#
+# No static channel list here — comboBoxHardware always
+# starts with just "Virtual ECU Simulator" and is filled
+# out with whatever real Vector channels are actually
+# detected right now, via
+# communication.vector_can.detect_vector_channels().
 
 LOGICAL_LINK_OPTIONS = [
     "CAN",

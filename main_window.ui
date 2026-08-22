@@ -6,15 +6,15 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1675</width>
-    <height>1166</height>
+    <width>1100</width>
+    <height>850</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>MainWindow</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QVBoxLayout" name="verticalLayout_2">
+   <layout class="QVBoxLayout" name="verticalLayout_root" stretch="3,2">
     <item>
       <widget class="QTabWidget" name="tabWidget">
        <property name="tabPosition">
@@ -30,9 +30,9 @@
         <attribute name="title">
          <string>Flash</string>
         </attribute>
-        <layout class="QVBoxLayout" name="verticalLayout" stretch="0,0">
+        <layout class="QVBoxLayout" name="verticalLayout_flashTab" stretch="0,0">
           <item>
-           <layout class="QHBoxLayout" name="horizontalLayout" stretch="1,10">
+           <layout class="QHBoxLayout" name="horizontalLayout_flashHeader" stretch="1,10">
             <item>
              <widget class="QPushButton" name="flashButton">
               <property name="sizePolicy">
@@ -83,7 +83,7 @@
            </layout>
           </item>
           <item>
-           <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="3,2">
+           <layout class="QHBoxLayout" name="horizontalLayout_flashTables" stretch="3,2">
             <item>
              <widget class="QTableWidget" name="stepsTable">
               <column>
@@ -140,7 +140,7 @@
         <attribute name="title">
          <string>Configure</string>
         </attribute>
-        <layout class="QHBoxLayout" name="horizontalLayout_3">
+        <layout class="QHBoxLayout" name="horizontalLayout_configureTab">
          <item>
           <widget class="QListWidget" name="navListWidget">
            <property name="maximumSize">
@@ -177,7 +177,7 @@
             <number>0</number>
            </property>
            <widget class="QWidget" name="pageData">
-            <layout class="QVBoxLayout" name="verticalLayout_3">
+            <layout class="QVBoxLayout" name="verticalLayout_dataTab">
              <item>
               <widget class="QLabel" name="labelDataTitle">
                <property name="styleSheet">
@@ -238,7 +238,7 @@
               </widget>
              </item>
              <item>
-              <layout class="QHBoxLayout" name="horizontalLayout_4">
+              <layout class="QHBoxLayout" name="horizontalLayout_checksumMethod">
                <item>
                 <widget class="QLabel" name="labelChecksumMethod">
                  <property name="text">
@@ -396,28 +396,18 @@
               </widget>
              </item>
              <item>
-              <widget class="QComboBox" name="comboBoxHardware">
+              <layout class="QHBoxLayout" name="horizontalLayout_hardware">
                <item>
-                <property name="text">
-                 <string>VN1640A - Channel 1</string>
-                </property>
+                <widget class="QComboBox" name="comboBoxHardware"/>
                </item>
                <item>
-                <property name="text">
-                 <string>VN1640A - Channel 2</string>
-                </property>
+                <widget class="QPushButton" name="buttonRefreshHardware">
+                 <property name="text">
+                  <string>Refresh</string>
+                 </property>
+                </widget>
                </item>
-               <item>
-                <property name="text">
-                 <string>VN1640A - Channel 3</string>
-                </property>
-               </item>
-               <item>
-                <property name="text">
-                 <string>VN1640A - Channel 4</string>
-                </property>
-               </item>
-              </widget>
+              </layout>
              </item>
              <item>
               <widget class="QLabel" name="labelRadarSide">
@@ -433,12 +423,12 @@
               <widget class="QComboBox" name="comboBoxRadarSide">
                <item>
                 <property name="text">
-                 <string>Left (Tx 0x77B / Rx 0x78B)</string>
+                 <string>S0 (77B/78B)</string>
                 </property>
                </item>
                <item>
                 <property name="text">
-                 <string>Right (Tx 0x77A / Rx 0x78A)</string>
+                 <string>S1 (77A/78A)</string>
                 </property>
                </item>
               </widget>
@@ -551,6 +541,115 @@
               </widget>
              </item>
              <item>
+              <spacer name="verticalSpacer_comm">
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>40</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="pageMisc">
+            <layout class="QVBoxLayout" name="verticalLayout_misc">
+             <item>
+              <widget class="QLabel" name="labelMiscTitle">
+               <property name="styleSheet">
+                <string notr="true">color: #2b579a; font-size: 20px;</string>
+               </property>
+               <property name="text">
+                <string>Miscellaneous</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelFlashSequence">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Flash Sequence</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="comboBoxFlashSequence">
+               <item>
+                <property name="text">
+                 <string>Suzuki SLP1 (Real Trace) (Default)</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Generic</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelSecurityDll">
+               <property name="styleSheet">
+                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+               </property>
+               <property name="text">
+                <string>Security Access DLL (Optional)</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="horizontalLayout_securityDll">
+               <item>
+                <widget class="QLineEdit" name="lineEditSecurityDll">
+                 <property name="readOnly">
+                  <bool>true</bool>
+                 </property>
+                 <property name="placeholderText">
+                  <string>No DLL selected — using built-in seed/key algorithm</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="buttonBrowseSecurityDll">
+                 <property name="text">
+                  <string>Browse...</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <spacer name="verticalSpacer_misc">
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>40</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="pageCustom">
+            <layout class="QVBoxLayout" name="verticalLayout_custom">
+             <item>
+              <widget class="QLabel" name="labelCustomTitle">
+               <property name="styleSheet">
+                <string notr="true">color: #2b579a; font-size: 20px;</string>
+               </property>
+               <property name="text">
+                <string>Custom Actions</string>
+               </property>
+              </widget>
+             </item>
+             <item>
               <widget class="QLabel" name="labelCustomConfig">
                <property name="styleSheet">
                 <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
@@ -635,7 +734,7 @@
               </widget>
              </item>
              <item>
-              <spacer name="verticalSpacer_comm">
+              <spacer name="verticalSpacer_custom">
                <property name="orientation">
                 <enum>Qt::Vertical</enum>
                </property>
@@ -649,89 +748,6 @@
              </item>
             </layout>
            </widget>
-           <widget class="QWidget" name="pageMisc">
-            <layout class="QVBoxLayout" name="verticalLayout_misc">
-             <item>
-              <widget class="QLabel" name="labelMiscTitle">
-               <property name="styleSheet">
-                <string notr="true">color: #2b579a; font-size: 20px;</string>
-               </property>
-               <property name="text">
-                <string>Miscellaneous</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="labelFlashSequence">
-               <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
-               </property>
-               <property name="text">
-                <string>Flash Sequence</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QComboBox" name="comboBoxFlashSequence">
-               <item>
-                <property name="text">
-                 <string>Generic (Default)</string>
-                </property>
-               </item>
-               <item>
-                <property name="text">
-                 <string>Suzuki SLP1 (Real Trace)</string>
-                </property>
-               </item>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="labelSecurityDll">
-               <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
-               </property>
-               <property name="text">
-                <string>Security Access DLL (Optional)</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <layout class="QHBoxLayout" name="horizontalLayout_securityDll">
-               <item>
-                <widget class="QLineEdit" name="lineEditSecurityDll">
-                 <property name="readOnly">
-                  <bool>true</bool>
-                 </property>
-                 <property name="placeholderText">
-                  <string>No DLL selected — using built-in seed/key algorithm</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QPushButton" name="buttonBrowseSecurityDll">
-                 <property name="text">
-                  <string>Browse...</string>
-                 </property>
-                </widget>
-               </item>
-              </layout>
-             </item>
-             <item>
-              <spacer name="verticalSpacer_misc">
-               <property name="orientation">
-                <enum>Qt::Vertical</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>20</width>
-                 <height>40</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-            </layout>
-           </widget>
-           <widget class="QWidget" name="pageCustom"/>
           </widget>
          </item>
         </layout>

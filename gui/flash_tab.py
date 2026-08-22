@@ -12,7 +12,7 @@
 import time
 from datetime import datetime
 
-from PySide6.QtWidgets import QTableWidgetItem
+from PySide6.QtWidgets import QTableWidgetItem, QMessageBox
 from PySide6.QtGui import QColor
 from PySide6.QtCore import QThread, Qt
 
@@ -47,7 +47,7 @@ class FlashTabMixin:
         # Stats Label
         from PySide6.QtWidgets import QLabel
         self.ui.statsLabel = QLabel("ETA: -- | Speed: --")
-        self.ui.horizontalLayout.addWidget(
+        self.ui.horizontalLayout_flashHeader.addWidget(
             self.ui.statsLabel
         )
 
@@ -98,6 +98,35 @@ class FlashTabMixin:
 
         else:
 
+            # Check hardware selection — Virtual ECU Simulator
+            # is stored with userData=None, real Vector
+            # channels with their channel index (see
+            # ConfigureTabMixin.populate_hardware_combo()).
+            use_virtual = True
+            if hasattr(self.ui, 'comboBoxHardware'):
+                use_virtual = (
+                    self.ui.comboBoxHardware.currentData() is None
+                )
+
+            # Warn (don't block) about a likely CAN bus
+            # conflict — e.g. CANoe left running with a
+            # measurement active — before touching real
+            # hardware. Not applicable to the Virtual ECU
+            # Simulator. User can still choose to proceed.
+            if (not use_virtual
+                    and hasattr(self, 'detect_can_conflict_warning')):
+                warning = self.detect_can_conflict_warning()
+                if warning:
+                    choice = QMessageBox.warning(
+                        self,
+                        "Possible CAN Bus Conflict",
+                        warning + "\n\nContinue with flashing anyway?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No,
+                    )
+                    if choice != QMessageBox.Yes:
+                        return
+
             # Start
             self.prepare_flash_ui()
 
@@ -119,12 +148,6 @@ class FlashTabMixin:
                 )
             else:
                 steps = build_flash_sequence(datablocks)
-
-            # Check hardware selection
-            use_virtual = True
-            if hasattr(self.ui, 'comboBoxHardware'):
-                hw_text = self.ui.comboBoxHardware.currentText()
-                use_virtual = "Virtual" in hw_text
 
             security_dll_path = getattr(
                 self, '_security_dll_path', ''

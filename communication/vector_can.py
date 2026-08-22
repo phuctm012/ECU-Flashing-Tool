@@ -11,6 +11,8 @@
 #   - Vector hardware connected
 # ==================================================
 
+import sys
+import subprocess
 from typing import Optional
 
 from communication.can_interface import (
@@ -20,6 +22,103 @@ from communication.can_interface import (
     CanConnectionError,
     CanTimeoutError,
 )
+
+# Vector desktop tools whose process names we check for when
+# warning about a possible CAN bus conflict — see
+# detect_running_vector_tools().
+_KNOWN_VECTOR_TOOL_NAMES = ("canoe", "canalyzer", "canape")
+
+
+def detect_vector_channels():
+    """
+    Enumerate real Vector hardware channels currently present
+    on this machine (VN1640A/VN1630/...), via the XL Driver
+    Library through python-can.
+
+    Returns an empty list — never raises — if python-can isn't
+    installed, the Vector XL Driver isn't installed, or no
+    Vector hardware is plugged in. All of these are normal,
+    expected states (most users run the Virtual ECU Simulator),
+    not errors.
+
+    Returns:
+        List of dicts: {"label": str, "channel": int,
+        "is_on_bus": bool}. "channel" is the value to pass
+        to VectorCanInterface.connect(channel=...) to open
+        that specific channel. "is_on_bus" is a best-effort
+        signal (straight from the driver, not verified
+        against real hardware in this codebase) that some
+        application — possibly this one, possibly CANoe/
+        CANalyzer/another XL API tool — already has an
+        active bus connection on that channel right now.
+    """
+
+    try:
+        from can.interfaces.vector import canlib
+        configs = canlib.get_channel_configs()
+    except Exception:
+        return []
+
+    channels = []
+
+    for cfg in configs:
+
+        channel_index = getattr(cfg, "channel_index", None)
+
+        if channel_index is None:
+            continue
+
+        hw_name = (
+            getattr(cfg, "hw_name", "")
+            or getattr(cfg, "name", "Vector")
+        )
+        hw_channel = getattr(cfg, "hw_channel", 0)
+
+        channels.append({
+            "label": f"{hw_name} - Channel {hw_channel + 1}",
+            "channel": channel_index,
+            "is_on_bus": bool(getattr(cfg, "is_on_bus", False)),
+        })
+
+    return channels
+
+
+def detect_running_vector_tools():
+    """
+    Best-effort check for other Vector desktop tools
+    (CANoe/CANalyzer/CANape) that might already be running —
+    a common way users end up with two testers talking to the
+    same ECU at once (see docs/walkthrough.md Phase 4.23).
+
+    Windows-only (uses `tasklist`); returns [] on any other
+    platform or if the check fails for any reason. This is a
+    heads-up signal, not a guarantee — it only detects that
+    the *process* is running, not whether it's actively
+    transmitting on the same CAN channel this tool is about
+    to use (a CANoe window just sitting open, not measuring,
+    is harmless).
+
+    Returns:
+        List of matched tool names (empty if none found/
+        unknown), e.g. ["canoe"].
+    """
+
+    if sys.platform != "win32":
+        return []
+
+    try:
+        result = subprocess.run(
+            ["tasklist"],
+            capture_output=True, text=True, timeout=5,
+        )
+        output = result.stdout.lower()
+    except Exception:
+        return []
+
+    return [
+        name for name in _KNOWN_VECTOR_TOOL_NAMES
+        if name in output
+    ]
 
 
 class VectorCanInterface(CanInterface):

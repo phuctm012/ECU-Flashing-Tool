@@ -1,4 +1,4 @@
-# VectorFlash Tool
+# FFlash (v1.1)
 
 Ứng dụng desktop (PySide6) để **flash firmware ECU** qua giao thức **UDS (ISO 14229)** trên bus CAN — hỗ trợ chạy với **ECU giả lập** (không cần phần cứng) hoặc với thiết bị **Vector VN1640A / VN1630** thật.
 
@@ -22,7 +22,8 @@
 
 ```
 06_PYSIDE6/
-├── main.py                    ← Entry point
+├── main.py                    ← Entry point (GUI)
+├── cli.py                     ← Entry point (Command Line Interface)
 ├── main_window.ui             ← Qt Designer file
 ├── ui_main_window.py          ← UI auto-generated (từ main_window.ui)
 │
@@ -46,10 +47,11 @@
 ├── parsers/                    ← Parser file firmware
 │   ├── hex_parser.py           ← Intel HEX
 │   ├── srec_parser.py          ← Motorola S-Record
-│   └── binary_parser.py        ← Raw binary
+│   ├── binary_parser.py        ← Raw binary
+│   └── auto_parser.py          ← Tự nhận diện định dạng theo đuôi file (dùng chung GUI + CLI)
 │
 ├── config/settings.py          ← Hằng số app (hardware options, CAN config mẫu...)
-├── tests/sample.hex            ← File HEX mẫu để test
+├── tests/                      ← Bộ test tự động (unittest) + sample.hex
 └── docs/
     ├── walkthrough.md          ← Nhật ký triển khai chi tiết từng phase
     └── *_Report_Trace.csv      ← Log CAN trace thật, dùng để đối chiếu flash sequence
@@ -132,11 +134,137 @@ python main.py
 
 ## Sử Dụng Với Phần Cứng Vector Thật
 
-1. Cài `pip install python-can` và driver Vector (XL Driver Library) từ nhà sản xuất.
-2. Kết nối thiết bị VN1640A/VN1630 vào máy.
-3. Tab **Configure → Communication** → chọn kênh tương ứng (vd. **"VN1640A - Channel 1"**).
-4. Nếu ECU yêu cầu thuật toán bảo mật riêng của OEM: chọn file DLL ở mục **"Security Access DLL"** (Browse...).
-5. Nạp file firmware và nhấn **Flash** như trên.
+Phần cứng Vector (VN1640A/VN1630) **chỉ chạy được trên Windows** (XL Driver Library không có bản macOS/Linux). Cần cài đặt + cấu hình đúng thứ tự dưới đây — bỏ qua bước cấu hình **Vector Hardware Config** là nguyên nhân phổ biến nhất khiến kết nối thất bại dù hardware đã cắm vào máy.
+
+### A. Cài đặt (làm 1 lần trên máy Windows)
+
+1. Cài **Vector Driver Setup** (tải từ [vector.com](https://www.vector.com), hoặc có sẵn nếu máy đã cài CANoe/CANalyzer/CANape) — gói này cài:
+   - **XL Driver Library** — thư viện driver mà `python-can` dùng để giao tiếp phần cứng Vector.
+   - **Vector Hardware Config** (tên cũ: *Vector Hardware Manager*) — công cụ quản lý channel/ứng dụng, **bắt buộc phải dùng** ở bước B.
+2. `pip install python-can` (đã ghi sẵn nhưng comment trong `requirements.txt` — chạy `pip install python-can` riêng, hoặc bỏ comment dòng đó rồi `pip install -r requirements.txt`).
+3. Cắm thiết bị VN1640A/VN1630 vào máy qua USB.
+
+### B. Cấu hình Vector Hardware Config (**bắt buộc**, làm 1 lần mỗi máy)
+
+Vector XL Driver không cho ứng dụng truy cập channel tự do — mỗi phần mềm (CANoe, CANalyzer, hay app tự viết như tool này) phải được **đăng ký tên ứng dụng**, và channel vật lý phải được **gán (assign)** cho đúng tên đó. Tool này đăng ký với tên **`FlashTool`** (xem `communication/vector_can.py`, tham số `app_name`).
+
+1. Mở **Vector Hardware Config** (tìm trong Start Menu sau khi cài Driver Setup).
+2. Vào tab **Applications** → nếu chưa có mục **"FlashTool"**, bấm **Add/New Application** để thêm (đặt tên đúng chính xác `FlashTool`).
+3. Ở mục cấu hình của "FlashTool", **gán (assign)** channel vật lý muốn dùng vào đó — vd. kéo **"VN1640A – Channel 1"** vào slot CAN1 của ứng dụng FlashTool.
+4. **Save**.
+
+Nếu bỏ qua bước này, kết nối từ tool sẽ báo lỗi kiểu *"no channels configured for application"* dù `list-hardware`/nút **Refresh** trong GUI vẫn "thấy" được hardware — vì bước quét đó chỉ hỏi driver "có hardware nào cắm vào máy" (không cần đăng ký app), còn bước **kết nối thật** thì driver bắt buộc phải tra theo tên app đã đăng ký.
+
+### C. Nếu dùng chung hardware với CANoe
+
+- CANoe và tool này có thể cùng đăng ký dùng chung 1 channel vật lý (driver Vector hỗ trợ nhiều app/channel).
+- Nên **dừng measurement (hoặc đóng) CANoe** trong lúc dùng tool này, tránh 2 bên cùng gửi frame lên bus gây xung đột/nhiễu trace — đặc biệt nếu CANoe có node giả lập gửi UDS/TesterPresent trùng CAN ID.
+- Nếu muốn dùng CANoe song song chỉ để **log CAN bus** (không có node/panel nào chủ động gửi UDS): về nguyên tắc có thể chạy cùng lúc, nhưng nhớ **tắt TesterPresent tự động của CANoe** (nếu có bật) trên đúng CAN ID của ECU đang flash — nếu cả CANoe lẫn tool này cùng gửi TesterPresent (0x3E), ECU có thể nhận 2 tester khác nhau và raise NRC bất thường hoặc rớt session giữa chừng.
+- **Cảnh báo tự động**: từ Phase 4.23, trước khi flash vào hardware thật (không áp dụng cho Virtual ECU Simulator), tool tự kiểm tra 2 tín hiệu và cảnh báo nếu phát hiện rủi ro xung đột — vì người dùng đôi khi quên CANoe vẫn đang mở:
+  - Có tiến trình `CANoe.exe`/`CANalyzer.exe`/`CANape.exe` đang chạy trên máy (chỉ hoạt động trên Windows, qua `tasklist`).
+  - Channel Vector đang chọn được driver báo là **đã có kết nối active** (`is_on_bus`), bất kể ứng dụng nào đang giữ nó.
+
+  Trong GUI, gặp cảnh báo này sẽ hiện hộp thoại Yes/No (mặc định **No**) trước khi bắt đầu flash. Trong `cli.py` (`flash`/`test-connection`), cảnh báo chỉ **in ra `stderr`** rồi tiếp tục chạy — không chặn, để giữ khả năng chạy script/tự động hóa.
+
+### D. Sử dụng trong app
+
+1. Tab **Configure → Communication** → bấm **"Refresh"** cạnh combo Hardware để quét lại thiết bị đang cắm, rồi chọn kênh tương ứng vừa xuất hiện. Combo mặc định chỉ có **"Virtual ECU Simulator"** — kênh thật chỉ hiện ra khi có hardware Vector thật sự được nhận diện *và* đã đăng ký ở bước B (không còn danh sách kênh giả cố định như trước).
+2. Nếu ECU yêu cầu thuật toán bảo mật riêng của OEM: chọn file DLL ở mục **"Security Access DLL"** (Browse...).
+3. Nạp file firmware và nhấn **Flash** như trên. Khuyến nghị chạy `test-connection` trước (xem mục [Command Line Interface](#command-line-interface-clipy)) để xác nhận đấu dây/channel/security đúng trước khi flash thật.
+
+### Lưu ý về đánh số channel (`--channel N`)
+
+`--channel`/channel trong combo Hardware hiện lấy theo `channel_index` toàn cục do driver trả về. Có khả năng `python-can` (khi có `app_name`) diễn giải số channel theo thứ tự **đã gán riêng cho app đó** trong Vector Hardware Config (không phải số toàn cục) — chưa kiểm chứng được với hardware thật. Nếu sau khi cấu hình xong ở bước B mà `--channel 0`/channel đầu tiên trong combo kết nối nhầm thiết bị, hoặc báo lỗi liên quan tới channel, hãy lưu lại thông báo lỗi/log (xem mục [Test Trên ECU Thật](#test-trên-ecu-thật-từ-máy-windows)) để điều chỉnh lại `detect_vector_channels()`/`VectorCanInterface.connect()` cho khớp đúng cách driver diễn giải trên máy thật.
+
+---
+
+## Command Line Interface (`cli.py`)
+
+Chạy các chức năng chính của app từ command line — không cần mở GUI. Chạy được trên cả **Windows, macOS, Linux** (chỉ dùng thư viện chuẩn + PySide6, không phụ thuộc gì thêm ngoài `requirements.txt`).
+
+```bash
+# Xem thông tin file firmware (không flash)
+python cli.py info tests/sample.hex
+
+# Xem trước các bước sẽ chạy, không gửi gì tới ECU
+python cli.py flash tests/sample.hex --dry-run
+
+# Flash qua Virtual ECU Simulator (mặc định, không cần hardware)
+python cli.py flash tests/sample.hex
+
+# Flash bằng Suzuki flash sequence, Radar Side S1
+python cli.py flash firmware.s3 --sequence suzuki --radar-side s1
+
+# Flash hardware Vector thật, channel 2, kèm CAN trace chi tiết
+python cli.py flash firmware.s3 --hardware vector --channel 1 --verbose
+
+# Test kết nối + Security Access an toàn — KHÔNG Erase/Download —
+# trước khi tin tưởng flash thật (xem mục "Test Trên ECU Thật" bên dưới)
+python cli.py test-connection --hardware vector --channel 0 --sequence suzuki --verbose
+
+# Xem danh sách hardware/CAN option (tự quét hardware Vector thật đang cắm)
+python cli.py list-hardware
+
+# Xem đầy đủ option
+python cli.py flash --help
+python cli.py test-connection --help
+```
+
+Các cờ chính của `flash`/`test-connection` (dùng chung): `--hardware {virtual,vector}`, `--channel`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `-q`/`--quiet`, `-v`/`--verbose`. Riêng `flash` có thêm `--base-address` (cho file `.bin`) và `--dry-run`. Mã thoát (exit code): `0` = thành công, `1` = abort/lỗi, `2` = lỗi tham số/parse file, `130` = bị ngắt (Ctrl+C) — thuận tiện để dùng trong script CI/automation.
+
+**Lưu ý**: `--hardware vector` (Vector VN1640A/VN1630 thật) chỉ dùng được trên **Windows** vì driver Vector XL Driver Library chỉ có bản Windows. `--hardware virtual` (mặc định) chạy y hệt trên mọi hệ điều hành.
+
+### `test-connection` — kiểm tra kết nối an toàn trước khi flash thật
+
+Chỉ thực hiện **Session Control + Security Access** (và đọc ECU Identification, read-only) — **không bao giờ** đụng tới Erase Memory / TransferData / bất kỳ lệnh ghi nào. Dùng để xác nhận đấu dây/CAN ID/thuật toán security đúng trước khi tin tưởng chạy `flash` thật lên ECU.
+
+- Với `--sequence suzuki`: thực hiện đúng các bước tiền-Security giống log thật (Extended Session, Disable DTC, Disable Communication — đều functional/broadcast tới `0x700`), sau đó Programming Session + Security Access ở địa chỉ vật lý.
+- **Luôn cố khôi phục ECU về trạng thái an toàn khi kết thúc**, dù thành công hay lỗi giữa chừng: bật lại DTC/Communication (nếu đã tắt) rồi trả về Default Session — nhờ `try/finally`, không phụ thuộc bước nào ở trên có pass hay không.
+- Kết quả in: `PASSED` (exit 0) hoặc `FAILED` kèm lý do cụ thể (exit 1) — ví dụ Security Access bị từ chối (NRC 0x35 Invalid Key) nghĩa là thuật toán/DLL security chưa đúng với ECU thật.
+
+---
+
+## Test Trên ECU Thật (Từ Máy Windows)
+
+Project build/dev trên Mac, nhưng test với ECU thật cần chạy trên **Windows** (driver Vector chỉ có bản Windows). Quy trình đề xuất:
+
+### 1. Setup trên Windows
+
+```powershell
+git clone https://github.com/phuctm012/ECU-Flashing-Tool.git
+cd ECU-Flashing-Tool
+conda create -n pyside6 python=3.12
+conda activate pyside6
+pip install -r requirements.txt
+pip install python-can
+```
+
+Cài thêm **Vector XL Driver Library** (từ trang Vector Informatik). Luôn chạy app qua **terminal/PowerShell** (không double-click) — nếu có exception/crash, traceback đầy đủ sẽ hiện ra terminal thay vì biến mất.
+
+### 2. Quy trình test an toàn (theo thứ tự)
+
+```powershell
+# 1. Xác nhận hardware đã được nhận diện đúng
+python cli.py list-hardware
+
+# 2. Xem trước sequence, KHÔNG đụng ECU — kiểm tra logic trước
+python cli.py flash firmware.s3 --sequence suzuki --dry-run
+
+# 3. Test kết nối + Security Access — an toàn, không Erase/Download
+python cli.py test-connection --hardware vector --channel 0 --sequence suzuki --verbose
+
+# 4. Chỉ khi bước 3 PASSED mới flash thật — nên test trên ECU dự phòng/bench trước
+python cli.py flash firmware.s3 --hardware vector --channel 0 --sequence suzuki --verbose > flash_log.txt 2>&1
+```
+
+Hoặc test qua GUI (`python main.py`): Configure → Communication → bấm **Refresh** để quét hardware thật đang cắm → chọn channel/Radar Side → nạp firmware → Flash.
+
+### 3. Cách lấy log gửi lại để debug
+
+- **Ưu tiên nhất — tab Trace (GUI) → chuột phải → "Save Log (CSV)..."**: đúng format 6 cột giống `docs/*_Report_Trace.csv` đã phân tích trước đó → đối chiếu trực tiếp từng bước UDS được ngay.
+- **CLI**: dùng `--verbose > flash_log.txt 2>&1` (gộp cả stdout + stderr vào 1 file, có đầy đủ TX/RX hex frame).
+- Nếu app crash: copy nguyên traceback từ terminal (nhờ chạy qua terminal ở bước 1, không double-click).
+- Tab Information (GUI) → "Save Log..." (.txt) — log dễ đọc hơn, bổ trợ cho Trace.
 
 ---
 
@@ -174,6 +302,25 @@ python -m unittest tests.test_parsers -v
 | `test_uds_client.py` | UDS Client qua Virtual ECU: session/security/read/write, functional addressing, NRC retry, ResponsePending (0x78), regression byte-order `RequestDownload` (ISO 14229) |
 | `test_flash_controller.py` | `FlashWorker.run()` end-to-end (đồng bộ) qua Virtual ECU — cả sequence generic lẫn Suzuki |
 | `test_flash_threading.py` | **Regression cho crash `QThread: Destroyed while thread is still running`** — chạy qua đúng `QThread` thật (`flash_button_clicked()` + `app.exec()`): 1 lần, lặp 5 lần, abort giữa chừng, đóng cửa sổ giữa chừng |
-| `test_gui_smoke.py` | Khởi tạo `MainWindow`, tồn tại widget, `get_can_config()` (Radar Side, channel, CAN FD), lưu log `.txt`/`.csv` |
+| `test_gui_smoke.py` | Khởi tạo `MainWindow`, tồn tại widget, `get_can_config()` (Radar Side, channel, CAN FD), lưu log `.txt`/`.csv`, cảnh báo xung đột CAN bus (`detect_can_conflict_warning()`) |
+| `test_cli.py` | `cli.py` — `info`/`flash`/`list-hardware`/`test-connection`, `--dry-run`, Suzuki + Radar Side, `--quiet`/`--verbose`, cleanup khôi phục DTC/Comm, mã lỗi khi thiếu `python-can`/sai tham số |
+| `test_vector_can.py` | `detect_running_vector_tools()` (nhận diện CANoe/CANalyzer/CANape qua `tasklist`, chỉ Windows) và field `is_on_bus` trong `detect_vector_channels()` |
 
 **Lưu ý cho `test_flash_threading.py`**: đây là bộ test quan trọng nhất để tránh crash — nó cố tình chạy qua `QThread` thật thay vì gọi `FlashWorker.run()` trực tiếp (cách nhanh nhưng **không** phát hiện được race condition giữa Python và vòng đời `QThread`). Khi sửa bất kỳ logic nào liên quan tới `gui/flash_tab.py` (đặc biệt phần connect signal `flash_finished`/`flash_aborted`/`thread.finished`), luôn chạy lại file này.
+
+---
+
+## Build File `.exe` (Windows)
+
+Đóng gói GUI (`main.py`) thành 1 file `FFlash.exe` standalone bằng [PyInstaller](https://pyinstaller.org/) — chỉ build được trên **Windows** (không build cho macOS/Linux).
+
+```bat
+REM Trên máy Windows, trong thư mục gốc project:
+build.bat
+```
+
+`build.bat` tự động: cài `requirements.txt` + `requirements_build.txt` (chỉ có `pyinstaller`), dọn `build/`/`dist/`/`*.spec` cũ, rồi chạy PyInstaller (`--onefile --windowed`). Kết quả nằm ở `dist\FFlash.exe`.
+
+- **Không cần cài Vector XL Driver/`python-can` để build** — `.exe` chạy tốt với Virtual ECU Simulator ngay cả khi build trên máy không có `python-can`. Muốn bản `.exe` hỗ trợ luôn hardware Vector thật: bỏ comment dòng `python-can` trong `requirements_build.txt` **trước khi** chạy `build.bat` (không thể thêm vào sau khi đã build, vì `.exe` là 1 file đóng gói sẵn — Vector XL Driver Library vẫn phải cài riêng trên máy chạy `.exe`, xem mục [Sử Dụng Với Phần Cứng Vector Thật](#sử-dụng-với-phần-cứng-vector-thật)).
+- Muốn có icon riêng: đặt file `resources\icon.ico` trước khi build — `build.bat` tự nhận nếu tồn tại, bỏ qua nếu không có.
+- `build.bat` chỉ đóng gói GUI (`main.py`); `cli.py` vẫn chạy trực tiếp qua `python cli.py ...` như bình thường (không cần `.exe` riêng).

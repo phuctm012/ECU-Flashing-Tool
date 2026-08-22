@@ -25,18 +25,10 @@ from config.settings import (
     SUZUKI_RADAR_CAN_IDS,
 )
 
-from parsers.hex_parser import (
-    parse_hex_file,
-    HexParseError,
-)
-from parsers.srec_parser import (
-    parse_srec_file,
-    SrecParseError,
-)
-from parsers.binary_parser import (
-    parse_binary_file,
-    BinaryParseError,
-)
+from parsers.auto_parser import parse_firmware_file
+from parsers.hex_parser import HexParseError
+from parsers.srec_parser import SrecParseError
+from parsers.binary_parser import BinaryParseError
 
 
 class ConfigureTabMixin:
@@ -238,26 +230,9 @@ class ConfigureTabMixin:
             Datablock object or None if parsing failed.
         """
 
-        ext = os.path.splitext(file_path)[1].lower()
-
         try:
 
-            if ext == ".hex":
-                datablock = parse_hex_file(file_path)
-
-            elif ext in (
-                ".s19", ".s28", ".s37",
-                ".s1", ".s2", ".s3",
-                ".srec", ".mot",
-            ):
-                datablock = parse_srec_file(file_path)
-
-            elif ext == ".bin":
-                datablock = parse_binary_file(file_path)
-
-            else:
-                # Try HEX parser as default
-                datablock = parse_hex_file(file_path)
+            datablock = parse_firmware_file(file_path)
 
             self.log_information(
                 f"Parsed {datablock.file_name}: "
@@ -375,20 +350,14 @@ class ConfigureTabMixin:
         if not hasattr(self.ui, 'tableWidgetCommDetails'):
             return
 
-        # Add Virtual ECU Simulator option to hardware combobox
-        if hasattr(self.ui, 'comboBoxHardware'):
-            # Check if already has the virtual option
-            has_virtual = False
-            for i in range(self.ui.comboBoxHardware.count()):
-                if "Virtual" in self.ui.comboBoxHardware.itemText(i):
-                    has_virtual = True
-                    break
-            if not has_virtual:
-                self.ui.comboBoxHardware.insertItem(
-                    0,
-                    "Virtual ECU Simulator (No Hardware)"
-                )
-                self.ui.comboBoxHardware.setCurrentIndex(0)
+        # Hardware combobox: Virtual ECU Simulator + any real
+        # Vector hardware actually detected on this machine.
+        self.populate_hardware_combo()
+
+        if hasattr(self.ui, 'buttonRefreshHardware'):
+            self.ui.buttonRefreshHardware.clicked.connect(
+                self.populate_hardware_combo
+            )
 
         # Column widths
         comm_header = self.ui.tableWidgetCommDetails.horizontalHeader()
@@ -411,7 +380,7 @@ class ConfigureTabMixin:
             self.on_logical_link_changed
         )
 
-        # Radar side selector (Suzuki Radar ECU: Left/Right)
+        # Radar side selector (Suzuki Radar ECU: S0/S1)
         self.setup_radar_side_selector()
 
         # Load initial config
@@ -423,12 +392,47 @@ class ConfigureTabMixin:
         self.setup_security_dll_selector()
 
     # ==================================================
-    # Radar Side selector (Suzuki Radar: Left/Right)
+    # Hardware combobox (Virtual + real Vector channels)
+    # ==================================================
+
+    def populate_hardware_combo(self):
+        """
+        Fills comboBoxHardware with "Virtual ECU Simulator"
+        plus one entry per real Vector channel actually
+        detected on this machine right now (empty if
+        python-can/the Vector driver isn't installed, or no
+        hardware is plugged in — no fake placeholder channels).
+
+        Re-run via the Refresh button to pick up hardware
+        plugged in after the app started.
+        """
+
+        if not hasattr(self.ui, 'comboBoxHardware'):
+            return
+
+        combo = self.ui.comboBoxHardware
+        combo.blockSignals(True)
+
+        combo.clear()
+        combo.addItem(
+            "Virtual ECU Simulator (No Hardware)", userData=None
+        )
+
+        from communication.vector_can import detect_vector_channels
+
+        for ch in detect_vector_channels():
+            combo.addItem(ch["label"], userData=ch["channel"])
+
+        combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+
+    # ==================================================
+    # Radar Side selector (Suzuki Radar: S0/S1)
     # ==================================================
 
     def setup_radar_side_selector(self):
         """
-        Connects the Radar Side combo (Left/Right — defined
+        Connects the Radar Side combo (S0/S1 — defined
         in main_window.ui) to apply_radar_side_to_table().
         Each side has its own physical Tx/Rx CAN ID (see
         SUZUKI_RADAR_CAN_IDS). Selecting a side writes its
@@ -437,7 +441,7 @@ class ConfigureTabMixin:
         get_can_config() reads from, so the user can still
         fine-tune the value by hand afterward if needed.
 
-        Left is the default (first item in the combo).
+        S0 is the default (first item in the combo).
         """
 
         if not hasattr(self.ui, 'comboBoxRadarSide'):
@@ -530,6 +534,87 @@ class ConfigureTabMixin:
             )
 
     # ==================================================
+    # CAN Bus Conflict Detection (CANoe/CANalyzer/CANape)
+    # ==================================================
+
+    def detect_can_conflict_warning(self):
+        """
+        Best-effort check for a likely CAN bus conflict before
+        starting a real (non-virtual) flash — users sometimes
+        forget a Vector desktop tool (CANoe/CANalyzer/CANape)
+        is still open with a measurement running, which can
+        collide with this tool's own UDS session (e.g. two
+        TesterPresent senders, or CANoe holding the channel).
+
+        Combines two independent, best-effort signals:
+        - detect_running_vector_tools(): is a known Vector
+          tool process running at all (Windows only)?
+        - detect_vector_channels()'s "is_on_bus" flag for the
+          currently selected channel: does the driver report
+          the channel as already active, regardless of which
+          process opened it?
+
+        Returns:
+            A warning message string if either signal fires,
+            otherwise None (nothing to warn about, or the
+            checks aren't applicable/available on this
+            platform).
+        """
+
+        from communication.vector_can import (
+            detect_running_vector_tools,
+            detect_vector_channels,
+        )
+
+        running_tools = detect_running_vector_tools()
+
+        channel = None
+        if hasattr(self.ui, 'comboBoxHardware'):
+            channel = self.ui.comboBoxHardware.currentData()
+
+        busy_channel_label = None
+        if channel is not None:
+            for ch in detect_vector_channels():
+                if ch["channel"] == channel and ch.get("is_on_bus"):
+                    busy_channel_label = ch["label"]
+                    break
+
+        if not running_tools and not busy_channel_label:
+            return None
+
+        lines = [
+            "A possible CAN bus conflict was detected before "
+            "flashing:",
+        ]
+
+        if running_tools:
+            lines.append(
+                "  - Running Vector tool(s): "
+                + ", ".join(name.upper() for name in running_tools)
+            )
+
+        if busy_channel_label:
+            lines.append(
+                f"  - Channel already active on the bus: "
+                f"{busy_channel_label}"
+            )
+
+        lines.append(
+            "\nIf CANoe/CANalyzer/CANape is running a "
+            "measurement on the same channel, its own "
+            "TesterPresent or diagnostic activity can "
+            "collide with this tool's UDS session and cause "
+            "the flash to fail unpredictably."
+        )
+        lines.append(
+            "\nClose the other tool (or stop its measurement) "
+            "before continuing, unless you're intentionally "
+            "sharing the bus and know what you're doing."
+        )
+
+        return "\n".join(lines)
+
+    # ==================================================
     # Real CAN Config (read from GUI, for real hardware)
     # ==================================================
 
@@ -537,8 +622,10 @@ class ConfigureTabMixin:
         """
         Reads the actual CAN connection parameters to use
         for real hardware, from the Communication page:
-        - Channel number, parsed from the hardware combo
-          (e.g. "VN1640A - Channel 2" -> channel index 1).
+        - Channel number, from the hardware combo's
+          userData (the real channel index reported by
+          detect_vector_channels(); None/Virtual -> 0,
+          unused for the Virtual ECU Simulator).
         - Physical Request/Response CAN ID and Baudrate,
           parsed from tableWidgetCommDetails — these cells
           are editable, so the user can override the
@@ -560,11 +647,9 @@ class ConfigureTabMixin:
         }
 
         if hasattr(self.ui, 'comboBoxHardware'):
-            hw_text = self.ui.comboBoxHardware.currentText()
-            match = re.search(r'Channel\s+(\d+)', hw_text)
-            if match:
-                # Channel 1 in the UI -> index 0 for python-can
-                config["channel"] = int(match.group(1)) - 1
+            channel = self.ui.comboBoxHardware.currentData()
+            if channel is not None:
+                config["channel"] = channel
 
         if hasattr(self.ui, 'comboBoxLogicalLink'):
             config["fd"] = (
