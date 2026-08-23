@@ -1,0 +1,5 @@
+{
+  "env": {
+    "QT_QPA_PLATFORM": "offscreen"
+  }
+}
