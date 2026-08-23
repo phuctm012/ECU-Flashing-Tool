@@ -1352,3 +1352,16 @@ Hai yêu cầu liên tiếp: (1) tổ chức lại `docs/gui_todo.md` thành 2 m
 - Smoke test `python -c` thủ công: `_write_issue_zip()` với 1 firmware thật đã nạp — xác nhận `issue.txt` + đúng tên file trong zip, đọc lại nội dung `issue.txt` đúng. Test riêng hàm `_unique_zip_name()` với tên trùng.
 - Test mới trong `TestIssueExport` (11 test): `_ask_include_firmware()` cả 3 nhánh (tick+Ok, không tick+Ok, Cancel — dùng `unittest.mock.patch.object(QMessageBox, 'exec', fake_exec)`, `fake_exec` tự set `checkBox().setChecked(True)` trước khi trả `QMessageBox.Ok` để giả lập user tick); `_write_issue_zip()` (đủ nội dung, tự thêm đuôi `.zip`, bỏ qua file thiếu, đổi tên file trùng, lỗi ghi không crash — dùng thư mục có tên kết thúc bằng `.zip` để bẫy đúng `IsADirectoryError` mà không bị logic tự-thêm-đuôi "sửa" thành path hợp lệ khác); `export_issue()` toàn luồng (Cancel không mở `QFileDialog`, không tick ra `.txt`, tick ra `.zip`).
 - Chạy toàn bộ test suite: **226/226 pass** (215 cũ + 11 mới).
+
+## Phase 4.56: `build.bat` Hỏi Tương Tác Onefile / Onedir
+
+User hỏi Q&A về kích thước/tốc độ mở app khi build `.exe` — giải thích PyInstaller `--onefile` (đang dùng) tự giải nén ra thư mục temp mỗi lần chạy nên mở chậm hơn `--onedir` (đã extract sẵn, không cần bước tự giải nén), và `--onedir` không cần "cài đặt" vào vị trí cố định nào — chỉ là 1 thư mục có thể đặt bất kỳ đâu, miễn giữ nguyên cả thư mục khi copy. User yêu cầu cho `build.bat` hỏi user chọn giữa 2 kiểu build.
+
+### Thay đổi
+
+- **`build.bat`**: thêm khối hỏi tương tác ngay đầu script (trước bước cài dependency) — in mô tả ngắn ưu/nhược của từng lựa chọn, `set /p BUILD_CHOICE="Enter 1 or 2 (default 1 - Onefile): "`. Nhập `2` → `PYI_MODE_ARG=--onedir`; bất kỳ input nào khác (kể cả bỏ trống/Enter) → giữ mặc định `--onefile` (không đổi hành vi cũ nếu user không chủ động chọn khác). Lệnh PyInstaller đổi `--onefile` cứng thành biến `%PYI_MODE_ARG%`. Message "Build OK" cuối script cũng đổi theo — Onefile in `dist\FFlash.exe`, Onedir in `dist\FFlash\FFlash.exe` kèm nhắc giữ nguyên cả thư mục lúc copy.
+- **`README.md`**: thêm bảng so sánh Onefile/Onedir ngay dưới mục Build `.exe`, sửa vài chỗ diễn đạt không còn đúng khi có 2 kiểu build (vd. "vì .exe là 1 file đóng gói sẵn" → "vì đều là bản đóng gói sẵn", áp dụng cho cả 2 kiểu).
+
+### Đã kiểm tra
+
+- Không build thử `.exe` thật được (Windows-only, môi trường dev là macOS — giới hạn nhất quán từ Phase 4.26). Đã soát kỹ cú pháp batch bằng tay: biến `set` bên trong khối `if (...)` đọc lại đúng ở dòng lệnh sau đó (không cần `setlocal enabledelayedexpansion` vì không đọc/ghi cùng 1 khối lệnh), dấu ngoặc đơn trong `echo` bên trong khối `if/else` đã escape đúng bằng `^(`/`^)`.

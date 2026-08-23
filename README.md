@@ -338,15 +338,23 @@ python -m unittest tests.test_parsers -v
 
 ## Build File `.exe` (Windows)
 
-Đóng gói GUI (`main.py`) thành 1 file `FFlash.exe` standalone bằng [PyInstaller](https://pyinstaller.org/) — chỉ build được trên **Windows** (không build cho macOS/Linux).
+Đóng gói GUI (`main.py`) bằng [PyInstaller](https://pyinstaller.org/) — chỉ build được trên **Windows** (không build cho macOS/Linux).
 
 ```bat
 REM Trên máy Windows, trong thư mục gốc project:
 build.bat
 ```
 
-`build.bat` tự động: cài `requirements.txt` + `requirements_build.txt` (chỉ có `pyinstaller`), dọn `build/`/`dist/`/`*.spec` cũ, rồi chạy PyInstaller (`--onefile --windowed`, kèm `--add-data` bundle sẵn `docs/user_guide.html`, `resources/style.qss`, `resources/style_dark.qss` và `resources/icons/` để menu Help > Open Guideline, theme sáng/tối và window icon lúc chạy đều hoạt động đúng trong bản `.exe`). Kết quả nằm ở `dist\FFlash.exe`.
+`build.bat` hỏi tương tác lúc chạy — chọn **1. Onefile** hay **2. Onedir** (mặc định Onefile nếu bấm Enter bỏ trống):
 
-- **Không cần cài Vector XL Driver/`python-can` để build** — `.exe` chạy tốt với Virtual ECU Simulator ngay cả khi build trên máy không có `python-can`. Muốn bản `.exe` hỗ trợ luôn hardware Vector thật: bỏ comment dòng `python-can` trong `requirements_build.txt` **trước khi** chạy `build.bat` (không thể thêm vào sau khi đã build, vì `.exe` là 1 file đóng gói sẵn — Vector XL Driver Library vẫn phải cài riêng trên máy chạy `.exe`, xem mục [Sử Dụng Với Phần Cứng Vector Thật](#sử-dụng-với-phần-cứng-vector-thật)).
+| | Onefile (mặc định) | Onedir |
+|---|---|---|
+| Kết quả | 1 file `dist\FFlash.exe` duy nhất | 1 thư mục `dist\FFlash\` (chứa `FFlash.exe` + file phụ trợ) |
+| Gửi/copy | Dễ — chỉ 1 file | Phải giữ nguyên cả thư mục, không tách riêng `.exe` |
+| Tốc độ mở | Chậm hơn — mỗi lần chạy tự giải nén ra thư mục temp trước | Nhanh hơn rõ rệt — không có bước tự giải nén |
+
+Sau khi chọn, `build.bat` tự động: cài `requirements.txt` + `requirements_build.txt` (chỉ có `pyinstaller`), dọn `build/`/`dist/`/`*.spec` cũ, rồi chạy PyInstaller (`--windowed`, kèm `--add-data` bundle sẵn `docs/user_guide.html`, `resources/style.qss`, `resources/style_dark.qss` và `resources/icons/` để menu Help > Open Guideline, theme sáng/tối và window icon lúc chạy đều hoạt động đúng trong bản build).
+
+- **Không cần cài Vector XL Driver/`python-can` để build** — bản build chạy tốt với Virtual ECU Simulator ngay cả khi build trên máy không có `python-can`. Muốn hỗ trợ luôn hardware Vector thật: bỏ comment dòng `python-can` trong `requirements_build.txt` **trước khi** chạy `build.bat` (không thể thêm vào sau khi đã build dù Onefile hay Onedir, vì đều là bản đóng gói sẵn — Vector XL Driver Library vẫn phải cài riêng trên máy chạy app, xem mục [Sử Dụng Với Phần Cứng Vector Thật](#sử-dụng-với-phần-cứng-vector-thật)).
 - Icon app: `resources\icons\flash_bolt_blue.ico` (đã có sẵn trong repo, nhiều kích thước) — `build.bat` tự dùng nếu tồn tại (cả cho icon file `.exe` lẫn window/taskbar icon lúc app chạy), bỏ qua (build không icon file `.exe`) nếu không có. File nguồn dạng vector ở `resources\icons\flash_bolt_blue.svg` nếu muốn chỉnh sửa/thiết kế lại.
 - `build.bat` chỉ đóng gói GUI (`main.py`); `cli.py` vẫn chạy trực tiếp qua `python cli.py ...` như bình thường (không cần `.exe` riêng).
