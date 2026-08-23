@@ -1235,3 +1235,120 @@ User yêu cầu cập nhật `docs/user_guide.html` cho khớp với những gì
 - Render bằng Chrome headless (`--headless --screenshot`, kỹ thuật đã dùng từ Phase 4.35) ở 2 chiều cao khác nhau để xem hết trang — layout đẹp, đủ nội dung, không lệch ảnh, không sót placeholder.
 - `tests/test_gui_smoke.py::test_open_guideline_opens_existing_file` (đã có sẵn) vẫn pass — path không đổi, chỉ nội dung file đổi.
 - Chạy toàn bộ test suite: **183/183 pass** (không đổi số lượng test — thay đổi chỉ ở file `.html`, không đụng code Python nào).
+
+## Phase 4.50: Save / Load Project (`.ffproj`)
+
+User hỏi brainstorm hướng phát triển tiếp theo (ngoài UI đã ưng ý) — đề xuất 5 hướng, user chọn 4 mục (#19-22) ghi vào `gui_todo.md`, rồi hỏi riêng "Save/Load Project bạn có thể làm được không, lúc này lưu lại file profile dưới dạng đuôi gì?" (làm rõ Profile hiện tại chỉ là 1 file `.ini` tự động, không phải Project) — thiết kế sơ bộ ngay trong chat (bounded), user duyệt, yêu cầu implement mục #20.
+
+### Thay đổi
+
+- **`gui/project_file.py`** (mới) — `ProjectFileMixin`: `save_project_as()`/`_build_project_data()` và `open_project()`/`_apply_project_data()`. Format JSON (`format_version`, `firmware_files` — list `{path, checked}`, `hardware`, `radar_side_index`, `logical_link_index`, `security_dll_path`, `flash_sequence_index`), đuôi `.ffproj` tự thêm nếu user gõ tên không kèm đuôi. `open_project()` xoá sạch `_loaded_datablocks`/`tableWidgetDatablocks` trước khi nạp lại (thay thế, không merge).
+- **`gui/main_window.ui`**: 2 action mới `actionSaveProjectAs`/`actionOpenProject` trong `menuFile`, đặt sau `menuRecentFiles`, trước `Exit`.
+- **`gui/menu_bar.py`**: wiring 2 action trên tới `self.save_project_as`/`self.open_project` (đúng pattern `actionExportReport` → `self.export_report`).
+- **`gui/main_window.py`**: thêm `ProjectFileMixin` vào danh sách base class của `MainWindow`.
+- Tái dùng tối đa code đã có: `_load_firmware_file()` (tách ở Phase 4.48 cho Recent Files) cho việc nạp từng file trong project — lỗi file bị xoá/di chuyển tự động có đúng dialog "Parse Error" mà không cần code thêm; logic khôi phục combo (Hardware tìm theo `itemData`, các combo khác theo index có guard) copy nguyên pattern từ `load_profile()` (`gui/settings_profile.py`).
+
+### Đã kiểm tra
+
+- Smoke test thủ công qua `python -c`: `_build_project_data()` → ghi JSON → `_apply_project_data()` trên `MainWindow` mới → xác nhận datablock/`file_path` khôi phục đúng, trước khi viết test chính thức.
+- Test mới `TestProjectFile` (9 test): nội dung `_build_project_data()` đúng (kể cả trạng thái untick), round-trip save→open đầy đủ (firmware + Radar Side), tự thêm đuôi `.ffproj`, huỷ dialog không làm gì, Open Project **thay thế** chứ không merge datablock cũ, file firmware trong project bị thiếu hiện đúng warning không crash, JSON hỏng hiện đúng lỗi không crash, 2 action menu gọi đúng hàm.
+- Chụp ảnh headless xác nhận `menuFile` hiện đúng thứ tự: Load Firmware.../Recent Files/—/Save Project As.../Open Project.../—/Exit; app khởi động qua đúng luồng `main.py` không lỗi.
+- `tests/test_flash_threading.py` chạy riêng lẻ (thận trọng vì đổi base class list của `MainWindow`) — 4/4 pass.
+- Chạy toàn bộ test suite: **192/192 pass** (183 cũ + 9 mới).
+
+## Phase 4.51: Tổng Kết PASS/FAIL Rõ Ràng Sau Verify Memory
+
+User yêu cầu implement mục #9 còn tồn đọng từ đợt audit UI đầu phiên.
+
+### Thay đổi
+
+- **`core/flash_sequence.py`**: thêm `"action": "verify"` vào `params` của step "Verify Memory" (cả `DEFAULT_FLASH_SEQUENCE` lẫn `SUZUKI_SLP1_FLASH_SEQUENCE`) — cùng cách dùng `"action": "erase"` cho Erase Memory đã có sẵn, không cần so sánh `step.name` bằng chuỗi.
+- **`core/flash_controller.py`**'s `_execute_routine()`: bọc `routine_control()` trong `try/except`. Thành công + `action == "verify"` → emit `"✓ Verify Memory: PASS"`. Lỗi (NRC/timeout) + `action == "verify"` → emit `"✗ Verify Memory: FAILED"` **trước khi re-raise** — `_execute_step()`'s catch-all hiện có (emit `"Error: {e}"`, trả `False` để `run()` abort) vẫn chạy y hệt như cũ phía sau, chỉ thêm 1 dòng rõ ràng đứng trước nó. `action == "erase"`/không có `action` giữ nguyên hành vi cũ.
+- Không cần đổi GUI hay `gui/report_export.py` — cả 2 đều đọc thẳng `information_message`/`informationText.toPlainText()` như mọi message khác nên dòng PASS/FAIL tự động hiện ra ở cả tab Information lẫn Export Report.
+
+### Đã kiểm tra
+
+- Test mới `TestVerifyMemoryPassFail` (3 test, `tests/test_flash_controller.py`): chạy thật qua Virtual ECU xác nhận `"✓ Verify Memory: PASS"` xuất hiện trong `information_message` (không phải dàn dựng — dùng đúng `DEFAULT_FLASH_SEQUENCE` thật); unit test trực tiếp `_execute_routine()` với `uds_client` giả lập raise lỗi, xác nhận `"✗ Verify Memory: FAILED"` được emit **và** exception vẫn re-raise đúng (không nuốt lỗi, không phá cơ chế abort); regression test xác nhận Erase Memory không đổi hành vi/message.
+- Chạy 1 flash thật qua headless script, in `informationText.toPlainText()` — xác nhận dòng `✓ Verify Memory: PASS` xuất hiện đúng vị trí (giữa "Download complete" và "ECU reset completed"), khớp thứ tự sequence thật.
+- `tests/test_flash_threading.py` + `tests/test_uds_client.py` chạy riêng lẻ (thận trọng vì đổi `core/flash_controller.py`, dùng chung bởi luồng QThread) — 23/23 pass.
+- Chạy toàn bộ test suite: **195/195 pass** (192 cũ + 3 mới).
+
+## Phase 4.52: File → Close Window, Tools → Flash / Abort
+
+User yêu cầu trực tiếp: thêm "Close Window" vào menu File, và "Flash"/"Abort" vào menu Tools — tương tự nút Flash/Abort trên tab Flash.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: `actionCloseWindow` (File, giữa "Open Project..." và "Exit"). `actionFlash`/`actionAbort` (đầu menu Tools, tách separator với Test Connection/Export Report).
+- **`gui/menu_bar.py`**: `actionCloseWindow` gọi `self.action_exit` (= `self.close()`, giống hệt "Exit" — app chỉ có 1 cửa sổ). `actionFlash`/`actionAbort` đều gọi thẳng `self.flash_button_clicked()` — **không viết logic mới**, tái dùng nguyên hàm toggle đã có của nút bấm, tránh động vào phần code nhạy cảm race-condition `QThread` đã ghi rõ trong `CLAUDE.md`'s "Threading model".
+- Vấn đề cần giải quyết thêm: bấm "Flash" từ menu lúc đang chạy sẽ vô tình rơi vào nhánh Abort của `flash_button_clicked()` (và ngược lại) vì hàm này tự toggle theo `self.thread.isRunning()` chứ không theo action nào gọi nó. Giải pháp: `_sync_flash_abort_menu_state()` (method mới, chỉ đọc `self.thread.isRunning()`, không sửa `self.thread`) — bật đúng 1 trong 2 action tuỳ trạng thái, gọi lại mỗi lần `menuTools.aboutToShow` (đúng lúc user mở menu Tools) + 1 lần lúc `setup_menu_bar()`. Nhờ vậy action bị sai nhãn luôn ở trạng thái **disabled**, không bấm được — phát hiện qua thực nghiệm: `QAction.trigger()` (kể cả gọi trực tiếp từ code) **không** emit `triggered` khi action đang disabled trong PySide6, nên cách này chặn được cả trigger thủ công lẫn click chuột thật.
+
+### Đã kiểm tra
+
+- Smoke test `python -c` thủ công: trigger `actionFlash` chạy 1 flash thật qua Virtual ECU, xác nhận `actionFlash`/`actionAbort` đổi enabled đúng lúc đang chạy và sau khi xong; `actionCloseWindow` đóng cửa sổ đúng.
+- Test mới trong `tests/test_gui_smoke.py` (`TestMenuBar`, 6 test): trạng thái enabled ban đầu đúng, `_sync_flash_abort_menu_state()` đổi đúng theo `self.thread` giả lập (`Mock`, không cần `QThread` thật), 2 action gọi đúng `flash_button_clicked()`, `actionCloseWindow` gọi đúng `close()`.
+- Test mới trong `tests/test_flash_threading.py` (`TestFlashAbortViaMenu`, 2 test) — **bắt buộc theo quy tắc của repo** vì đây là caller mới của `flash_button_clicked()`: chạy thật qua `QThread` thật (không phải gọi hàm trực tiếp) cho cả bắt đầu qua `actionFlash.trigger()` và abort giữa chừng qua `actionAbort.trigger()`.
+- Chạy toàn bộ test suite: **202/202 pass** (195 cũ + 7 mới).
+
+## Phase 4.53: View → Resize Window
+
+User yêu cầu trực tiếp: thêm submenu "Resize Window" vào View, liệt kê các size từ default tới full screen.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: submenu `menuResizeWindow` trong `menuView` (dưới Dark Mode, cách 1 separator) — 3 action size cố định `actionResizeDefault`/`actionResizeMedium`/`actionResizeLarge` (text kèm số kích thước, vd. "Large (1920 × 1080)"), separator, rồi `actionMaximizeWindow`/`actionFullScreen`.
+- **`gui/menu_bar.py`**: `_resize_window(width, height)` — helper dùng chung cho 3 size cố định, tự `showNormal()` trước nếu cửa sổ đang maximize/full screen (phát hiện qua thực nghiệm: `resize()` không có tác dụng gì khi đang ở 1 trong 2 trạng thái đó, window manager giữ nguyên kích thước maximize/full screen bất kể `resize()` gọi gì). `action_resize_default/medium/large()` gọi helper với đúng số đã khai trong `.ui`; `action_maximize_window()`/`action_full_screen()` gọi thẳng `showMaximized()`/`showFullScreen()` có sẵn của Qt.
+- Số cụ thể: Default = 1100×850 (khớp geometry mặc định trong `.ui`), Medium = 1366×768 (độ phân giải laptop phổ biến), Large = 1920×1080 (Full HD) — chọn số dễ nhận diện thay vì số tuỳ ý.
+
+### Đã kiểm tra
+
+- Smoke test `python -c` thủ công (cả có và không gọi `.show()` trước — test suite không gọi `.show()` nên cần xác nhận cả 2 trường hợp): resize qua từng size, Maximize rồi resize lại (xác nhận un-maximize đúng), Full Screen rồi resize lại (xác nhận exit full screen đúng) — toàn bộ đúng số/đúng trạng thái.
+- Test mới trong `tests/test_gui_smoke.py` (`TestMenuBar`, 7 test): mỗi size set đúng `size()`, Maximize/Full Screen set đúng `isMaximized()`/`isFullScreen()`, và 2 test riêng xác nhận resize sau khi đã Maximize/Full Screen tự thoát trạng thái đó trước khi áp size mới.
+- Chạy toàn bộ test suite: **209/209 pass** (202 cũ + 7 mới).
+
+## Phase 4.54: Help → Export Issue... (bundle debug info thành 1 file `.txt`)
+
+User yêu cầu trực tiếp: menu Help thêm "Export Issue" — gom config/log/trace/information/report thành 1 file để attach lúc nhờ debug, thông tin trùng nhau thì bỏ qua tuỳ hướng debug — tự quyết định phần nào giữ/bỏ.
+
+### Thay đổi
+
+- **`gui/issue_export.py`** (mới) — `IssueExportMixin`, cùng cấu trúc pure-write/dialog-wrapper như `gui/report_export.py`. `export_issue()` mở `QFileDialog.getSaveFileName` (mặc định tên `fflash_issue_YYYYMMDD_HHMMSS.txt`), `_write_issue_file()` ghi, `_build_issue_text()` build nội dung từ 6 section: Environment, Configuration, CAN Communication Details, Loaded Datablocks, Information Log, Trace.
+  - **Quyết định giữ/bỏ để tránh trùng lặp**: giữ nguyên Information Log + Trace (2 nguồn nhiều chi tiết nhất, không nguồn nào khác thay thế được), **bỏ bảng Steps** (Information Log đã narrate lại đúng từng bước, thường chi tiết hơn — xem docstring đầu file), **bỏ `tableWidgetCustomConfig`** (mục #5 trong `gui_todo.md` — chưa thực sự ảnh hưởng hành vi flash, đưa vào dễ gây hiểu lầm là nó có tác dụng).
+  - **Thêm mới, chưa từng có ở Export Report**: section Environment (`platform.platform()` + `platform.python_version()`) — hữu ích khi debug trên máy Windows khác, giúp biết chính xác OS/version đang chạy mà không cần hỏi lại.
+  - CAN Communication Details đọc trực tiếp từ `tableWidgetCommDetails` (không phải `get_can_config()`) để phản ánh đúng giá trị đang hiện trên màn hình, kể cả nếu user đã tự sửa tay các ô CAN ID/baudrate.
+- **`gui/main_window.ui`**: action `actionExportIssue` trong `menuHelp`, sau "Open Guideline" (cách 1 separator).
+- **`gui/menu_bar.py`**, **`gui/main_window.py`**: wiring + thêm `IssueExportMixin` vào base class list của `MainWindow`, đúng pattern các mixin khác.
+
+### Sự cố trong lúc làm (tự phát hiện, tự sửa)
+
+Lúc thêm class test mới `TestIssueExport` vào `tests/test_gui_smoke.py`, `old_string` của Edit đầu tiên khớp nhầm vào giữa thân `TestReportExport` (do trước đó chỉ đọc 1 đoạn giới hạn của file, không thấy hết toàn bộ class) — khiến 1 test có sẵn (`test_write_report_file_failure_does_not_raise`) bị "kẹt" nằm lộn sang bên trong `TestIssueExport` thay vì `TestReportExport`. Phát hiện ngay khi chạy thử test mới (đếm ra dư 1 test không tương ứng với số hàm đã viết) — soát lại ranh giới class bằng `grep`/`sed`, di chuyển đúng hàm đó về lại `TestReportExport`, xác nhận lại bằng cách chạy riêng cả 2 class.
+
+### Đã kiểm tra
+
+- Smoke test `python -c` thủ công: in thử `_build_issue_text()` với dữ liệu thật (nạp file, log, trace) — xác nhận đủ 6 section, đúng thứ tự, không có Steps.
+- Test mới `TestIssueExport` (5 test, `tests/test_gui_smoke.py`): đủ nội dung Environment/Config/Datablocks/Log/Trace; xác nhận **không** có nội dung Steps; datablock untick hiện đúng "Excluded"; ghi file thật thành công; lỗi ghi file (`OSError`) hiện đúng `QMessageBox.critical`, không crash. Cộng 1 test wiring trong `TestMenuBar`.
+- Chạy toàn bộ test suite: **215/215 pass** (209 cũ + 6 mới).
+
+## Phase 4.55: Tổ Chức Lại `docs/gui_todo.md` Thành 2 Phần + Export Issue Đính Kèm Firmware
+
+Hai yêu cầu liên tiếp: (1) tổ chức lại `docs/gui_todo.md` thành 2 mục lớn Chưa Hoàn Thành/Đã Hoàn Thành, đánh số liên tục; (2) Export Issue nên đính kèm luôn firmware, vì 1 số lỗi có thể do sai định dạng file hoặc tool parse sai dữ liệu — hỏi ý kiến trước (brainstorm ngắn), user chọn hướng "hỏi qua checkbox trong dialog lúc bấm Export Issue".
+
+### Thay đổi 1: Tổ chức lại `docs/gui_todo.md`
+
+- 2 section top-level mới: **Chưa Hoàn Thành** (mục 1-6, trước đây rải rác ở nhiều section) và **Đã Hoàn Thành** (mục 7-25) — đánh số lại toàn bộ liên tục từ 1, không giữ số cũ.
+- Rà soát và sửa lại **toàn bộ** tham chiếu chéo giữa các mục trong nội dung (vd. "mục #10" cũ → "mục #13" mới) — nếu không sửa, các ghi chú kiểu "bundled vào cùng mục #10" sẽ trỏ sai sau khi đổi số.
+- Các đoạn giới thiệu bối cảnh/lịch sử của từng đợt (audit ban đầu, brainstorm tính năng, brainstorm UI polish, brainstorm menu bar) — vốn nằm ngay dưới mỗi section header cũ — gộp lại vào "Ghi chú" cuối file, không còn làm gián đoạn 2 danh sách chính.
+- **Lưu ý cho các phase log cũ trong file này (`walkthrough.md`)**: các phase trước Phase 4.55 tham chiếu số mục `gui_todo.md` theo **số tại thời điểm viết phase đó** — không retroactive sửa lại theo số mới, vì đây là log lịch sử theo trình tự thời gian, không phải tài liệu tham chiếu sống. Từ Phase 4.55 trở đi, số mục nhắc tới đều là số mới.
+
+### Thay đổi 2: Export Issue đính kèm firmware (tuỳ chọn)
+
+- **`gui/issue_export.py`**: `export_issue()` giờ gọi `_ask_include_firmware()` trước — hiện `QMessageBox` có `setCheckBox(QCheckBox(...))` (API sẵn có từ Qt 5.2, không cần tự viết `QDialog` riêng), mặc định **không tick** (opt-in mỗi lần, không nhớ lựa chọn cũ — firmware có thể nhạy cảm nên không nên tự động theo lần trước). Trả về `True`/`False`/`None` (Cancel).
+  - Tick → `QFileDialog` đổi filter/tên mặc định sang `.zip`, gọi `_write_issue_zip()`: dùng `zipfile.ZipFile` (stdlib) ghi `issue.txt` (nội dung y hệt `_build_issue_text()` cũ) + copy nguyên từng file trong `self._loaded_datablocks` (qua `datablock.file_path` đã có sẵn, không đọc/parse gì thêm). File đã bị xoá/di chuyển từ lúc nạp thì bỏ qua âm thầm (`os.path.isfile()` guard). 2 datablock trùng tên file (load từ 2 thư mục khác nhau) được tự đổi tên (`_unique_zip_name()`, hậu tố `_2`, `_3`...) tránh ghi đè lẫn nhau trong zip.
+  - Không tick → giữ nguyên hành vi cũ (`.txt` thuần).
+- **Comment cũ trong file cần sửa luôn**: docstring đầu `gui/issue_export.py` từng ghi "`tableWidgetCustomConfig` (docs/gui_todo.md item #5 ...)" — số cũ trước khi tổ chức lại `gui_todo.md` ở Thay đổi 1; sửa thành "item #3" (số mới).
+
+### Đã kiểm tra
+
+- Smoke test `python -c` thủ công: `_write_issue_zip()` với 1 firmware thật đã nạp — xác nhận `issue.txt` + đúng tên file trong zip, đọc lại nội dung `issue.txt` đúng. Test riêng hàm `_unique_zip_name()` với tên trùng.
+- Test mới trong `TestIssueExport` (11 test): `_ask_include_firmware()` cả 3 nhánh (tick+Ok, không tick+Ok, Cancel — dùng `unittest.mock.patch.object(QMessageBox, 'exec', fake_exec)`, `fake_exec` tự set `checkBox().setChecked(True)` trước khi trả `QMessageBox.Ok` để giả lập user tick); `_write_issue_zip()` (đủ nội dung, tự thêm đuôi `.zip`, bỏ qua file thiếu, đổi tên file trùng, lỗi ghi không crash — dùng thư mục có tên kết thúc bằng `.zip` để bẫy đúng `IsADirectoryError` mà không bị logic tự-thêm-đuôi "sửa" thành path hợp lệ khác); `export_issue()` toàn luồng (Cancel không mở `QFileDialog`, không tick ra `.txt`, tick ra `.zip`).
+- Chạy toàn bộ test suite: **226/226 pass** (215 cũ + 11 mới).

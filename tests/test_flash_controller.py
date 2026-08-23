@@ -12,6 +12,7 @@
 import os
 import sys
 import unittest
+import unittest.mock
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,6 +20,7 @@ sys.path.insert(
 
 from parsers.hex_parser import Segment, Datablock, parse_hex_file
 from core.flash_sequence import (
+    FlashStep,
     build_flash_sequence,
     build_suzuki_slp1_flash_sequence,
 )
@@ -107,6 +109,81 @@ class TestDefaultSequenceFlash(unittest.TestCase):
 
         self.assertIsNone(worker._uds_client._tp_keepalive)
         self.assertFalse(worker._can_interface.is_connected)
+
+
+class TestVerifyMemoryPassFail(unittest.TestCase):
+    """
+    Covers docs/gui_todo.md item #9 — _execute_routine() must
+    emit an unambiguous PASS/FAIL line for the "Verify Memory"
+    step specifically (params["action"] == "verify"), not just
+    the generic "Routine 0x.... completed"/"Error: ..." text
+    every other routine call gets.
+    """
+
+    def test_verify_memory_emits_pass_on_success(self):
+        # Real end-to-end run through the Virtual ECU — Verify
+        # Memory always succeeds there, so this exercises the
+        # actual DEFAULT_FLASH_SEQUENCE step (params["action"]
+        # == "verify" set in core/flash_sequence.py), not a
+        # hand-built one.
+        db = parse_hex_file(SAMPLE_HEX)
+        steps = build_flash_sequence([db])
+        worker = FlashWorker(
+            steps=steps, datablocks=[db], use_virtual=True
+        )
+
+        messages = []
+        worker.information_message.connect(messages.append)
+        result = _run_worker(worker)
+
+        self.assertTrue(result["finished"])
+        self.assertIn("✓ Verify Memory: PASS", messages)
+
+    def test_verify_memory_emits_failed_and_reraises_on_error(self):
+        # Direct unit test of _execute_routine() — inject a
+        # uds_client whose routine_control() raises, bypassing
+        # the Virtual ECU (which never fails Verify Memory) so
+        # the FAILED path can be exercised deterministically.
+        mock_uds = unittest.mock.Mock()
+        mock_uds.routine_control.side_effect = RuntimeError(
+            "NRC 0x22: Conditions Not Correct"
+        )
+
+        worker = FlashWorker(uds_client=mock_uds)
+
+        messages = []
+        worker.information_message.connect(messages.append)
+
+        step = FlashStep(
+            name="Verify Memory",
+            step_type=FlashStep.TYPE_ROUTINE,
+            description="Verify Memory",
+            params={"routine_id": 0xFF01, "action": "verify"},
+        )
+
+        with self.assertRaises(RuntimeError):
+            worker._execute_routine(step)
+
+        self.assertIn("✗ Verify Memory: FAILED", messages)
+
+    def test_erase_memory_message_unaffected(self):
+        # Regression: the "verify" branch must not change
+        # behavior for any other action (erase, or no action).
+        mock_uds = unittest.mock.Mock()
+        worker = FlashWorker(uds_client=mock_uds)
+
+        messages = []
+        worker.information_message.connect(messages.append)
+
+        step = FlashStep(
+            name="Erase Memory",
+            step_type=FlashStep.TYPE_ROUTINE,
+            description="Erase Memory",
+            params={"routine_id": 0xFF00, "action": "erase"},
+        )
+        worker._execute_routine(step)
+
+        self.assertEqual(messages, ["Memory erased"])
 
 
 class TestSuzukiSequenceFlash(unittest.TestCase):

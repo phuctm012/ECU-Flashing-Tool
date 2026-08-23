@@ -53,6 +53,21 @@ class MenuBarMixin:
                 self.action_clear_recent_files
             )
 
+        if hasattr(self.ui, 'actionSaveProjectAs'):
+            self.ui.actionSaveProjectAs.triggered.connect(
+                self.save_project_as
+            )
+
+        if hasattr(self.ui, 'actionOpenProject'):
+            self.ui.actionOpenProject.triggered.connect(
+                self.open_project
+            )
+
+        if hasattr(self.ui, 'actionCloseWindow'):
+            self.ui.actionCloseWindow.triggered.connect(
+                self.action_exit
+            )
+
         if hasattr(self.ui, 'actionExit'):
             self.ui.actionExit.triggered.connect(
                 self.action_exit
@@ -67,6 +82,26 @@ class MenuBarMixin:
             self.ui.actionClearTrace.triggered.connect(
                 self.action_clear_trace
             )
+
+        if hasattr(self.ui, 'actionFlash'):
+            self.ui.actionFlash.triggered.connect(
+                self.flash_button_clicked
+            )
+
+        if hasattr(self.ui, 'actionAbort'):
+            self.ui.actionAbort.triggered.connect(
+                self.flash_button_clicked
+            )
+
+        if hasattr(self.ui, 'menuTools'):
+            self.ui.menuTools.aboutToShow.connect(
+                self._sync_flash_abort_menu_state
+            )
+            # Also sync once up front — aboutToShow only fires
+            # once the user actually opens the menu, but nothing
+            # stops a test (or a screen reader) from checking
+            # isEnabled() before that ever happens.
+            self._sync_flash_abort_menu_state()
 
         if hasattr(self.ui, 'actionTestConnection'):
             self.ui.actionTestConnection.triggered.connect(
@@ -97,6 +132,31 @@ class MenuBarMixin:
                 self.action_toggle_dark_mode
             )
 
+        if hasattr(self.ui, 'actionResizeDefault'):
+            self.ui.actionResizeDefault.triggered.connect(
+                self.action_resize_default
+            )
+
+        if hasattr(self.ui, 'actionResizeMedium'):
+            self.ui.actionResizeMedium.triggered.connect(
+                self.action_resize_medium
+            )
+
+        if hasattr(self.ui, 'actionResizeLarge'):
+            self.ui.actionResizeLarge.triggered.connect(
+                self.action_resize_large
+            )
+
+        if hasattr(self.ui, 'actionMaximizeWindow'):
+            self.ui.actionMaximizeWindow.triggered.connect(
+                self.action_maximize_window
+            )
+
+        if hasattr(self.ui, 'actionFullScreen'):
+            self.ui.actionFullScreen.triggered.connect(
+                self.action_full_screen
+            )
+
         if hasattr(self.ui, 'actionAbout'):
             self.ui.actionAbout.triggered.connect(
                 self.action_about
@@ -105,6 +165,11 @@ class MenuBarMixin:
         if hasattr(self.ui, 'actionOpenGuideline'):
             self.ui.actionOpenGuideline.triggered.connect(
                 self.action_open_guideline
+            )
+
+        if hasattr(self.ui, 'actionExportIssue'):
+            self.ui.actionExportIssue.triggered.connect(
+                self.export_issue
             )
 
     # ==================================================
@@ -238,9 +303,65 @@ class MenuBarMixin:
             self._settings.setValue("appearance/darkMode", checked)
             self._settings.sync()
 
+    def _resize_window(self, width, height):
+        """
+        Set an exact window size. showNormal() first if the
+        window is currently maximized/full screen — resize()
+        while in either of those states is a no-op in Qt (the
+        window manager keeps it maximized/full screen), so a
+        discrete size from the menu would otherwise silently
+        fail to take effect after picking Maximize/Full Screen.
+        """
+
+        if self.isMaximized() or self.isFullScreen():
+            self.showNormal()
+
+        self.resize(width, height)
+
+    def action_resize_default(self):
+
+        self._resize_window(1100, 850)
+
+    def action_resize_medium(self):
+
+        self._resize_window(1366, 768)
+
+    def action_resize_large(self):
+
+        self._resize_window(1920, 1080)
+
+    def action_maximize_window(self):
+
+        self.showMaximized()
+
+    def action_full_screen(self):
+
+        self.showFullScreen()
+
     # ==================================================
     # Tools
     # ==================================================
+
+    def _sync_flash_abort_menu_state(self):
+        """
+        Enable exactly one of Tools > Flash / Abort at a time,
+        matching whichever action flashButton itself currently
+        represents (same button, same flash_button_clicked()
+        toggle — see gui/flash_tab.py). Read-only check against
+        self.thread; never touches it, so this can't interact
+        with the QThread lifecycle rules documented on
+        flash_button_clicked()/on_flash_finished().
+        """
+
+        running = (
+            self.thread is not None and self.thread.isRunning()
+        )
+
+        if hasattr(self.ui, 'actionFlash'):
+            self.ui.actionFlash.setEnabled(not running)
+
+        if hasattr(self.ui, 'actionAbort'):
+            self.ui.actionAbort.setEnabled(running)
 
     def action_test_connection(self):
 

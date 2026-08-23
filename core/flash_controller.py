@@ -583,18 +583,34 @@ class FlashWorker(QObject):
         option_record = step.params.get(
             "option_record", b''
         )
-
-        self._uds_client.routine_control(
-            sub_function=0x01,  # startRoutine
-            routine_id=routine_id,
-            option_record=option_record,
-        )
-
         action = step.params.get("action", "")
+
+        try:
+            self._uds_client.routine_control(
+                sub_function=0x01,  # startRoutine
+                routine_id=routine_id,
+                option_record=option_record,
+            )
+        except Exception:
+            # A failed Verify Memory already aborts the flash
+            # sequence via _execute_step()'s generic "Error: {e}"
+            # message (the exception re-raised here) — this adds
+            # an unambiguous PASS/FAIL line specifically for
+            # Verify Memory, matching what vFlash always shows
+            # after its own verify step (docs/gui_todo.md #9).
+            if action == "verify":
+                self.information_message.emit(
+                    "✗ Verify Memory: FAILED"
+                )
+            raise
 
         if action == "erase":
             self.information_message.emit(
                 "Memory erased"
+            )
+        elif action == "verify":
+            self.information_message.emit(
+                "✓ Verify Memory: PASS"
             )
         else:
             self.information_message.emit(

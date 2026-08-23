@@ -108,6 +108,63 @@ class TestSingleFlashRun(_ThreadLifecycleTestCase):
         )
 
 
+class TestFlashAbortViaMenu(_ThreadLifecycleTestCase):
+    """
+    Tools > Flash / Abort (gui/menu_bar.py, docs/gui_todo.md
+    follow-up request) both call flash_button_clicked() — the
+    exact same entry point flashButton itself uses — so no new
+    QThread wiring exists here in principle. Still exercised
+    through the real QThread path (not a direct
+    flash_button_clicked() call) because that's the whole point
+    of this file: a menu item is a new caller of the same
+    crash-prone code, and "it just calls the same function" is
+    exactly the kind of assumption that's cheap to verify for
+    real instead of trusting.
+    """
+
+    def test_start_via_menu_does_not_crash(self):
+        db = parse_hex_file(SAMPLE_HEX)
+        self.window._loaded_datablocks = [db]
+
+        self.window.ui.actionFlash.trigger()
+
+        cleaned_up = self._wait_for_cleanup()
+
+        self.assertTrue(
+            cleaned_up,
+            "flash started via Tools > Flash did not finish + "
+            "clean up its QThread within the timeout",
+        )
+
+    def test_abort_via_menu_mid_flash_does_not_crash(self):
+        # Large payload so there are still steps left to abort
+        # partway through (Virtual ECU flashes fast otherwise).
+        db = Datablock(file_path="synthetic.bin")
+        db.segments.append(
+            Segment(start_address=0x1000, data=bytes([0xAA]) * 200_000)
+        )
+        self.window._loaded_datablocks = [db]
+
+        self.window.ui.actionFlash.trigger()  # start
+
+        def abort_via_menu():
+            # A real user would only ever reach an enabled
+            # Abort item after opening the Tools menu while
+            # flashing, which is what aboutToShow normally
+            # syncs — do that sync explicitly here since the
+            # menu is never actually opened in this test.
+            self.window._sync_flash_abort_menu_state()
+            self.window.ui.actionAbort.trigger()
+
+        QTimer.singleShot(80, abort_via_menu)
+
+        cleaned_up = self._wait_for_cleanup()
+
+        self.assertTrue(
+            cleaned_up, "abort via Tools > Abort did not clean up in time"
+        )
+
+
 class TestRepeatedFlashRuns(_ThreadLifecycleTestCase):
     """
     A real user clicks Flash multiple times across a session.

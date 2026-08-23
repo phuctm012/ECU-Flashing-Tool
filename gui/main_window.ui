@@ -820,6 +820,10 @@
     </widget>
     <addaction name="menuRecentFiles"/>
     <addaction name="separator"/>
+    <addaction name="actionSaveProjectAs"/>
+    <addaction name="actionOpenProject"/>
+    <addaction name="separator"/>
+    <addaction name="actionCloseWindow"/>
     <addaction name="actionExit"/>
    </widget>
    <widget class="QMenu" name="menuEdit">
@@ -834,11 +838,27 @@
      <string>View</string>
     </property>
     <addaction name="actionDarkMode"/>
+    <addaction name="separator"/>
+    <widget class="QMenu" name="menuResizeWindow">
+     <property name="title">
+      <string>Resize Window</string>
+     </property>
+     <addaction name="actionResizeDefault"/>
+     <addaction name="actionResizeMedium"/>
+     <addaction name="actionResizeLarge"/>
+     <addaction name="separator"/>
+     <addaction name="actionMaximizeWindow"/>
+     <addaction name="actionFullScreen"/>
+    </widget>
+    <addaction name="menuResizeWindow"/>
    </widget>
    <widget class="QMenu" name="menuTools">
     <property name="title">
      <string>Tools</string>
     </property>
+    <addaction name="actionFlash"/>
+    <addaction name="actionAbort"/>
+    <addaction name="separator"/>
     <addaction name="actionTestConnection"/>
     <addaction name="actionExportReport"/>
    </widget>
@@ -848,6 +868,8 @@
     </property>
     <addaction name="actionAbout"/>
     <addaction name="actionOpenGuideline"/>
+    <addaction name="separator"/>
+    <addaction name="actionExportIssue"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
@@ -861,9 +883,34 @@
     <string>Load Firmware...</string>
    </property>
   </action>
+  <action name="actionSaveProjectAs">
+   <property name="text">
+    <string>Save Project As...</string>
+   </property>
+  </action>
+  <action name="actionOpenProject">
+   <property name="text">
+    <string>Open Project...</string>
+   </property>
+  </action>
+  <action name="actionCloseWindow">
+   <property name="text">
+    <string>Close Window</string>
+   </property>
+  </action>
   <action name="actionExit">
    <property name="text">
     <string>Exit</string>
+   </property>
+  </action>
+  <action name="actionFlash">
+   <property name="text">
+    <string>Flash</string>
+   </property>
+  </action>
+  <action name="actionAbort">
+   <property name="text">
+    <string>Abort</string>
    </property>
   </action>
   <action name="actionTestConnection">
@@ -886,12 +933,42 @@
     <string>Open Guideline</string>
    </property>
   </action>
+  <action name="actionExportIssue">
+   <property name="text">
+    <string>Export Issue...</string>
+   </property>
+  </action>
   <action name="actionDarkMode">
    <property name="checkable">
     <bool>true</bool>
    </property>
    <property name="text">
     <string>Dark Mode</string>
+   </property>
+  </action>
+  <action name="actionResizeDefault">
+   <property name="text">
+    <string>Default (1100 × 850)</string>
+   </property>
+  </action>
+  <action name="actionResizeMedium">
+   <property name="text">
+    <string>Medium (1366 × 768)</string>
+   </property>
+  </action>
+  <action name="actionResizeLarge">
+   <property name="text">
+    <string>Large (1920 × 1080)</string>
+   </property>
+  </action>
+  <action name="actionMaximizeWindow">
+   <property name="text">
+    <string>Maximize Window</string>
+   </property>
+  </action>
+  <action name="actionFullScreen">
+   <property name="text">
+    <string>Full Screen</string>
    </property>
   </action>
   <action name="actionClearRecentFiles">

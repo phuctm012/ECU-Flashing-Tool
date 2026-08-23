@@ -26,6 +26,8 @@ from gui.flash_tab import FlashTabMixin
 from gui.configure_tab import ConfigureTabMixin
 from gui.settings_profile import SettingsProfileMixin
 from gui.report_export import ReportExportMixin
+from gui.project_file import ProjectFileMixin
+from gui.issue_export import IssueExportMixin
 from gui.menu_bar import MenuBarMixin
 from gui.style import ICON_PATH
 from config.settings import (
@@ -41,6 +43,8 @@ class MainWindow(
     ConfigureTabMixin,
     SettingsProfileMixin,
     ReportExportMixin,
+    ProjectFileMixin,
+    IssueExportMixin,
     MenuBarMixin,
     QMainWindow
 ):

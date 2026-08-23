@@ -9,11 +9,13 @@
 # ==================================================
 
 import csv
+import json
 import os
 import sys
 import tempfile
 import unittest
 import unittest.mock
+import zipfile
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -791,6 +793,261 @@ class TestReportExport(unittest.TestCase):
         mock_critical.assert_called_once()
 
 
+class TestIssueExport(unittest.TestCase):
+    """
+    Covers IssueExportMixin (gui/issue_export.py) — Help >
+    Export Issue..., a plain-.txt debugging bundle distinct
+    from Tools > Export Report... (HTML). _write_issue_file()
+    is a pure snapshot of whatever's currently on screen, same
+    split as TestReportExport.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def _load_one_checked_datablock(self):
+        db = parse_firmware_file(SAMPLE_HEX)
+        table = self.window.ui.tableWidgetDatablocks
+        table.insertRow(0)
+        check_item = QTableWidgetItem("")
+        check_item.setCheckState(Qt.Checked)
+        table.setItem(0, 0, check_item)
+        table.setItem(0, 1, QTableWidgetItem(db.file_type))
+        table.setItem(0, 2, QTableWidgetItem(db.file_name))
+        table.setItem(
+            0, 3, QTableWidgetItem(f"0x{db.checksum:08X}")
+        )
+        return db
+
+    def test_issue_contains_environment_config_datablocks_log_and_trace(
+        self,
+    ):
+        db = self._load_one_checked_datablock()
+        self.window.log_trace_row({
+            "req_ts": 0.01, "req_target": "0x77B",
+            "req_data": "10 02",
+            "resp_ts": 0.02, "resp_source": "0x78B",
+            "resp_data": "50 02",
+        })
+        self.window.log_information("ECU unlocked")
+
+        text = self.window._build_issue_text()
+
+        self.assertIn(APP_NAME, text)
+        self.assertIn("--- Environment ---", text)
+        self.assertIn("Virtual ECU Simulator", text)
+        self.assertIn("--- CAN Communication Details ---", text)
+        self.assertIn("0x77B", text)
+        self.assertIn(db.file_name, text)
+        self.assertIn(f"0x{db.checksum:08X}", text)
+        self.assertIn("ECU unlocked", text)
+        self.assertIn("10 02", text)
+
+    def test_issue_omits_steps_table_content(self):
+        # Deliberately narrower than Export Report — the
+        # Information log already narrates the same steps.
+        self.window.add_step("Start Programming Session")
+
+        text = self.window._build_issue_text()
+
+        self.assertNotIn("Steps", text)
+        self.assertNotIn("Start Programming Session", text)
+
+    def test_unchecked_datablock_marked_excluded_in_issue(self):
+        self._load_one_checked_datablock()
+        self.window.ui.tableWidgetDatablocks.item(
+            0, 0
+        ).setCheckState(Qt.Unchecked)
+
+        text = self.window._build_issue_text()
+
+        self.assertIn("Excluded", text)
+
+    def test_write_issue_file_creates_file(self):
+        with tempfile.NamedTemporaryFile(
+            suffix=".txt", delete=False
+        ) as f:
+            path = f.name
+
+        try:
+            self.window._write_issue_file(path)
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn(APP_NAME, content)
+        finally:
+            os.unlink(path)
+
+    def test_write_issue_file_failure_does_not_raise(self):
+        with unittest.mock.patch(
+            "gui.issue_export.QMessageBox.critical"
+        ) as mock_critical:
+            self.window._write_issue_file(tempfile.gettempdir())
+        mock_critical.assert_called_once()
+
+    def test_ask_include_firmware_true_when_checked_and_ok(self):
+        def fake_exec(box_self):
+            box_self.checkBox().setChecked(True)
+            return QMessageBox.Ok
+
+        with unittest.mock.patch.object(
+            QMessageBox, 'exec', fake_exec
+        ):
+            result = self.window._ask_include_firmware()
+
+        self.assertTrue(result)
+
+    def test_ask_include_firmware_false_by_default_when_ok(self):
+        # Checkbox left untouched — off by default each time.
+        with unittest.mock.patch.object(
+            QMessageBox, 'exec', lambda box_self: QMessageBox.Ok
+        ):
+            result = self.window._ask_include_firmware()
+
+        self.assertFalse(result)
+
+    def test_ask_include_firmware_none_when_cancelled(self):
+        with unittest.mock.patch.object(
+            QMessageBox, 'exec',
+            lambda box_self: QMessageBox.Cancel,
+        ):
+            result = self.window._ask_include_firmware()
+
+        self.assertIsNone(result)
+
+    def test_write_issue_zip_contains_txt_and_firmware(self):
+        db = self._load_one_checked_datablock()
+        self.window._loaded_datablocks = [db]
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".zip", delete=False
+        ) as f:
+            path = f.name
+
+        try:
+            self.window._write_issue_zip(path)
+            with zipfile.ZipFile(path) as zf:
+                names = zf.namelist()
+                self.assertIn("issue.txt", names)
+                self.assertIn(db.file_name, names)
+                self.assertIn(APP_NAME, zf.read("issue.txt").decode())
+        finally:
+            os.unlink(path)
+
+    def test_write_issue_zip_appends_extension(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "no_extension")
+            self.window._write_issue_zip(path)
+            self.assertTrue(os.path.isfile(path + ".zip"))
+
+    def test_write_issue_zip_skips_missing_firmware_file(self):
+        db = parse_firmware_file(SAMPLE_HEX)
+        db.file_path = "/no/such/file.hex"
+        self.window._loaded_datablocks = [db]
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".zip", delete=False
+        ) as f:
+            path = f.name
+
+        try:
+            self.window._write_issue_zip(path)
+            with zipfile.ZipFile(path) as zf:
+                self.assertEqual(zf.namelist(), ["issue.txt"])
+        finally:
+            os.unlink(path)
+
+    def test_write_issue_zip_disambiguates_duplicate_names(self):
+        db1 = parse_firmware_file(SAMPLE_HEX)
+        db2 = parse_firmware_file(SAMPLE_HEX)  # same file_name
+        self.window._loaded_datablocks = [db1, db2]
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".zip", delete=False
+        ) as f:
+            path = f.name
+
+        try:
+            self.window._write_issue_zip(path)
+            with zipfile.ZipFile(path) as zf:
+                names = zf.namelist()
+                self.assertEqual(len(names), 3)  # issue.txt + 2 firmware
+                self.assertEqual(len(set(names)), 3)  # all unique
+        finally:
+            os.unlink(path)
+
+    def test_write_issue_zip_failure_does_not_raise(self):
+        # A path ending in ".zip" that's itself a directory —
+        # the ".zip" suffix means _write_issue_zip() won't
+        # "fix" the path by appending another extension, so it
+        # stays a genuine write failure (IsADirectoryError, an
+        # OSError subclass).
+        dir_path = tempfile.mkdtemp(suffix=".zip")
+        with unittest.mock.patch(
+            "gui.issue_export.QMessageBox.critical"
+        ) as mock_critical:
+            self.window._write_issue_zip(dir_path)
+        mock_critical.assert_called_once()
+
+    def test_export_issue_cancelled_at_prompt_does_nothing(self):
+        with unittest.mock.patch.object(
+            self.window, '_ask_include_firmware', return_value=None
+        ), unittest.mock.patch(
+            "gui.issue_export.QFileDialog.getSaveFileName"
+        ) as mock_dialog:
+            self.window.export_issue()
+        mock_dialog.assert_not_called()
+
+    def test_export_issue_writes_txt_when_firmware_not_included(self):
+        with tempfile.NamedTemporaryFile(
+            suffix=".txt", delete=False
+        ) as f:
+            path = f.name
+        os.unlink(path)  # just want the path, not an open handle
+
+        try:
+            with unittest.mock.patch.object(
+                self.window, '_ask_include_firmware',
+                return_value=False,
+            ), unittest.mock.patch(
+                "gui.issue_export.QFileDialog.getSaveFileName",
+                return_value=(path, ""),
+            ):
+                self.window.export_issue()
+
+            self.assertTrue(os.path.isfile(path))
+            self.assertFalse(zipfile.is_zipfile(path))
+            with open(path, encoding="utf-8") as f:
+                self.assertIn(APP_NAME, f.read())
+        finally:
+            if os.path.isfile(path):
+                os.unlink(path)
+
+    def test_export_issue_writes_zip_when_firmware_included(self):
+        db = self._load_one_checked_datablock()
+        self.window._loaded_datablocks = [db]
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".zip", delete=False
+        ) as f:
+            path = f.name
+
+        try:
+            with unittest.mock.patch.object(
+                self.window, '_ask_include_firmware',
+                return_value=True,
+            ), unittest.mock.patch(
+                "gui.issue_export.QFileDialog.getSaveFileName",
+                return_value=(path, ""),
+            ):
+                self.window.export_issue()
+
+            with zipfile.ZipFile(path) as zf:
+                self.assertIn(db.file_name, zf.namelist())
+        finally:
+            os.unlink(path)
+
+
 class TestMenuBar(unittest.TestCase):
     """
     Covers MenuBarMixin (gui/menu_bar.py) — File/Tools/Help
@@ -823,6 +1080,13 @@ class TestMenuBar(unittest.TestCase):
             self.window.ui.actionExit.trigger()
         mock_close.assert_called_once()
 
+    def test_close_window_action_calls_close(self):
+        with unittest.mock.patch.object(
+            self.window, 'close'
+        ) as mock_close:
+            self.window.ui.actionCloseWindow.trigger()
+        mock_close.assert_called_once()
+
     def test_dark_mode_action_starts_unchecked_by_default(self):
         # Fresh profile, never toggled — defaults to Light Mode.
         self.assertFalse(self.window.ui.actionDarkMode.isChecked())
@@ -850,6 +1114,55 @@ class TestMenuBar(unittest.TestCase):
         finally:
             self.window.ui.actionDarkMode.setChecked(False)
 
+    def test_resize_default_sets_exact_size(self):
+        self.window.ui.actionResizeMedium.trigger()  # move away first
+        self.window.ui.actionResizeDefault.trigger()
+        self.assertEqual(
+            self.window.size().toTuple(), (1100, 850)
+        )
+
+    def test_resize_medium_sets_exact_size(self):
+        self.window.ui.actionResizeMedium.trigger()
+        self.assertEqual(
+            self.window.size().toTuple(), (1366, 768)
+        )
+
+    def test_resize_large_sets_exact_size(self):
+        self.window.ui.actionResizeLarge.trigger()
+        self.assertEqual(
+            self.window.size().toTuple(), (1920, 1080)
+        )
+
+    def test_maximize_window_action(self):
+        self.window.ui.actionMaximizeWindow.trigger()
+        self.assertTrue(self.window.isMaximized())
+
+    def test_full_screen_action(self):
+        self.window.ui.actionFullScreen.trigger()
+        self.assertTrue(self.window.isFullScreen())
+
+    def test_resize_after_maximize_un_maximizes_first(self):
+        self.window.ui.actionMaximizeWindow.trigger()
+        self.assertTrue(self.window.isMaximized())
+
+        self.window.ui.actionResizeDefault.trigger()
+
+        self.assertFalse(self.window.isMaximized())
+        self.assertEqual(
+            self.window.size().toTuple(), (1100, 850)
+        )
+
+    def test_resize_after_full_screen_exits_full_screen_first(self):
+        self.window.ui.actionFullScreen.trigger()
+        self.assertTrue(self.window.isFullScreen())
+
+        self.window.ui.actionResizeMedium.trigger()
+
+        self.assertFalse(self.window.isFullScreen())
+        self.assertEqual(
+            self.window.size().toTuple(), (1366, 768)
+        )
+
     def test_export_report_action_calls_export_report(self):
         with unittest.mock.patch.object(
             self.window, 'export_report'
@@ -871,6 +1184,57 @@ class TestMenuBar(unittest.TestCase):
         ) as mock_open:
             self.window.ui.actionOpenGuideline.trigger()
         mock_open.assert_called_once()
+
+    def test_export_issue_action_calls_export_issue(self):
+        with unittest.mock.patch.object(
+            self.window, 'export_issue'
+        ) as mock_export:
+            self.window.ui.actionExportIssue.trigger()
+        mock_export.assert_called_once()
+
+    def test_flash_and_abort_actions_start_disabled_correctly(self):
+        # Fresh window, nothing running — Flash is the only
+        # sensible action, matching flashButton's own initial
+        # "Flash" (not "Abort") label.
+        self.assertTrue(self.window.ui.actionFlash.isEnabled())
+        self.assertFalse(self.window.ui.actionAbort.isEnabled())
+
+    def test_sync_flash_abort_menu_state_reflects_running_thread(self):
+        # Lightweight state-sync check — a Mock stands in for a
+        # running QThread so this doesn't need a real flash run
+        # (see tests/test_flash_threading.py for that).
+        self.window.thread = unittest.mock.Mock()
+        self.window.thread.isRunning.return_value = True
+
+        self.window._sync_flash_abort_menu_state()
+
+        self.assertFalse(self.window.ui.actionFlash.isEnabled())
+        self.assertTrue(self.window.ui.actionAbort.isEnabled())
+
+        self.window.thread.isRunning.return_value = False
+        self.window._sync_flash_abort_menu_state()
+
+        self.assertTrue(self.window.ui.actionFlash.isEnabled())
+        self.assertFalse(self.window.ui.actionAbort.isEnabled())
+
+    def test_flash_action_calls_flash_button_clicked(self):
+        with unittest.mock.patch.object(
+            self.window, 'flash_button_clicked'
+        ) as mock_clicked:
+            self.window.ui.actionFlash.trigger()
+        mock_clicked.assert_called_once()
+
+    def test_abort_action_calls_flash_button_clicked(self):
+        # QAction.trigger() doesn't emit triggered while
+        # disabled — Abort starts disabled (nothing running), so
+        # enable it first, matching the only state a real click
+        # could ever reach it in.
+        self.window.ui.actionAbort.setEnabled(True)
+        with unittest.mock.patch.object(
+            self.window, 'flash_button_clicked'
+        ) as mock_clicked:
+            self.window.ui.actionAbort.trigger()
+        mock_clicked.assert_called_once()
 
     def test_test_connection_action_opens_dialog(self):
         with unittest.mock.patch(
@@ -1019,6 +1383,162 @@ class TestEditMenu(unittest.TestCase):
         self.window.ui.actionClearTrace.trigger()
 
         self.assertEqual(self.window.ui.traceTable.rowCount(), 0)
+
+
+class TestProjectFile(unittest.TestCase):
+    """
+    Covers File > Save Project As.../Open Project... (module
+    gui/project_file.py, docs/gui_todo.md item #20) — a named
+    .ffproj JSON snapshot of the loaded firmware (+ ticked
+    state) and CAN/hardware configuration, distinct from
+    gui/settings_profile.py's single auto-saved profile.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.tmpdir = tempfile.mkdtemp()
+
+    def _project_path(self, name="test"):
+        return os.path.join(self.tmpdir, name)
+
+    def test_build_project_data_reflects_loaded_state(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.window.ui.comboBoxRadarSide.setCurrentIndex(1)  # S1
+
+        data = self.window._build_project_data()
+
+        self.assertEqual(data["format_version"], 1)
+        self.assertEqual(len(data["firmware_files"]), 1)
+        self.assertEqual(
+            data["firmware_files"][0]["path"], SAMPLE_HEX
+        )
+        self.assertTrue(data["firmware_files"][0]["checked"])
+        self.assertEqual(data["hardware"], {
+            "is_virtual": True, "channel": -1
+        })
+        self.assertEqual(data["radar_side_index"], 1)
+
+    def test_build_project_data_captures_unchecked_datablock(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.window.ui.tableWidgetDatablocks.item(
+            0, 0
+        ).setCheckState(Qt.Unchecked)
+
+        data = self.window._build_project_data()
+
+        self.assertFalse(data["firmware_files"][0]["checked"])
+
+    def test_save_and_open_project_round_trip(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.window.ui.comboBoxRadarSide.setCurrentIndex(1)
+
+        path = self._project_path("roundtrip.ffproj")
+        with unittest.mock.patch(
+            "gui.project_file.QFileDialog.getSaveFileName",
+            return_value=(path, ""),
+        ):
+            self.window.save_project_as()
+
+        self.assertTrue(os.path.isfile(path))
+
+        window2 = MainWindow()
+        with unittest.mock.patch(
+            "gui.project_file.QFileDialog.getOpenFileName",
+            return_value=(path, ""),
+        ):
+            window2.open_project()
+
+        self.assertEqual(len(window2._loaded_datablocks), 1)
+        self.assertEqual(
+            window2._loaded_datablocks[0].file_path, SAMPLE_HEX
+        )
+        self.assertEqual(
+            window2.ui.comboBoxRadarSide.currentIndex(), 1
+        )
+
+    def test_save_project_appends_ffproj_extension(self):
+        path = self._project_path("no_extension")
+        with unittest.mock.patch(
+            "gui.project_file.QFileDialog.getSaveFileName",
+            return_value=(path, ""),
+        ):
+            self.window.save_project_as()
+
+        self.assertTrue(os.path.isfile(path + ".ffproj"))
+
+    def test_save_project_cancelled_dialog_does_nothing(self):
+        with unittest.mock.patch(
+            "gui.project_file.QFileDialog.getSaveFileName",
+            return_value=("", ""),
+        ):
+            self.window.save_project_as()  # must not raise
+
+    def test_open_project_replaces_not_merges_existing_datablocks(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.assertEqual(len(self.window._loaded_datablocks), 1)
+
+        path = self._project_path("empty.ffproj")
+        with open(path, "w") as f:
+            json.dump({"format_version": 1, "firmware_files": []}, f)
+
+        with unittest.mock.patch(
+            "gui.project_file.QFileDialog.getOpenFileName",
+            return_value=(path, ""),
+        ):
+            self.window.open_project()
+
+        self.assertEqual(len(self.window._loaded_datablocks), 0)
+        self.assertEqual(
+            self.window.ui.tableWidgetDatablocks.rowCount(), 1
+        )  # just the "add a Datablock" placeholder row
+
+    def test_open_project_missing_firmware_file_warns_not_crash(self):
+        path = self._project_path("missing_fw.ffproj")
+        with open(path, "w") as f:
+            json.dump({
+                "format_version": 1,
+                "firmware_files": [{"path": "/no/such.hex", "checked": True}],
+            }, f)
+
+        with unittest.mock.patch(
+            "gui.project_file.QFileDialog.getOpenFileName",
+            return_value=(path, ""),
+        ), unittest.mock.patch(
+            "gui.configure_tab.QMessageBox.warning"
+        ) as mock_warning:
+            self.window.open_project()
+
+        mock_warning.assert_called_once()
+        self.assertEqual(len(self.window._loaded_datablocks), 0)
+
+    def test_open_project_invalid_json_shows_error_not_crash(self):
+        path = self._project_path("corrupt.ffproj")
+        with open(path, "w") as f:
+            f.write("{not valid json")
+
+        with unittest.mock.patch(
+            "gui.project_file.QFileDialog.getOpenFileName",
+            return_value=(path, ""),
+        ), unittest.mock.patch(
+            "gui.project_file.QMessageBox.critical"
+        ) as mock_critical:
+            self.window.open_project()  # must not raise
+
+        mock_critical.assert_called_once()
+
+    def test_menu_actions_call_save_and_open(self):
+        with unittest.mock.patch.object(
+            self.window, 'save_project_as'
+        ) as mock_save:
+            self.window.ui.actionSaveProjectAs.trigger()
+        mock_save.assert_called_once()
+
+        with unittest.mock.patch.object(
+            self.window, 'open_project'
+        ) as mock_open:
+            self.window.ui.actionOpenProject.trigger()
+        mock_open.assert_called_once()
 
 
 class TestLogSaving(unittest.TestCase):

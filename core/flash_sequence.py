@@ -129,7 +129,7 @@ DEFAULT_FLASH_SEQUENCE = [
         name="Verify Memory",
         step_type=FlashStep.TYPE_ROUTINE,
         description="Verify Memory",
-        params={"routine_id": 0xFF01}
+        params={"routine_id": 0xFF01, "action": "verify"}
     ),
 
     FlashStep(
@@ -375,6 +375,7 @@ SUZUKI_SLP1_FLASH_SEQUENCE = [
         params={
             "routine_id": 0xFF01,
             "option_record": bytes([0x00]),
+            "action": "verify",
         }
     ),
 
