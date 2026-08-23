@@ -14,7 +14,7 @@ from datetime import datetime
 
 from PySide6.QtWidgets import QTableWidgetItem, QMessageBox
 from PySide6.QtGui import QColor
-from PySide6.QtCore import QThread, Qt
+from PySide6.QtCore import QThread, Qt, QPropertyAnimation, QEasingCurve
 
 from core.flash_controller import FlashWorker
 from core.flash_sequence import (
@@ -22,6 +22,32 @@ from core.flash_sequence import (
     build_suzuki_slp1_flash_sequence,
     DEFAULT_FLASH_SEQUENCE,
 )
+from config.settings import (
+    STATUS_COLOR_RUNNING,
+    STATUS_COLOR_DONE,
+    STATUS_COLOR_ERROR,
+    STATUS_TEXT_COLOR,
+    STATUS_COLOR_RUNNING_DARK,
+    STATUS_COLOR_DONE_DARK,
+    STATUS_COLOR_ERROR_DARK,
+    STATUS_TEXT_COLOR_DARK,
+)
+
+STEPS_PLACEHOLDER_TEXT = "No steps recorded yet."
+SEGMENTS_PLACEHOLDER_TEXT = (
+    "No datablock loaded — load a firmware file to see segments here."
+)
+
+# kind -> (light background, dark background) — picked at
+# coloring time by _status_colors() based on which theme is
+# currently active (self._dark_mode_active), not just the theme
+# at app startup, so toggling View > Dark Mode mid-run recolors
+# correctly on the next status update.
+_STATUS_COLOR_PAIRS = {
+    "running": (STATUS_COLOR_RUNNING, STATUS_COLOR_RUNNING_DARK),
+    "done": (STATUS_COLOR_DONE, STATUS_COLOR_DONE_DARK),
+    "error": (STATUS_COLOR_ERROR, STATUS_COLOR_ERROR_DARK),
+}
 
 
 class FlashTabMixin:
@@ -43,6 +69,16 @@ class FlashTabMixin:
         # Progress
         self.ui.progressBar.setRange(0, 100)
         self.ui.progressBar.setValue(0)
+
+        # Animate value changes instead of jumping instantly —
+        # kept as an instance attribute (not a local) so it isn't
+        # garbage-collected mid-animation and so on_progress_changed()
+        # can re-target a still-running animation instead of racing it.
+        self._progress_animation = QPropertyAnimation(
+            self.ui.progressBar, b"value"
+        )
+        self._progress_animation.setDuration(200)
+        self._progress_animation.setEasingCurve(QEasingCurve.OutCubic)
 
         # Stats Label
         from PySide6.QtWidgets import QLabel
@@ -75,6 +111,15 @@ class FlashTabMixin:
                 "Segment"
             ]
         )
+        self._set_table_placeholder(
+            self.ui.stepsTable, STEPS_PLACEHOLDER_TEXT
+        )
+        self._steps_placeholder_active = True
+
+        self._set_table_placeholder(
+            self.ui.segmentsTable, SEGMENTS_PLACEHOLDER_TEXT
+        )
+
         self.ui.segmentsTable.horizontalHeader().setStretchLastSection(
             True
         )
@@ -83,6 +128,53 @@ class FlashTabMixin:
         self.ui.flashButton.clicked.connect(
             self.flash_button_clicked
         )
+
+    # ==================================================
+    # Empty-state placeholder row
+    # ==================================================
+
+    def _set_table_placeholder(self, table, text):
+        """
+        Replace a table's contents with a single centered,
+        non-editable "no data" row spanning every column —
+        mirrors gui/configure_tab.py's _add_placeholder_row()
+        for tableWidgetDatablocks. Only column 0 gets an item;
+        callers that iterate a table's rows for real data (e.g.
+        gui/report_export.py's _report_steps_table()) already
+        skip rows with no item in their data column, the same
+        way _report_datablocks_table() does.
+        """
+
+        table.setRowCount(0)
+        table.insertRow(0)
+
+        item = QTableWidgetItem(text)
+        item.setTextAlignment(Qt.AlignCenter)
+        item.setForeground(QColor("gray"))
+        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+        table.setItem(0, 0, item)
+        table.setSpan(0, 0, 1, table.columnCount())
+
+    # ==================================================
+    # Status colors (theme-aware)
+    # ==================================================
+
+    def _status_colors(self, kind):
+        """
+        Return (background_hex, text_hex) for a status highlight
+        — "running"/"done"/"error" — picking the light or dark
+        pair based on which theme is *currently* live
+        (self._dark_mode_active, kept in sync by
+        gui/menu_bar.py's action_toggle_dark_mode() on every
+        toggle), not just whichever theme was active at startup.
+        """
+
+        light_bg, dark_bg = _STATUS_COLOR_PAIRS[kind]
+
+        if getattr(self, '_dark_mode_active', False):
+            return dark_bg, STATUS_TEXT_COLOR_DARK
+
+        return light_bg, STATUS_TEXT_COLOR
 
     # ==================================================
     # Flash button
@@ -304,7 +396,9 @@ class FlashTabMixin:
         # Button
         self.ui.flashButton.setText("Abort")
 
-        # Reset progress
+        # Reset progress (stop any animation left over from a
+        # previous run so it can't re-target a stale endValue)
+        self._progress_animation.stop()
         self.ui.progressBar.setValue(0)
 
         self.start_time = time.time()
@@ -322,6 +416,7 @@ class FlashTabMixin:
 
         # Clear old steps
         self.ui.stepsTable.setRowCount(0)
+        self._steps_placeholder_active = False
 
         # Clear old segments
         self.ui.segmentsTable.setRowCount(0)
@@ -348,7 +443,12 @@ class FlashTabMixin:
 
     def on_progress_changed(self, value):
 
-        self.ui.progressBar.setValue(value)
+        self._progress_animation.stop()
+        self._progress_animation.setStartValue(
+            self.ui.progressBar.value()
+        )
+        self._progress_animation.setEndValue(value)
+        self._progress_animation.start()
 
         if (hasattr(self, 'start_time')
                 and self.start_time and value > 0):
@@ -409,7 +509,8 @@ class FlashTabMixin:
                     f"Flashing... {pct}%"
                 )
 
-            # Color active segment yellow
+            # Color active segment
+            bg, fg = self._status_colors('running')
             for col in range(
                 self.ui.segmentsTable.columnCount()
             ):
@@ -417,9 +518,8 @@ class FlashTabMixin:
                     seg_idx, col
                 )
                 if item:
-                    item.setBackground(
-                        QColor("#FFFACD")
-                    )
+                    item.setBackground(QColor(bg))
+                    item.setForeground(QColor(fg))
 
     # ==================================================
     # Information signal
@@ -469,15 +569,15 @@ class FlashTabMixin:
 
         self.ui.flashButton.setText("Flash")
 
-        # Color last step green
+        # Color last step
         row = self.ui.stepsTable.rowCount() - 1
         if row >= 0:
+            bg, fg = self._status_colors('done')
             for col in range(2):
                 item = self.ui.stepsTable.item(row, col)
                 if item:
-                    item.setBackground(
-                        QColor("#C8E6C9")
-                    )
+                    item.setBackground(QColor(bg))
+                    item.setForeground(QColor(fg))
 
         # Final stats
         elapsed = time.time() - self.start_time
@@ -518,15 +618,15 @@ class FlashTabMixin:
 
         self.add_step("Flash aborted")
 
-        # Color aborted step red
+        # Color aborted step
         row = self.ui.stepsTable.rowCount() - 1
         if row >= 0:
+            bg, fg = self._status_colors('error')
             for col in range(2):
                 item = self.ui.stepsTable.item(row, col)
                 if item:
-                    item.setBackground(
-                        QColor("#FFCDD2")
-                    )
+                    item.setBackground(QColor(bg))
+                    item.setForeground(QColor(fg))
 
         self.ui.statsLabel.setText(
             "ETA: -- | Speed: Aborted"
@@ -540,6 +640,10 @@ class FlashTabMixin:
     # ==================================================
 
     def add_step(self, description):
+
+        if getattr(self, '_steps_placeholder_active', False):
+            self.ui.stepsTable.setRowCount(0)
+            self._steps_placeholder_active = False
 
         row = self.ui.stepsTable.rowCount()
         self.ui.stepsTable.insertRow(row)
@@ -556,21 +660,23 @@ class FlashTabMixin:
             row, 1, QTableWidgetItem(description)
         )
 
-        # Color logic: Current is yellow, previous is green
+        # Color logic: current step is "running", previous is "done"
+        running_bg, running_fg = self._status_colors('running')
         for col in range(2):
             item = self.ui.stepsTable.item(row, col)
             if item:
-                item.setBackground(QColor("#FFFACD"))
+                item.setBackground(QColor(running_bg))
+                item.setForeground(QColor(running_fg))
 
         if row > 0:
+            done_bg, done_fg = self._status_colors('done')
             for col in range(2):
                 prev_item = self.ui.stepsTable.item(
                     row - 1, col
                 )
                 if prev_item:
-                    prev_item.setBackground(
-                        QColor("#C8E6C9")
-                    )
+                    prev_item.setBackground(QColor(done_bg))
+                    prev_item.setForeground(QColor(done_fg))
 
         self.ui.stepsTable.scrollToBottom()
 
@@ -580,19 +686,21 @@ class FlashTabMixin:
 
     def add_segments_from_datablocks(self, datablocks=None):
         """
-        Populate segments table from the given datablocks
+        Rebuild the segments table from the given datablocks
         (defaults to every loaded datablock, unfiltered).
-        Leaves the table empty if the list is empty — no demo/
-        placeholder rows (flash_button_clicked() blocks
-        starting a flash with nothing loaded, see below, so
-        this should only ever be reached with a non-empty list
-        in practice).
+        Always clears the table first, so it's safe to call
+        directly regardless of what the caller left in it. Shows
+        a single "no data" placeholder row if the list is empty
+        or has no segments — never fake per-segment demo rows
+        (see docs/gui_todo.md item #6).
         """
 
         if datablocks is None:
             datablocks = getattr(
                 self, '_loaded_datablocks', []
             )
+
+        self.ui.segmentsTable.setRowCount(0)
 
         for db_idx, datablock in enumerate(datablocks):
             for seg_idx, segment in enumerate(
@@ -616,6 +724,11 @@ class FlashTabMixin:
                         QTableWidgetItem(value)
                     )
 
+        if self.ui.segmentsTable.rowCount() == 0:
+            self._set_table_placeholder(
+                self.ui.segmentsTable, SEGMENTS_PLACEHOLDER_TEXT
+            )
+
     # ==================================================
     # Update segments
     # ==================================================
@@ -635,20 +748,32 @@ class FlashTabMixin:
         for i in range(num_segments):
 
             status = "Waiting"
-            color = QColor(Qt.white)
+            # Transparent (not a forced white) so an untouched
+            # row falls back to the table's own themed background
+            # (light or dark) instead of overriding it — a
+            # hardcoded white here was invisible against Dark
+            # Mode's near-white default text.
+            color = QColor(Qt.transparent)
+            text_color = None
 
             if i < current_segment_idx:
                 status = "Flashed"
-                color = QColor("#C8E6C9")
+                bg, fg = self._status_colors('done')
+                color = QColor(bg)
+                text_color = QColor(fg)
 
             elif (i == current_segment_idx
                   and progress < 100):
                 status = "Flashing..."
-                color = QColor("#FFFACD")
+                bg, fg = self._status_colors('running')
+                color = QColor(bg)
+                text_color = QColor(fg)
 
             if progress == 100:
                 status = "Flashed"
-                color = QColor("#C8E6C9")
+                bg, fg = self._status_colors('done')
+                color = QColor(bg)
+                text_color = QColor(fg)
 
             # Update status text
             status_item = self.ui.segmentsTable.item(
@@ -657,7 +782,9 @@ class FlashTabMixin:
             if status_item:
                 status_item.setText(status)
 
-            # Color row
+            # Color row — _status_colors() already picked the
+            # right (background, text) pair for whichever theme
+            # is currently live (see its docstring).
             for col in range(
                 self.ui.segmentsTable.columnCount()
             ):
@@ -666,3 +793,5 @@ class FlashTabMixin:
                 )
                 if item:
                     item.setBackground(color)
+                    if text_color is not None:
+                        item.setForeground(text_color)

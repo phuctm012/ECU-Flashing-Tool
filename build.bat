@@ -55,7 +55,7 @@ if exist "%ICON_PATH%" (
     echo [WARN] Icon not found at %ICON_PATH% - building without a custom icon.
 )
 
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name "%APP_NAME%" --add-data "docs\user_guide.html;docs" %PYI_ICON_ARG% main.py
+python -m PyInstaller --noconfirm --clean --onefile --windowed --name "%APP_NAME%" --add-data "docs\user_guide.html;docs" --add-data "resources\style.qss;resources" --add-data "resources\style_dark.qss;resources" --add-data "resources\icons;resources\icons" %PYI_ICON_ARG% main.py
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] PyInstaller build failed.
     exit /b 1

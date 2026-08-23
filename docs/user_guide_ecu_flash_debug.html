@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>FFlash — Hướng Dẫn Setup &amp; Debug Flash ECU Thật (Windows)</title>
+<style>
+  :root {
+    --accent: #2b579a;
+    --accent-soft: #4a7fd6;
+    --accent-bg: #eef3fa;
+    --border: #d7dde5;
+    --text: #1a1a1a;
+    --text-muted: #5a6472;
+    --step-bg: #f7f9fb;
+    --code-bg: #1e2228;
+    --code-text: #e6e9ee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    color: var(--text);
+    margin: 0;
+    background: #ffffff;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 32px 24px 64px; }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 16px;
+    margin-bottom: 8px;
+  }
+  header h1 { margin: 0; font-size: 26px; color: var(--accent); }
+  header .version { color: var(--text-muted); font-size: 14px; }
+  .tagline { color: var(--text-muted); margin: 4px 0 28px; font-size: 15px; }
+  .intro {
+    background: var(--accent-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+    font-size: 15px;
+  }
+  .intro p { margin: 0 0 8px; }
+  .intro p:last-child { margin-bottom: 0; }
+  .toc {
+    background: var(--step-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 24px;
+    margin-bottom: 36px;
+    font-size: 14.5px;
+  }
+  .toc h2 { margin: 0 0 10px; font-size: 15px; color: var(--accent); }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc li { margin-bottom: 4px; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+  h2.section-title {
+    font-size: 20px;
+    color: var(--accent);
+    margin: 44px 0 18px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    scroll-margin-top: 16px;
+  }
+  h3 { font-size: 16px; margin: 24px 0 8px; }
+  p { font-size: 14.5px; margin: 0 0 12px; }
+  ol.steps, ul.plain { font-size: 14.5px; padding-left: 22px; }
+  ol.steps li, ul.plain li { margin-bottom: 8px; }
+  .card {
+    background: var(--step-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 20px;
+  }
+  .note {
+    background: #fff8e6;
+    border: 1px solid #f0d78c;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 20px 0;
+    font-size: 14.5px;
+  }
+  .note strong.label { color: #8a6300; }
+  .danger {
+    background: #fdecec;
+    border: 1px solid #f0b8b8;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 20px 0;
+    font-size: 14.5px;
+  }
+  .danger strong.label { color: #a12727; }
+  .ok {
+    background: #eaf7ee;
+    border: 1px solid #b8e0c4;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 20px 0;
+    font-size: 14.5px;
+  }
+  .ok strong.label { color: #1e7a3d; }
+  code {
+    background: #eef0f2;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 13px;
+    font-family: Consolas, Menlo, monospace;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    border-radius: 8px;
+    padding: 14px 18px;
+    overflow-x: auto;
+    font-size: 13px;
+    font-family: Consolas, Menlo, monospace;
+    line-height: 1.6;
+    margin: 10px 0 16px;
+  }
+  pre .comment { color: #8a94a3; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    margin: 12px 0 20px;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .checklist {
+    list-style: none;
+    padding-left: 0;
+    font-size: 14.5px;
+  }
+  .checklist li {
+    padding: 6px 0 6px 30px;
+    position: relative;
+    border-bottom: 1px dashed var(--border);
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist li::before {
+    content: "☐";
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-size: 16px;
+  }
+  footer {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  @media print {
+    pre { white-space: pre-wrap; word-break: break-word; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>FFlash</h1>
+    <span class="version">v1.1 — Setup &amp; Debug Guide (Real ECU, Windows)</span>
+  </header>
+  <div class="tagline">Tài liệu nội bộ — không nhúng vào GUI. Dùng khi mang tool sang máy Windows khác để test flash ECU thật.</div>
+
+  <div class="intro">
+    <p>Tài liệu này hướng dẫn <strong>từ A đến Z</strong>: cài đặt môi trường trên máy Windows mới, cấu hình
+    <strong>Vector Hardware Config</strong> cho phần cứng VN1640A/VN1630, chạy quy trình test an toàn trước khi
+    flash ECU thật, và <strong>cách lấy log gửi lại để debug</strong> khi có lỗi.</p>
+    <p>Nội dung tổng hợp/mở rộng từ <code>README.md</code>'s mục "Sử Dụng Với Phần Cứng Vector Thật" và "Test Trên
+    ECU Thật" — nếu 2 tài liệu lệch nhau ở đâu đó sau này, <code>README.md</code> là nguồn chính thức, còn file
+    này chỉ nên coi là checklist thực hành đi kèm.</p>
+  </div>
+
+  <div class="toc">
+    <h2>Mục lục</h2>
+    <ol>
+      <li><a href="#a-setup">A. Setup môi trường trên máy Windows mới</a></li>
+      <li><a href="#b-vhwconfig">B. Cấu hình Vector Hardware Config (bắt buộc)</a></li>
+      <li><a href="#c-canoe">C. Nếu máy có cài CANoe/CANalyzer</a></li>
+      <li><a href="#d-selftest">D. Tự kiểm tra môi trường trước (test suite ảo, không cần hardware)</a></li>
+      <li><a href="#e-safeflow">E. Quy trình test an toàn trên ECU thật (theo đúng thứ tự)</a></li>
+      <li><a href="#f-config">F. Radar Side / Security DLL — cấu hình theo ECU thực tế</a></li>
+      <li><a href="#g-logs">G. Cách lấy log gửi lại để debug</a></li>
+      <li><a href="#h-troubleshoot">H. Lỗi thường gặp &amp; cách xử lý</a></li>
+      <li><a href="#i-checklist">I. Checklist tóm tắt (in ra để cạnh máy)</a></li>
+    </ol>
+  </div>
+
+  <h2 class="section-title" id="a-setup">A. Setup môi trường trên máy Windows mới</h2>
+
+  <p>Phần cứng Vector (VN1640A/VN1630) <strong>chỉ chạy được trên Windows</strong> — XL Driver Library không có
+  bản macOS/Linux. Nên chạy mọi thứ qua <strong>terminal/PowerShell</strong>, không double-click file — nếu app
+  crash, traceback đầy đủ sẽ hiện ra terminal thay vì biến mất cùng cửa sổ.</p>
+
+  <div class="card">
+    <h3>1. Cài Python + lấy code</h3>
+    <pre># Cài Miniforge/conda nếu máy chưa có: https://github.com/conda-forge/miniforge
+
+git clone https://github.com/phuctm012/ECU-Flashing-Tool.git
+cd ECU-Flashing-Tool
+
+conda create -n pyside6 python=3.12
+conda activate pyside6</pre>
+
+    <h3>2. Cài dependencies (bao gồm python-can cho hardware thật)</h3>
+    <pre>pip install -r requirements.txt
+pip install python-can</pre>
+
+    <h3>3. Cài Vector Driver Setup</h3>
+    <p>Tải từ <a href="https://www.vector.com" target="_blank" rel="noopener">vector.com</a> — hoặc đã có sẵn nếu
+    máy từng cài CANoe/CANalyzer/CANape. Gói này cài 2 thứ cần thiết:</p>
+    <ul class="plain">
+      <li><strong>XL Driver Library</strong> — thư viện driver mà <code>python-can</code> dùng để giao tiếp phần cứng.</li>
+      <li><strong>Vector Hardware Config</strong> (tên cũ: Vector Hardware Manager) — bắt buộc dùng ở mục B bên dưới.</li>
+    </ul>
+
+    <h3>4. Cắm hardware</h3>
+    <p>Cắm VN1640A/VN1630 vào máy qua USB. Windows tự nhận driver nếu Vector Driver Setup đã cài xong.</p>
+  </div>
+
+  <h2 class="section-title" id="b-vhwconfig">B. Cấu hình Vector Hardware Config (bắt buộc)</h2>
+
+  <div class="danger">
+    <strong class="label">Quan trọng:</strong> đây là bước <strong>hay bị bỏ sót nhất</strong> và là nguyên nhân
+    phổ biến nhất khiến kết nối thất bại dù hardware đã cắm vào máy và Windows đã nhận driver. Vector XL Driver
+    không cho ứng dụng truy cập channel tự do — mỗi phần mềm phải được <strong>đăng ký tên ứng dụng</strong>, và
+    channel vật lý phải được <strong>gán (assign)</strong> cho đúng tên đó. Tool này đăng ký với tên
+    <code>FlashTool</code> (xem <code>communication/vector_can.py</code>, tham số <code>app_name</code>).
+  </div>
+
+  <ol class="steps">
+    <li>Mở <strong>Vector Hardware Config</strong> (tìm trong Start Menu sau khi cài Driver Setup).</li>
+    <li>Vào tab <strong>Applications</strong> → nếu chưa có mục <strong>"FlashTool"</strong>, bấm
+    <strong>Add/New Application</strong> để thêm — đặt tên <strong>đúng chính xác</strong>
+    <code>FlashTool</code> (phân biệt hoa/thường).</li>
+    <li>Ở mục cấu hình của "FlashTool", <strong>kéo/gán (assign)</strong> channel vật lý muốn dùng vào đó —
+    ví dụ kéo <strong>"VN1640A – Channel 1"</strong> vào slot CAN1 của ứng dụng FlashTool.</li>
+    <li><strong>Save</strong> lại cấu hình.</li>
+  </ol>
+
+  <div class="note">
+    <strong class="label">Vì sao "thấy" hardware mà vẫn không kết nối được:</strong> lệnh
+    <code>python cli.py list-hardware</code> (hoặc nút <strong>Refresh</strong> trong GUI) chỉ hỏi driver
+    "có hardware nào cắm vào máy" — bước quét này <strong>không cần</strong> đăng ký app. Nhưng bước
+    <strong>kết nối thật</strong> (Test Connection / Flash) thì driver bắt buộc phải tra kênh theo tên app đã
+    đăng ký ở bước B — nếu chưa gán, sẽ báo lỗi ngay khi bắt đầu kết nối chứ không phải lúc quét.
+  </div>
+
+  <h2 class="section-title" id="c-canoe">C. Nếu máy có cài CANoe/CANalyzer song song</h2>
+
+  <ul class="plain">
+    <li>CANoe và FFlash có thể cùng đăng ký dùng chung 1 channel vật lý (driver Vector hỗ trợ nhiều app/channel).</li>
+    <li>Nên <strong>dừng measurement (hoặc đóng hẳn) CANoe</strong> trong lúc dùng FFlash, tránh 2 bên cùng gửi
+    frame lên bus gây xung đột/nhiễu trace — đặc biệt nếu CANoe có node giả lập gửi UDS/TesterPresent trùng CAN ID.</li>
+    <li>Nếu chỉ dùng CANoe để <strong>log CAN bus</strong> song song (không có node nào chủ động gửi UDS): về
+    nguyên tắc chạy cùng lúc được, nhưng nhớ <strong>tắt TesterPresent tự động của CANoe</strong> trên đúng CAN
+    ID của ECU đang flash — nếu cả 2 bên cùng gửi TesterPresent (0x3E), ECU có thể raise NRC bất thường hoặc rớt
+    session giữa chừng.</li>
+  </ul>
+
+  <div class="ok">
+    <strong class="label">App tự cảnh báo:</strong> trước khi flash vào hardware thật (không áp dụng cho Virtual
+    ECU Simulator), FFlash tự kiểm tra 2 tín hiệu — tiến trình <code>CANoe.exe</code>/<code>CANalyzer.exe</code>/
+    <code>CANape.exe</code> đang chạy (qua <code>tasklist</code>), và channel đang chọn có báo
+    <code>is_on_bus</code> (đã có app khác giữ) hay không. Trong GUI hiện hộp thoại Yes/No (mặc định
+    <strong>No</strong>); trong CLI chỉ in cảnh báo ra <code>stderr</code> rồi tiếp tục chạy (không chặn script).
+  </div>
+
+  <h2 class="section-title" id="d-selftest">D. Tự kiểm tra môi trường trước (test suite ảo, không cần hardware)</h2>
+
+  <p>Trước khi đụng tới ECU thật, chạy toàn bộ test suite tự động — mọi test đều chạy qua
+  <strong>Virtual ECU Simulator</strong>, không cần hardware cắm vào máy. Nếu bộ này <strong>không pass 100%</strong>
+  trên máy Windows mới, môi trường/dependency đang có vấn đề — dừng lại xử lý trước khi thử với ECU thật, đừng
+  cố flash thật trên một môi trường chưa xác nhận chạy đúng.</p>
+
+  <pre>conda activate pyside6
+python -m unittest discover -s tests -p "test_*.py" -v
+
+<span class="comment"># Kỳ vọng: dòng cuối "OK", không có FAILED/ERROR</span></pre>
+
+  <p>Nếu lỗi ngay ở bước <code>import</code>/collection (chưa chạy tới test nào) — thường là thiếu
+  <code>PySide6</code>/<code>python-can</code> hoặc sai Python version. Kiểm tra lại mục A.</p>
+
+  <h2 class="section-title" id="e-safeflow">E. Quy trình test an toàn trên ECU thật (theo đúng thứ tự)</h2>
+
+  <div class="danger">
+    <strong class="label">Không nhảy cóc bước.</strong> Mỗi bước dưới đây an toàn hơn bước sau — dừng lại và xử
+    lý lỗi ngay khi 1 bước không như mong đợi, đừng chạy tiếp bước tiếp theo "cho thử". Nếu có ECU dự
+    phòng/bench, luôn test trên đó trước khi đụng tới ECU sản xuất/xe thật.
+  </div>
+
+  <div class="card">
+    <p><span class="badge">1</span><strong>Xác nhận hardware đã được nhận diện đúng</strong></p>
+    <pre>python cli.py list-hardware</pre>
+    <p>Kỳ vọng: thấy đúng channel VN1640A/VN1630 đã gán ở mục B, không phải danh sách rỗng.</p>
+  </div>
+
+  <div class="card">
+    <p><span class="badge">2</span><strong>Xem thông tin file firmware</strong> (không đụng ECU)</p>
+    <pre>python cli.py info firmware.s3</pre>
+  </div>
+
+  <div class="card">
+    <p><span class="badge">3</span><strong>Xem trước sequence sẽ chạy — KHÔNG gửi gì tới ECU</strong></p>
+    <pre>python cli.py flash firmware.s3 --sequence suzuki --dry-run</pre>
+    <p>Kiểm tra logic/thứ tự bước đúng trước khi cho phép tool thật sự gửi frame lên bus.</p>
+  </div>
+
+  <div class="card">
+    <p><span class="badge">4</span><strong>Test kết nối + Security Access — an toàn, KHÔNG Erase/Download</strong></p>
+    <pre>python cli.py test-connection --hardware vector --channel 0 --sequence suzuki --verbose</pre>
+    <p>Chỉ thực hiện Session Control + Security Access (+ đọc ECU Identification, read-only) — không bao giờ
+    đụng Erase Memory/TransferData. Luôn tự khôi phục ECU về Default Session khi kết thúc, dù pass hay fail giữa
+    chừng. Kết quả in <strong>PASSED</strong> (exit code 0) hoặc <strong>FAILED</strong> kèm lý do cụ thể (exit
+    code 1) — ví dụ NRC 0x35 (Invalid Key) nghĩa là thuật toán/DLL security chưa đúng (xem mục F).</p>
+    <p>Cũng có trên GUI: menu <strong>Tools → Test Connection...</strong>, cùng logic, hiện kết quả trong 1
+    dialog nhỏ.</p>
+  </div>
+
+  <div class="card">
+    <p><span class="badge">5</span><strong>Chỉ khi bước 4 PASSED mới flash thật</strong></p>
+    <pre>python cli.py flash firmware.s3 --hardware vector --channel 0 --sequence suzuki --verbose > flash_log.txt 2>&1</pre>
+    <p><code>--verbose &gt; flash_log.txt 2&gt;&amp;1</code> gộp cả stdout + stderr vào 1 file, có đầy đủ TX/RX hex
+    frame — giữ lại file này (xem mục G nếu cần gửi debug).</p>
+  </div>
+
+  <p>Tương đương qua GUI (<code>python main.py</code>): Configure → Communication → bấm <strong>Refresh</strong>
+  → chọn channel thật vừa xuất hiện → chọn Radar Side đúng ECU → Configure → Data → nạp firmware → Tools → Test
+  Connection... (bước 4) → Flash tab → Flash (bước 5).</p>
+
+  <h2 class="section-title" id="f-config">F. Radar Side / Security DLL — cấu hình theo ECU thực tế</h2>
+
+  <h3>Radar Side (Suzuki SLP1 sequence)</h3>
+  <table>
+    <tr><th>Radar Side</th><th>Physical Request CAN ID</th><th>Response CAN ID</th></tr>
+    <tr><td>S0 (mặc định)</td><td><code>0x77B</code></td><td><code>0x78B</code></td></tr>
+    <tr><td>S1</td><td><code>0x77A</code></td><td><code>0x78A</code></td></tr>
+  </table>
+  <p>Chọn đúng Radar Side khớp với ECU vật lý đang flash (combo <strong>Radar Side</strong> trong GUI, hoặc
+  <code>--radar-side {s0,s1}</code> trong CLI) — sai Radar Side nghĩa là gửi UDS request tới sai CAN ID, ECU sẽ
+  không phản hồi gì cả (timeout), không phải một lỗi rõ ràng.</p>
+
+  <h3>Security Access DLL (nếu ECU dùng thuật toán OEM riêng)</h3>
+  <p>Thứ tự ưu tiên tính key bảo mật: <code>key_function</code> truyền thẳng (không dùng trong GUI/CLI thông
+  thường) → <strong>Security DLL đã load</strong> → thuật toán "dummy" mặc định của Virtual ECU Simulator (chỉ
+  dùng được với ECU giả lập, không hoạt động trên ECU thật có bảo mật thật).</p>
+  <p>Nếu ECU yêu cầu thuật toán riêng: chọn file DLL ở mục <strong>Security Access DLL</strong> (Browse... trong
+  GUI), hoặc <code>--security-dll &lt;path&gt;</code> trong CLI. DLL phải export đúng hàm:</p>
+  <pre><span class="comment">// C signature mong đợi trong DLL</span>
+UINT32 GenerateKeyEx(UINT32 seed);</pre>
+  <p>Tool load DLL qua <code>ctypes.CDLL</code>, gọi hàm <code>GenerateKeyEx</code> (mặc định — có thể đổi tên
+  hàm qua tham số riêng nếu cần) với <code>seed</code> nhận từ ECU, kỳ vọng nhận lại <code>key</code> dạng
+  <code>UINT32</code>.</p>
+
+  <h2 class="section-title" id="g-logs">G. Cách lấy log gửi lại để debug</h2>
+
+  <p>Khi gặp lỗi, gửi lại càng nhiều trong số dưới đây càng tốt — đặc biệt là <strong>trace CSV</strong> (cho
+  biết chính xác frame nào ECU không phản hồi đúng) và <strong>log verbose</strong> (cho biết chính xác bước
+  nào raise exception).</p>
+
+  <table>
+    <tr><th>Nguồn</th><th>Cách lấy</th><th>Khi nào ưu tiên</th></tr>
+    <tr>
+      <td><strong>Trace CSV (GUI)</strong></td>
+      <td>Tab <strong>Trace</strong> → chuột phải → <strong>"Save Log (CSV)..."</strong></td>
+      <td>Ưu tiên cao nhất — đúng format 6 cột (Request/Response Timestamp, Target/Source, Data) giống
+      <code>docs/*_Report_Trace.csv</code> đã dùng để đối chiếu byte-level trước đó, đối chiếu trực tiếp từng
+      bước UDS được ngay.</td>
+    </tr>
+    <tr>
+      <td><strong>CLI verbose log</strong></td>
+      <td><code>--verbose &gt; flash_log.txt 2&gt;&amp;1</code> (xem mục E, bước 4/5)</td>
+      <td>Gộp stdout + stderr, có đầy đủ TX/RX hex frame + traceback nếu crash — dùng khi chạy qua CLI (không
+      cần GUI mở).</td>
+    </tr>
+    <tr>
+      <td><strong>Information log (GUI)</strong></td>
+      <td>Tab <strong>Information</strong> → chuột phải → <strong>"Save Log..."</strong> (.txt)</td>
+      <td>Log dễ đọc hơn, bổ trợ cho Trace CSV — tốt để hiểu nhanh "chuyện gì đã xảy ra" trước khi đọc trace
+      chi tiết.</td>
+    </tr>
+    <tr>
+      <td><strong>Export Report (GUI)</strong></td>
+      <td>Menu <strong>Tools → Export Report...</strong></td>
+      <td>1 file HTML tổng hợp cả session (ECU info, checksum, từng bước, trace) — tiện nếu chỉ muốn gửi
+      <strong>1 file duy nhất</strong> thay vì nhiều file rời.</td>
+    </tr>
+    <tr>
+      <td><strong>Traceback khi crash</strong></td>
+      <td>Copy nguyên văn từ terminal/PowerShell</td>
+      <td>Chỉ thấy được nếu chạy qua terminal (mục A) — double-click <code>.exe</code>/file <code>.py</code> sẽ
+      làm cửa sổ đóng lại và mất traceback ngay khi crash.</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <strong class="label">Khi gửi lại để debug, kèm theo:</strong> (1) file log/trace theo bảng trên, (2) mô tả
+    ngắn gọn <em>đang làm gì</em> (đúng lệnh CLI đã chạy, hoặc đang bấm nút gì trong GUI), (3) kết quả mong đợi
+    vs. thực tế xảy ra, (4) đã làm tới bước nào trong mục E (an toàn tới đâu, có PASSED bước 4 chưa).
+  </div>
+
+  <h2 class="section-title" id="h-troubleshoot">H. Lỗi thường gặp &amp; cách xử lý</h2>
+
+  <table>
+    <tr><th>Thông báo lỗi</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr>
+    <tr>
+      <td><code>python-can not installed. Run: pip install python-can</code></td>
+      <td>Chưa cài <code>python-can</code> (mặc định comment trong <code>requirements.txt</code>)</td>
+      <td><code>pip install python-can</code> (xem mục A, bước 2)</td>
+    </tr>
+    <tr>
+      <td><code>Failed to connect to Vector hardware: ...</code> (kèm chi tiết lỗi từ XL Driver)</td>
+      <td>Thường do <strong>chưa cấu hình Vector Hardware Config</strong> — channel chưa gán cho app
+      <code>FlashTool</code></td>
+      <td>Làm lại mục B, kiểm tra đúng tên app <code>FlashTool</code> (phân biệt hoa/thường) và channel đã
+      assign đúng</td>
+    </tr>
+    <tr>
+      <td>Hộp thoại "Possible CAN Bus Conflict" (GUI) / cảnh báo trên <code>stderr</code> (CLI)</td>
+      <td>Phát hiện CANoe/CANalyzer/CANape đang chạy, hoặc channel đang có kết nối active từ app khác</td>
+      <td>Đóng/dừng measurement CANoe trước (xem mục C), rồi thử lại</td>
+    </tr>
+    <tr>
+      <td>Test Connection <strong>FAILED</strong> — NRC <code>0x35</code> (Invalid Key) ở bước Security Access</td>
+      <td>Thuật toán/Security DLL chưa đúng với ECU thật (đang dùng thuật toán "dummy" mặc định, hoặc DLL sai)</td>
+      <td>Xác nhận đã chọn đúng Security DLL cho ECU này (mục F); liên hệ để xác nhận thuật toán/DLL đúng</td>
+    </tr>
+    <tr>
+      <td>Timeout, không có phản hồi nào từ ECU ở bất kỳ bước nào</td>
+      <td>Sai Radar Side (sai CAN ID) hoặc đấu dây/baudrate sai</td>
+      <td>Kiểm tra lại Radar Side (mục F) và cấu hình CAN ID/baudrate ở tab Configure → Communication</td>
+    </tr>
+    <tr>
+      <td>Kết nối được channel sai / <code>--channel N</code> không khớp thiết bị mong đợi</td>
+      <td>Đánh số channel của <code>python-can</code> (khi có <code>app_name</code>) có thể theo thứ tự đã gán
+      riêng cho app trong Vector Hardware Config, khác với số toàn cục — <strong>chưa kiểm chứng với hardware
+      thật</strong> (giới hạn đã biết, xem <code>README.md</code>)</td>
+      <td>Lưu lại log/thông báo lỗi (mục G) rồi gửi lại để điều chỉnh <code>detect_vector_channels()</code>/
+      <code>VectorCanInterface.connect()</code> cho khớp đúng cách driver diễn giải trên máy thật</td>
+    </tr>
+    <tr>
+      <td>App crash không rõ lý do, cửa sổ terminal đóng ngay</td>
+      <td>Có thể đã chạy qua double-click thay vì terminal, nên traceback bị mất</td>
+      <td>Luôn chạy qua terminal/PowerShell (mục A) để traceback hiện ra và có thể copy lại</td>
+    </tr>
+  </table>
+
+  <h2 class="section-title" id="i-checklist">I. Checklist tóm tắt (in ra để cạnh máy)</h2>
+
+  <ul class="checklist">
+    <li>Đã <code>git clone</code> + tạo conda env + <code>pip install -r requirements.txt</code> + <code>pip install python-can</code></li>
+    <li>Đã cài Vector Driver Setup (XL Driver Library + Vector Hardware Config)</li>
+    <li>Đã cắm VN1640A/VN1630 qua USB</li>
+    <li>Vector Hardware Config: đã thêm app <code>FlashTool</code> và gán đúng channel vật lý, đã Save</li>
+    <li>Nếu có CANoe: đã đóng/dừng measurement trước khi chạy FFlash</li>
+    <li><code>python -m unittest discover -s tests -p "test_*.py" -v</code> → <strong>OK</strong>, không lỗi</li>
+    <li><code>python cli.py list-hardware</code> → thấy đúng channel mong đợi</li>
+    <li><code>python cli.py flash firmware.s3 --sequence suzuki --dry-run</code> → sequence đúng</li>
+    <li><code>python cli.py test-connection --hardware vector --channel 0 --sequence suzuki --verbose</code> → <strong>PASSED</strong></li>
+    <li>Chỉ sau khi PASSED mới chạy <code>flash</code> thật, luôn kèm <code>--verbose &gt; flash_log.txt 2&gt;&amp;1</code></li>
+    <li>Nếu có lỗi: đã lưu Trace CSV + log verbose + mô tả ngắn gọn để gửi lại debug (mục G)</li>
+  </ul>
+
+  <footer>
+    FFlash v1.1 — tài liệu nội bộ, không phải file end-user guide (xem <code>docs/user_guide.html</code> cho
+    hướng dẫn cơ bản dành cho người dùng cuối). Tham khảo đầy đủ trong <code>README.md</code> và
+    <code>docs/walkthrough.md</code>.
+  </footer>
+
+</div>
+</body>
+</html>

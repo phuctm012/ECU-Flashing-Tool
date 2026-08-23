@@ -14,11 +14,12 @@ import os
 import sys
 
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from config.settings import APP_NAME, APP_VERSION, APP_AUTHOR, APP_AUTHOR_NAME
 from gui.test_connection_dialog import TestConnectionDialog
+from gui.style import load_stylesheet, is_dark_mode_enabled
 
 # Running from source: docs/user_guide.html sits two levels up
 # from this file (gui/menu_bar.py -> gui/ -> project root ->
@@ -31,6 +32,8 @@ _PROJECT_ROOT = (
 )
 _GUIDELINE_PATH = os.path.join(_PROJECT_ROOT, "docs", "user_guide.html")
 
+MAX_RECENT_FILES = 8
+
 
 class MenuBarMixin:
     """Mixin wiring the MainWindow menu bar (File/Tools/Help)."""
@@ -42,9 +45,27 @@ class MenuBarMixin:
                 self.action_load_firmware
             )
 
+        if hasattr(self.ui, 'menuRecentFiles'):
+            self._rebuild_recent_files_menu()
+
+        if hasattr(self.ui, 'actionClearRecentFiles'):
+            self.ui.actionClearRecentFiles.triggered.connect(
+                self.action_clear_recent_files
+            )
+
         if hasattr(self.ui, 'actionExit'):
             self.ui.actionExit.triggered.connect(
                 self.action_exit
+            )
+
+        if hasattr(self.ui, 'actionClearInformationLog'):
+            self.ui.actionClearInformationLog.triggered.connect(
+                self.action_clear_information_log
+            )
+
+        if hasattr(self.ui, 'actionClearTrace'):
+            self.ui.actionClearTrace.triggered.connect(
+                self.action_clear_trace
             )
 
         if hasattr(self.ui, 'actionTestConnection'):
@@ -55,6 +76,25 @@ class MenuBarMixin:
         if hasattr(self.ui, 'actionExportReport'):
             self.ui.actionExportReport.triggered.connect(
                 self.export_report
+            )
+
+        # Live theme state, read by gui/flash_tab.py's status-color
+        # helpers so Steps/Segments row highlights always match
+        # whichever theme is *currently* applied (not just the one
+        # read at startup) — kept in sync by action_toggle_dark_mode()
+        # below on every toggle. Default matches
+        # is_dark_mode_enabled()'s own default.
+        self._dark_mode_active = is_dark_mode_enabled()
+
+        if hasattr(self.ui, 'actionDarkMode'):
+            # Reflects the theme main.py already applied at
+            # startup (read from the same QSettings key) — set
+            # before connecting toggled, so this doesn't itself
+            # fire action_toggle_dark_mode() and redundantly
+            # re-apply/re-save what's already correct.
+            self.ui.actionDarkMode.setChecked(self._dark_mode_active)
+            self.ui.actionDarkMode.toggled.connect(
+                self.action_toggle_dark_mode
             )
 
         if hasattr(self.ui, 'actionAbout'):
@@ -86,6 +126,117 @@ class MenuBarMixin:
     def action_exit(self):
 
         self.close()
+
+    def load_recent_file(self, file_path):
+        """Reload a single file picked from File > Recent Files."""
+
+        if not self._load_firmware_file(file_path):
+            return
+
+        if hasattr(self.ui, 'tabWidget'):
+            self.ui.tabWidget.setCurrentIndex(1)
+        if hasattr(self.ui, 'navListWidget'):
+            self.ui.navListWidget.setCurrentRow(0)
+
+        if hasattr(self, '_update_details_table'):
+            self._update_details_table(self._loaded_datablocks[-1])
+
+    def _record_recent_file(self, file_path):
+        """
+        Add file_path to the front of the persisted Recent Files
+        list (deduping/moving an existing entry to the front
+        instead of listing it twice), capped at
+        MAX_RECENT_FILES, then rebuild the submenu.
+
+        Called by gui/configure_tab.py's _load_firmware_file()
+        after every successful load — both from the file-dialog
+        path (add_new_datablock()) and from load_recent_file()
+        above.
+        """
+
+        if not hasattr(self, '_settings'):
+            return
+
+        recent = self._settings.value(
+            "recentFiles/list", [], type=list
+        )
+        recent = [p for p in recent if p != file_path]
+        recent.insert(0, file_path)
+        recent = recent[:MAX_RECENT_FILES]
+
+        self._settings.setValue("recentFiles/list", recent)
+        self._settings.sync()
+
+        self._rebuild_recent_files_menu()
+
+    def _rebuild_recent_files_menu(self):
+
+        menu = self.ui.menuRecentFiles
+        menu.clear()
+
+        recent = (
+            self._settings.value("recentFiles/list", [], type=list)
+            if hasattr(self, '_settings') else []
+        )
+
+        if not recent:
+            placeholder = menu.addAction("(No Recent Files)")
+            placeholder.setEnabled(False)
+            return
+
+        for file_path in recent:
+            action = QAction(os.path.basename(file_path), menu)
+            action.setToolTip(file_path)
+            action.triggered.connect(
+                lambda checked=False, p=file_path:
+                    self.load_recent_file(p)
+            )
+            menu.addAction(action)
+
+        menu.addSeparator()
+        if hasattr(self.ui, 'actionClearRecentFiles'):
+            menu.addAction(self.ui.actionClearRecentFiles)
+
+    def action_clear_recent_files(self):
+
+        if not hasattr(self, '_settings'):
+            return
+
+        self._settings.setValue("recentFiles/list", [])
+        self._settings.sync()
+        self._rebuild_recent_files_menu()
+
+    # ==================================================
+    # Edit
+    # ==================================================
+
+    def action_clear_information_log(self):
+
+        self.ui.informationText.clear()
+
+    def action_clear_trace(self):
+
+        self.ui.traceTable.setRowCount(0)
+
+    # ==================================================
+    # View
+    # ==================================================
+
+    def action_toggle_dark_mode(self, checked):
+
+        self._dark_mode_active = checked
+
+        QApplication.instance().setStyleSheet(
+            load_stylesheet(dark=checked)
+        )
+
+        # self._settings only exists once setup_settings_profile()
+        # has run — guaranteed by the time a user can actually
+        # click this menu item, since MainWindow.__init__() fully
+        # completes (and calls it) before show() is ever reached.
+        if hasattr(self, '_settings'):
+            self._settings.setValue("appearance/darkMode", checked)
+            self._settings.sync()
 
     # ==================================================
     # Tools

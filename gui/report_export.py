@@ -219,6 +219,8 @@ white-space: pre-wrap; font-size: 12px; }}
         for row in range(table.rowCount()):
             ts_item = table.item(row, 0)
             desc_item = table.item(row, 1)
+            if desc_item is None:
+                continue  # the "No steps recorded yet." placeholder row
             color = (
                 desc_item.background().color().name()
                 if desc_item else "#ffffff"

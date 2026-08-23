@@ -155,57 +155,7 @@ class ConfigureTabMixin:
             return
 
         for file_path in file_paths:
-
-            # Parse file based on extension
-            datablock = self._parse_firmware_file(
-                file_path
-            )
-
-            if datablock is None:
-                continue
-
-            # Store parsed datablock
-            self._loaded_datablocks.append(datablock)
-
-            # Add row to table
-            row = (
-                self.ui.tableWidgetDatablocks.rowCount()
-                - 1
-            )
-            self.ui.tableWidgetDatablocks.insertRow(row)
-
-            # Column 0: Checkbox
-            check_item = QTableWidgetItem("")
-            check_item.setCheckState(Qt.Checked)
-            self.ui.tableWidgetDatablocks.setItem(
-                row, 0, check_item
-            )
-
-            # Column 1: Type
-            self.ui.tableWidgetDatablocks.setItem(
-                row, 1,
-                QTableWidgetItem(datablock.file_type)
-            )
-
-            # Column 2: Datablock (filename)
-            self.ui.tableWidgetDatablocks.setItem(
-                row, 2,
-                QTableWidgetItem(datablock.file_name)
-            )
-
-            # Column 3: Checksum (CRC32)
-            checksum_str = (
-                f"0x{datablock.checksum:08X}"
-            )
-            self.ui.tableWidgetDatablocks.setItem(
-                row, 3,
-                QTableWidgetItem(checksum_str)
-            )
-
-            # Column 4: Signature
-            self.ui.tableWidgetDatablocks.setItem(
-                row, 4, QTableWidgetItem("")
-            )
+            self._load_firmware_file(file_path)
 
         # Update details for the last added file
         if self._loaded_datablocks:
@@ -217,6 +167,70 @@ class ConfigureTabMixin:
         self.log_information(
             f"Loaded {len(file_paths)} file(s)"
         )
+
+    def _load_firmware_file(self, file_path):
+        """
+        Parse a single firmware file and, on success, append it
+        as a new row in tableWidgetDatablocks and record it in
+        Recent Files (gui/menu_bar.py's _record_recent_file()).
+
+        Shared by add_new_datablock() (looping over file-dialog
+        picks) and gui/menu_bar.py's load_recent_file() (a single
+        path from the File > Recent Files submenu) so both go
+        through identical parsing/error handling — a missing or
+        moved recent file surfaces the same "Parse Error" dialog
+        _parse_firmware_file() already shows, no separate handling
+        needed.
+
+        Returns True if loaded, False if parsing failed.
+        """
+
+        datablock = self._parse_firmware_file(file_path)
+
+        if datablock is None:
+            return False
+
+        # Store parsed datablock
+        self._loaded_datablocks.append(datablock)
+
+        # Add row to table
+        row = self.ui.tableWidgetDatablocks.rowCount() - 1
+        self.ui.tableWidgetDatablocks.insertRow(row)
+
+        # Column 0: Checkbox
+        check_item = QTableWidgetItem("")
+        check_item.setCheckState(Qt.Checked)
+        self.ui.tableWidgetDatablocks.setItem(
+            row, 0, check_item
+        )
+
+        # Column 1: Type
+        self.ui.tableWidgetDatablocks.setItem(
+            row, 1,
+            QTableWidgetItem(datablock.file_type)
+        )
+
+        # Column 2: Datablock (filename)
+        self.ui.tableWidgetDatablocks.setItem(
+            row, 2,
+            QTableWidgetItem(datablock.file_name)
+        )
+
+        # Column 3: Checksum (CRC32)
+        checksum_str = f"0x{datablock.checksum:08X}"
+        self.ui.tableWidgetDatablocks.setItem(
+            row, 3,
+            QTableWidgetItem(checksum_str)
+        )
+
+        # Column 4: Signature
+        self.ui.tableWidgetDatablocks.setItem(
+            row, 4, QTableWidgetItem("")
+        )
+
+        self._record_recent_file(file_path)
+
+        return True
 
     # ==================================================
     # Checked Datablocks (respects the checkbox column)

@@ -24,7 +24,18 @@ from PySide6.QtCore import Qt
 
 from tests.qt_test_utils import get_app
 from gui.main_window import MainWindow
-from config.settings import APP_NAME, APP_VERSION
+from gui.flash_tab import (
+    STEPS_PLACEHOLDER_TEXT,
+    SEGMENTS_PLACEHOLDER_TEXT,
+)
+from config.settings import (
+    APP_NAME,
+    APP_VERSION,
+    STATUS_COLOR_DONE,
+    STATUS_COLOR_DONE_DARK,
+    STATUS_TEXT_COLOR,
+    STATUS_TEXT_COLOR_DARK,
+)
 from parsers.auto_parser import parse_firmware_file
 
 SAMPLE_HEX = os.path.join(os.path.dirname(__file__), "sample.hex")
@@ -40,6 +51,11 @@ class TestMainWindowConstruction(unittest.TestCase):
         self.assertEqual(
             self.window.windowTitle(), f"{APP_NAME} v{APP_VERSION}"
         )
+
+    def test_window_icon_is_set(self):
+        # docs/gui_todo.md item #12 — the app used to run with no
+        # window/taskbar icon at all (windowIcon() null).
+        self.assertFalse(self.window.windowIcon().isNull())
 
     def test_status_bar_shows_version_bottom_left(self):
         # addWidget() (not addPermanentWidget()) puts a QStatusBar
@@ -79,10 +95,91 @@ class TestMainWindowConstruction(unittest.TestCase):
             self.window.ui.traceTable.rowCount(), 0
         )
 
+    def test_steps_and_segments_tables_start_with_placeholder(self):
+        # docs/gui_todo.md item #16 — previously these tables
+        # were just blank boxes before a flash ever ran.
+        steps = self.window.ui.stepsTable
+        segments = self.window.ui.segmentsTable
+        self.assertEqual(steps.rowCount(), 1)
+        self.assertEqual(steps.item(0, 0).text(), STEPS_PLACEHOLDER_TEXT)
+        self.assertEqual(segments.rowCount(), 1)
+        self.assertEqual(
+            segments.item(0, 0).text(), SEGMENTS_PLACEHOLDER_TEXT
+        )
+
+    def test_add_step_clears_placeholder_on_first_real_step(self):
+        self.window.add_step("Session Control")
+        table = self.window.ui.stepsTable
+        self.assertEqual(table.rowCount(), 1)
+        self.assertEqual(table.item(0, 1).text(), "Session Control")
+
+    def test_section_header_labels_tagged_for_theme_qss(self):
+        # docs/gui_todo.md item #15 — these used to hardcode a
+        # light-only "background-color: #E0E0E0" inline
+        # styleSheet, unreadable once Dark Mode existed.
+        for name in (
+            "labelDatablocks", "labelDetails", "labelHardware",
+            "labelRadarSide", "labelLogicalLink",
+            "labelFlashSequence", "labelSecurityDll",
+            "labelCustomConfig",
+        ):
+            label = getattr(self.window.ui, name)
+            self.assertTrue(
+                label.property("sectionHeader"),
+                f"{name} missing sectionHeader property",
+            )
+
+    def test_progress_change_targets_animation_not_instant_jump(self):
+        # docs/gui_todo.md item #13 — progressBar.setValue() is no
+        # longer called directly from on_progress_changed(); the
+        # animation is retargeted instead and settles asynchronously.
+        self.window.on_progress_changed(42)
+        self.assertEqual(
+            self.window._progress_animation.endValue(), 42
+        )
+
     def test_custom_config_table_fixed_height(self):
         table = self.window.ui.tableWidgetCustomConfig
         self.assertEqual(
             table.minimumHeight(), table.maximumHeight()
+        )
+
+    def test_colored_step_rows_have_explicit_readable_text_color(self):
+        # In Light theme, the default text color already matches
+        # STATUS_TEXT_COLOR — but every cell that gets a status
+        # background must still get an explicit foreground, since
+        # Dark Mode's default text would otherwise be unreadable
+        # against these light pastel backgrounds (#FCE9B5/#D3E9D6/
+        # #F3D0D3). Forcing light mode here isolates that pairing;
+        # see TestStatusColorsFollowLiveTheme for the dark pairing.
+        self.window._dark_mode_active = False
+        self.window.add_step("Session Control")
+        self.window.add_step("Security Access")
+        current = self.window.ui.stepsTable.item(1, 1)
+        previous = self.window.ui.stepsTable.item(0, 1)
+        self.assertEqual(
+            current.foreground().color().name(), STATUS_TEXT_COLOR
+        )
+        self.assertEqual(
+            previous.foreground().color().name(), STATUS_TEXT_COLOR
+        )
+
+    def test_flash_finished_and_aborted_rows_have_readable_text_color(self):
+        self.window._dark_mode_active = False
+        self.window.prepare_flash_ui([])  # sets self.start_time
+        self.window.add_step("Session Control")
+
+        self.window.on_flash_finished()
+        item = self.window.ui.stepsTable.item(0, 1)
+        self.assertEqual(
+            item.foreground().color().name(), STATUS_TEXT_COLOR
+        )
+
+        self.window.add_step("Retry")
+        self.window.on_flash_aborted()
+        aborted_item = self.window.ui.stepsTable.item(1, 1)
+        self.assertEqual(
+            aborted_item.foreground().color().name(), STATUS_TEXT_COLOR
         )
 
     def test_flash_sequence_combo_options(self):
@@ -246,6 +343,105 @@ class TestCanConflictWarning(unittest.TestCase):
         self.assertIsNotNone(warning)
 
 
+class TestUpdateSegmentsColors(unittest.TestCase):
+    """
+    Covers update_segments()'s background/foreground coloring.
+    The "Waiting" state must not force a plain white background
+    (unreadable against Dark Mode's near-white default text —
+    docs/gui_todo.md item #15), and Flashed/Flashing rows must
+    pair their light pastel background with an explicit dark
+    foreground for the same reason.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        db = parse_firmware_file(SAMPLE_HEX)  # 2 segments
+        self.window.add_segments_from_datablocks([db])
+
+    def test_flashed_and_flashing_rows_get_explicit_text_color(self):
+        self.window._dark_mode_active = False
+        self.window.update_segments(50)
+        table = self.window.ui.segmentsTable
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            self.assertEqual(
+                item.foreground().color().name(), STATUS_TEXT_COLOR
+            )
+
+    def test_waiting_row_background_is_transparent_not_forced_white(self):
+        self.window.update_segments(0)
+        table = self.window.ui.segmentsTable
+        # Only the first segment is "Flashing..." at progress 0 —
+        # the second is still "Waiting".
+        waiting_item = table.item(1, 0)
+        self.assertEqual(waiting_item.text(), "Waiting")
+        self.assertEqual(waiting_item.background().color().alpha(), 0)
+
+
+class TestStatusColorsFollowLiveTheme(unittest.TestCase):
+    """
+    Covers _status_colors() (gui/flash_tab.py) — Dark Mode uses
+    dark-tinted status backgrounds with bright text instead of
+    the light theme's light pastel blocks, which looked like
+    bright stickers against Dark Mode's navy background (user
+    feedback after trying a real flash run in Dark Mode). Also
+    covers that this follows self._dark_mode_active *live*
+    (toggled by gui/menu_bar.py's action_toggle_dark_mode() on
+    every View > Dark Mode click), not just whichever theme was
+    active when MainWindow was constructed.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_light_mode_active_by_default_uses_light_status_colors(self):
+        # Fresh MainWindow, never toggled — Light Mode is the app
+        # default. add_step() colors the new row "running" and the
+        # previous row "done" — 2 calls to get a "done" row.
+        self.window.add_step("Session Control")
+        self.window.add_step("Security Access")
+        done_item = self.window.ui.stepsTable.item(0, 1)
+        self.assertEqual(
+            done_item.background().color().name(), STATUS_COLOR_DONE.lower()
+        )
+        self.assertEqual(
+            done_item.foreground().color().name(), STATUS_TEXT_COLOR
+        )
+
+    def test_dark_mode_uses_dark_status_colors(self):
+        self.window._dark_mode_active = True
+        self.window.add_step("Session Control")
+        self.window.add_step("Security Access")
+        done_item = self.window.ui.stepsTable.item(0, 1)
+        self.assertEqual(
+            done_item.background().color().name(), STATUS_COLOR_DONE_DARK
+        )
+        self.assertEqual(
+            done_item.foreground().color().name(), STATUS_TEXT_COLOR_DARK
+        )
+
+    def test_toggling_theme_mid_session_recolors_new_rows(self):
+        # Same window, no re-construction — proves the color
+        # choice is read live on each call, not cached once at
+        # startup/construction time.
+        self.window._dark_mode_active = False
+        self.window.add_step("Step A")
+        self.window.add_step("Step B")
+        light_item = self.window.ui.stepsTable.item(0, 1)
+        self.assertEqual(
+            light_item.background().color().name(), STATUS_COLOR_DONE.lower()
+        )
+
+        self.window._dark_mode_active = True
+        self.window.add_step("Step C")
+        dark_item = self.window.ui.stepsTable.item(1, 1)
+        self.assertEqual(
+            dark_item.background().color().name(), STATUS_COLOR_DONE_DARK
+        )
+
+
 class TestCheckedDatablocksFilter(unittest.TestCase):
     """
     Covers ConfigureTabMixin.get_checked_datablocks() and its
@@ -325,20 +521,23 @@ class TestEmptyDatablocksGuard(unittest.TestCase):
     """
     Covers flash_button_clicked() blocking (instead of running
     a no-op flash) when no datablock is loaded/ticked, and
-    add_segments_from_datablocks() leaving the Segments table
-    empty instead of falling back to fake demo rows (see
-    docs/gui_todo.md item #6).
+    add_segments_from_datablocks() showing only the "no data"
+    placeholder row (see docs/gui_todo.md item #16) instead of
+    falling back to fake per-segment demo rows (see item #6).
     """
 
     def setUp(self):
         self.app = get_app()
         self.window = MainWindow()
 
-    def test_add_segments_leaves_table_empty_when_no_datablocks(self):
+    def test_add_segments_shows_placeholder_when_no_datablocks(self):
         self.window.add_segments_from_datablocks([])
+        table = self.window.ui.segmentsTable
+        self.assertEqual(table.rowCount(), 1)
         self.assertEqual(
-            self.window.ui.segmentsTable.rowCount(), 0
+            table.item(0, 0).text(), SEGMENTS_PLACEHOLDER_TEXT
         )
+        self.assertIsNone(table.item(0, 1))
 
     def test_flash_button_blocks_when_no_datablocks_loaded(self):
         self.window._loaded_datablocks = []
@@ -351,8 +550,10 @@ class TestEmptyDatablocksGuard(unittest.TestCase):
         mock_warning.assert_called_once()
         self.assertIsNone(self.window.thread)
         self.assertIsNone(self.window.worker)
+        # Still just the placeholder row — the blocked click
+        # never touched segmentsTable.
         self.assertEqual(
-            self.window.ui.segmentsTable.rowCount(), 0
+            self.window.ui.segmentsTable.rowCount(), 1
         )
 
     def test_flash_button_blocks_when_nothing_ticked(self):
@@ -560,6 +761,25 @@ class TestReportExport(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_report_skips_steps_placeholder_row_when_no_steps_run(self):
+        # stepsTable still holds its item #16 "No steps recorded
+        # yet." placeholder row here (no add_step() call) — the
+        # report must fall back to its own empty-state text, not
+        # leak the on-screen placeholder row into the report.
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False
+        ) as f:
+            path = f.name
+
+        try:
+            self.window._write_report_file(path)
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+            self.assertNotIn(STEPS_PLACEHOLDER_TEXT, content)
+            self.assertIn("No steps recorded.", content)
+        finally:
+            os.unlink(path)
+
     def test_write_report_file_failure_does_not_raise(self):
         # Writing to a directory (not a file) — OSError must be
         # caught internally, not propagate. QMessageBox.critical
@@ -602,6 +822,33 @@ class TestMenuBar(unittest.TestCase):
         ) as mock_close:
             self.window.ui.actionExit.trigger()
         mock_close.assert_called_once()
+
+    def test_dark_mode_action_starts_unchecked_by_default(self):
+        # Fresh profile, never toggled — defaults to Light Mode.
+        self.assertFalse(self.window.ui.actionDarkMode.isChecked())
+
+    def test_dark_mode_toggle_applies_dark_stylesheet_and_persists(self):
+        # self.app is the one shared QApplication reused by every
+        # GUI test in this process — always restore its
+        # styleSheet() so a failed assertion here can't leak a
+        # dark theme into unrelated tests that run afterward.
+        try:
+            self.window.ui.actionDarkMode.setChecked(True)
+
+            self.assertIn(
+                "#5b8fd9",  # dark-theme accent, not in the light QSS
+                self.app.styleSheet(),
+            )
+            self.assertTrue(
+                self.window._settings.value(
+                    "appearance/darkMode", False, type=bool
+                )
+            )
+
+            self.window.ui.actionDarkMode.setChecked(False)
+            self.assertNotIn("#5b8fd9", self.app.styleSheet())
+        finally:
+            self.window.ui.actionDarkMode.setChecked(False)
 
     def test_export_report_action_calls_export_report(self):
         with unittest.mock.patch.object(
@@ -653,6 +900,125 @@ class TestMenuBar(unittest.TestCase):
             self.window.ui.actionTestConnection.trigger()
 
         MockDialog.assert_not_called()
+
+
+class TestRecentFiles(unittest.TestCase):
+    """
+    Covers File > Recent Files (gui/menu_bar.py's
+    _record_recent_file()/_rebuild_recent_files_menu()/
+    load_recent_file()) — added on top of the shared
+    _load_firmware_file() helper extracted from
+    gui/configure_tab.py's add_new_datablock() so both the
+    file-dialog path and Recent Files go through identical
+    parsing/error handling.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_starts_with_no_recent_files_placeholder(self):
+        actions = self.window.ui.menuRecentFiles.actions()
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].text(), "(No Recent Files)")
+        self.assertFalse(actions[0].isEnabled())
+
+    def test_loading_file_adds_entry_with_tooltip(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+        actions = self.window.ui.menuRecentFiles.actions()
+        self.assertEqual(actions[0].text(), os.path.basename(SAMPLE_HEX))
+        self.assertEqual(actions[0].toolTip(), SAMPLE_HEX)
+        # separator + "Clear Recent Files" after the 1 entry
+        self.assertEqual(actions[-1].text(), "Clear Recent Files")
+
+    def test_loading_same_file_again_dedupes_instead_of_duplicating(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+        paths = self.window._settings.value(
+            "recentFiles/list", [], type=list
+        )
+        self.assertEqual(paths, [SAMPLE_HEX])
+
+    def test_recent_files_list_capped_at_max(self):
+        from gui.menu_bar import MAX_RECENT_FILES
+
+        # _record_recent_file() is pure list bookkeeping — no
+        # need for MAX_RECENT_FILES+2 real firmware files.
+        for i in range(MAX_RECENT_FILES + 2):
+            self.window._record_recent_file(f"/fake/path/{i}.hex")
+
+        paths = self.window._settings.value(
+            "recentFiles/list", [], type=list
+        )
+        self.assertEqual(len(paths), MAX_RECENT_FILES)
+        # Most recently recorded stays first.
+        self.assertEqual(
+            paths[0], f"/fake/path/{MAX_RECENT_FILES + 1}.hex"
+        )
+
+    def test_clear_recent_files_action_empties_menu_and_settings(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+        self.window.ui.actionClearRecentFiles.trigger()
+
+        self.assertEqual(
+            self.window._settings.value("recentFiles/list", [], type=list),
+            [],
+        )
+        actions = self.window.ui.menuRecentFiles.actions()
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0].text(), "(No Recent Files)")
+
+    def test_load_recent_file_switches_tab_and_loads_datablock(self):
+        self.window.ui.tabWidget.setCurrentIndex(0)  # start on Flash
+
+        self.window.load_recent_file(SAMPLE_HEX)
+
+        self.assertEqual(self.window.ui.tabWidget.currentIndex(), 1)
+        self.assertEqual(self.window.ui.navListWidget.currentRow(), 0)
+        self.assertEqual(len(self.window._loaded_datablocks), 1)
+
+    def test_load_recent_file_missing_file_shows_warning_not_crash(self):
+        with unittest.mock.patch(
+            "gui.configure_tab.QMessageBox.warning"
+        ) as mock_warning:
+            self.window.load_recent_file("/no/such/file.hex")
+
+        mock_warning.assert_called_once()
+        self.assertEqual(len(self.window._loaded_datablocks), 0)
+        # A failed load must not get recorded as if it succeeded.
+        actions = self.window.ui.menuRecentFiles.actions()
+        self.assertEqual(actions[0].text(), "(No Recent Files)")
+
+
+class TestEditMenu(unittest.TestCase):
+    """Covers the new Edit menu (gui/menu_bar.py)."""
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_clear_information_log_action_clears_text(self):
+        self.window.log_information("hello")
+        self.assertNotEqual(
+            self.window.ui.informationText.toPlainText(), ""
+        )
+
+        self.window.ui.actionClearInformationLog.trigger()
+
+        self.assertEqual(
+            self.window.ui.informationText.toPlainText(), ""
+        )
+
+    def test_clear_trace_action_clears_table(self):
+        self.window.log_trace("Executing: Something")
+        self.assertGreater(self.window.ui.traceTable.rowCount(), 0)
+
+        self.window.ui.actionClearTrace.trigger()
+
+        self.assertEqual(self.window.ui.traceTable.rowCount(), 0)
 
 
 class TestLogSaving(unittest.TestCase):

@@ -40,6 +40,15 @@ class Ui_MainWindow(object):
         self.actionAbout.setObjectName(u"actionAbout")
         self.actionOpenGuideline = QAction(MainWindow)
         self.actionOpenGuideline.setObjectName(u"actionOpenGuideline")
+        self.actionDarkMode = QAction(MainWindow)
+        self.actionDarkMode.setObjectName(u"actionDarkMode")
+        self.actionDarkMode.setCheckable(True)
+        self.actionClearRecentFiles = QAction(MainWindow)
+        self.actionClearRecentFiles.setObjectName(u"actionClearRecentFiles")
+        self.actionClearInformationLog = QAction(MainWindow)
+        self.actionClearInformationLog.setObjectName(u"actionClearInformationLog")
+        self.actionClearTrace = QAction(MainWindow)
+        self.actionClearTrace.setObjectName(u"actionClearTrace")
         self.centralwidget = QWidget(MainWindow)
         self.centralwidget.setObjectName(u"centralwidget")
         self.verticalLayout_root = QVBoxLayout(self.centralwidget)
@@ -150,7 +159,8 @@ class Ui_MainWindow(object):
 
         self.labelDatablocks = QLabel(self.pageData)
         self.labelDatablocks.setObjectName(u"labelDatablocks")
-        self.labelDatablocks.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
+        self.labelDatablocks.setProperty(u"sectionHeader", True)
+        self.labelDatablocks.setStyleSheet(u"padding: 5px; font-weight: bold;")
 
         self.verticalLayout_dataTab.addWidget(self.labelDatablocks)
 
@@ -173,7 +183,8 @@ class Ui_MainWindow(object):
 
         self.labelDetails = QLabel(self.pageData)
         self.labelDetails.setObjectName(u"labelDetails")
-        self.labelDetails.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
+        self.labelDetails.setProperty(u"sectionHeader", True)
+        self.labelDetails.setStyleSheet(u"padding: 5px; font-weight: bold;")
 
         self.verticalLayout_dataTab.addWidget(self.labelDetails)
 
@@ -243,7 +254,8 @@ class Ui_MainWindow(object):
 
         self.labelHardware = QLabel(self.pageComm)
         self.labelHardware.setObjectName(u"labelHardware")
-        self.labelHardware.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
+        self.labelHardware.setProperty(u"sectionHeader", True)
+        self.labelHardware.setStyleSheet(u"padding: 5px; font-weight: bold;")
 
         self.verticalLayout_comm.addWidget(self.labelHardware)
 
@@ -264,7 +276,8 @@ class Ui_MainWindow(object):
 
         self.labelRadarSide = QLabel(self.pageComm)
         self.labelRadarSide.setObjectName(u"labelRadarSide")
-        self.labelRadarSide.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
+        self.labelRadarSide.setProperty(u"sectionHeader", True)
+        self.labelRadarSide.setStyleSheet(u"padding: 5px; font-weight: bold;")
 
         self.verticalLayout_comm.addWidget(self.labelRadarSide)
 
@@ -277,7 +290,8 @@ class Ui_MainWindow(object):
 
         self.labelLogicalLink = QLabel(self.pageComm)
         self.labelLogicalLink.setObjectName(u"labelLogicalLink")
-        self.labelLogicalLink.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
+        self.labelLogicalLink.setProperty(u"sectionHeader", True)
+        self.labelLogicalLink.setStyleSheet(u"padding: 5px; font-weight: bold;")
 
         self.verticalLayout_comm.addWidget(self.labelLogicalLink)
 
@@ -362,7 +376,8 @@ class Ui_MainWindow(object):
 
         self.labelFlashSequence = QLabel(self.pageMisc)
         self.labelFlashSequence.setObjectName(u"labelFlashSequence")
-        self.labelFlashSequence.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
+        self.labelFlashSequence.setProperty(u"sectionHeader", True)
+        self.labelFlashSequence.setStyleSheet(u"padding: 5px; font-weight: bold;")
 
         self.verticalLayout_misc.addWidget(self.labelFlashSequence)
 
@@ -375,7 +390,8 @@ class Ui_MainWindow(object):
 
         self.labelSecurityDll = QLabel(self.pageMisc)
         self.labelSecurityDll.setObjectName(u"labelSecurityDll")
-        self.labelSecurityDll.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
+        self.labelSecurityDll.setProperty(u"sectionHeader", True)
+        self.labelSecurityDll.setStyleSheet(u"padding: 5px; font-weight: bold;")
 
         self.verticalLayout_misc.addWidget(self.labelSecurityDll)
 
@@ -412,7 +428,8 @@ class Ui_MainWindow(object):
 
         self.labelCustomConfig = QLabel(self.pageCustom)
         self.labelCustomConfig.setObjectName(u"labelCustomConfig")
-        self.labelCustomConfig.setStyleSheet(u"background-color: #E0E0E0; padding: 5px; font-weight: bold;")
+        self.labelCustomConfig.setProperty(u"sectionHeader", True)
+        self.labelCustomConfig.setStyleSheet(u"padding: 5px; font-weight: bold;")
 
         self.verticalLayout_custom.addWidget(self.labelCustomConfig)
 
@@ -521,6 +538,12 @@ class Ui_MainWindow(object):
         self.menubar.setGeometry(QRect(0, 0, 1675, 30))
         self.menuFile = QMenu(self.menubar)
         self.menuFile.setObjectName(u"menuFile")
+        self.menuRecentFiles = QMenu(self.menuFile)
+        self.menuRecentFiles.setObjectName(u"menuRecentFiles")
+        self.menuEdit = QMenu(self.menubar)
+        self.menuEdit.setObjectName(u"menuEdit")
+        self.menuView = QMenu(self.menubar)
+        self.menuView.setObjectName(u"menuView")
         self.menuTools = QMenu(self.menubar)
         self.menuTools.setObjectName(u"menuTools")
         self.menuHelp = QMenu(self.menubar)
@@ -531,11 +554,17 @@ class Ui_MainWindow(object):
         MainWindow.setStatusBar(self.statusbar)
 
         self.menubar.addAction(self.menuFile.menuAction())
+        self.menubar.addAction(self.menuEdit.menuAction())
+        self.menubar.addAction(self.menuView.menuAction())
         self.menubar.addAction(self.menuTools.menuAction())
         self.menubar.addAction(self.menuHelp.menuAction())
         self.menuFile.addAction(self.actionLoadFirmware)
+        self.menuFile.addAction(self.menuRecentFiles.menuAction())
         self.menuFile.addSeparator()
         self.menuFile.addAction(self.actionExit)
+        self.menuEdit.addAction(self.actionClearInformationLog)
+        self.menuEdit.addAction(self.actionClearTrace)
+        self.menuView.addAction(self.actionDarkMode)
         self.menuTools.addAction(self.actionTestConnection)
         self.menuTools.addAction(self.actionExportReport)
         self.menuHelp.addAction(self.actionAbout)
@@ -560,6 +589,10 @@ class Ui_MainWindow(object):
         self.actionExportReport.setText(QCoreApplication.translate("MainWindow", u"Export Report...", None))
         self.actionAbout.setText(QCoreApplication.translate("MainWindow", u"About FFlash", None))
         self.actionOpenGuideline.setText(QCoreApplication.translate("MainWindow", u"Open Guideline", None))
+        self.actionDarkMode.setText(QCoreApplication.translate("MainWindow", u"Dark Mode", None))
+        self.actionClearRecentFiles.setText(QCoreApplication.translate("MainWindow", u"Clear Recent Files", None))
+        self.actionClearInformationLog.setText(QCoreApplication.translate("MainWindow", u"Clear Information Log", None))
+        self.actionClearTrace.setText(QCoreApplication.translate("MainWindow", u"Clear Trace Table", None))
         self.flashButton.setText(QCoreApplication.translate("MainWindow", u"Flash", None))
         ___qtablewidgetitem = self.stepsTable.horizontalHeaderItem(0)
         ___qtablewidgetitem.setText(QCoreApplication.translate("MainWindow", u"Timestamp", None))
@@ -766,6 +799,9 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem73.setText(QCoreApplication.translate("MainWindow", u"Response Data", None))
         self.outputTabWidget.setTabText(self.outputTabWidget.indexOf(self.traceTab), QCoreApplication.translate("MainWindow", u"Trace", None))
         self.menuFile.setTitle(QCoreApplication.translate("MainWindow", u"File", None))
+        self.menuRecentFiles.setTitle(QCoreApplication.translate("MainWindow", u"Recent Files", None))
+        self.menuEdit.setTitle(QCoreApplication.translate("MainWindow", u"Edit", None))
+        self.menuView.setTitle(QCoreApplication.translate("MainWindow", u"View", None))
         self.menuTools.setTitle(QCoreApplication.translate("MainWindow", u"Tools", None))
         self.menuHelp.setTitle(QCoreApplication.translate("MainWindow", u"Help", None))
     # retranslateUi

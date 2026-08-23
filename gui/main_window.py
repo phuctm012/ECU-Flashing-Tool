@@ -10,6 +10,7 @@ import csv
 from datetime import datetime
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QMainWindow,
     QLabel,
@@ -26,6 +27,7 @@ from gui.configure_tab import ConfigureTabMixin
 from gui.settings_profile import SettingsProfileMixin
 from gui.report_export import ReportExportMixin
 from gui.menu_bar import MenuBarMixin
+from gui.style import ICON_PATH
 from config.settings import (
     APP_NAME,
     APP_VERSION,
@@ -55,6 +57,11 @@ class MainWindow(
         self.ui.setupUi(self)
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
 
+        # Window/taskbar icon. QIcon() on a nonexistent path is
+        # a harmless null icon (Qt falls back to no icon), so
+        # this is safe even if resources/icons/ is missing.
+        self.setWindowIcon(QIcon(ICON_PATH))
+
         # ==========================================
         # Status Bar
         # ==========================================
@@ -78,14 +85,17 @@ class MainWindow(
 
         self.setup_flash_tab()
         self.setup_configure_tab()
-        self.setup_menu_bar()
 
         # Restore the saved profile (Hardware/Radar Side/
         # Security DLL/Flash Sequence) — must run after
         # setup_configure_tab() so the combos it populates
         # (comboBoxHardware in particular) already have their
-        # real items to select from.
+        # real items to select from. Must run before
+        # setup_menu_bar(), which needs self._settings already
+        # in place to build the initial Recent Files submenu.
         self.setup_settings_profile()
+
+        self.setup_menu_bar()
 
         # ==========================================
         # Logs

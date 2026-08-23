@@ -1045,3 +1045,193 @@ Theo yêu cầu: *"xoá nút nhấn export report, tôi có thể export từ me
 - Chụp ảnh offscreen xác nhận tab Flash gọn gàng, không còn nút thừa; `hasattr(ui, 'buttonExportReport')` → `False`; menu Tools vẫn có đúng "Export Report...".
 - Render lại `docs/user_guide.html` bằng Chrome headless — ảnh mới không còn nút cũ, text bước 4 đúng.
 - Chạy toàn bộ test suite: **145/145 pass** (146 cũ - 1 test xoá).
+
+---
+
+## Phase 4.40: Áp Dụng Theme QSS "Engineering Blue" Toàn App (GUI TODO #10, #11)
+
+Sau khi chốt bảng màu Engineering Blue (Phase trước, qua 2 artifact preview), user gọi skill `superpowers/writing-plans` để lập kế hoạch chi tiết trước khi implement — plan lưu ở `docs/superpowers/plans/2026-08-23-engineering-blue-theme.md`, thực thi bằng skill `superpowers/executing-plans`, chạy trực tiếp trên `main` (không dùng git worktree — theo đúng cách làm việc xuyên suốt phiên này, được xác nhận lại rõ ràng).
+
+### Thay đổi
+
+- **`gui/style.py`** (mới): `load_stylesheet()` — đọc `resources/style.qss`, path resolution dev/frozen giống hệt `gui/menu_bar.py`'s `_GUIDELINE_PATH` (kiểm tra `sys._MEIPASS`). Không bao giờ raise — trả `""` nếu file thiếu, app fallback về Qt Fusion mặc định (đúng tinh thần "app không được crash vì thiếu resource phụ" đã áp dụng nhất quán cho icon/guideline trước đó).
+- **`resources/style.qss`** (mới): theme "Engineering Blue" đầy đủ — style cho `QPushButton` (kèm `:hover`/`:pressed`, và `#flashButton` riêng làm nút hành động chính nổi bật xanh đậm), `QTabWidget`/`QTabBar` (tab active viền + chữ xanh), `QProgressBar` (bo góc, fill xanh), `QTableWidget`/`QHeaderView` (header nền xanh nhạt + gạch chân), `QMenuBar`/`QMenu`, `QListWidget` (nav list item chọn nền xanh), `QLineEdit`/`QComboBox`, `QStatusBar`. Đúng nguyên nội dung đã review qua screenshot ở phase preview trước — không thiết kế lại.
+- **`main.py`**: gọi `app.setStyleSheet(load_stylesheet())` ngay sau khi tạo `QApplication`, trước khi tạo `MainWindow()`.
+- **`build.bat`**: thêm `--add-data "resources\style.qss;resources"` vào lệnh PyInstaller — theme là runtime dependency đọc từ file, phải bundle vào `.exe` giống `docs/user_guide.html`, nếu không bản build sẽ âm thầm chạy không có theme (không crash, nhưng mất hết mục đích của tính năng).
+- Mục #11 (hover/pressed) coi như xử lý chung với #10 — `QPushButton:hover`/`:pressed` đã nằm sẵn trong cùng file `.qss`, không cần thêm gì riêng.
+
+### Đã kiểm tra (theo đúng thứ tự TDD của plan)
+
+- `tests/test_style.py` (mới, 4 test): `load_stylesheet()` đọc đúng file tạm (`tempfile`) và trả `""` khi path không tồn tại (mock `STYLE_PATH`) — viết test trước, chạy thấy fail đúng lý do (`ModuleNotFoundError`) trước khi tạo `gui/style.py`. 2 test regression đọc thẳng file `resources/style.qss` thật, xác nhận đủ 4 giá trị hex Engineering Blue và các rule `QPushButton#flashButton`/`:hover`/`:pressed` — cũng viết trước, fail đúng lý do (file chưa tồn tại, `load_stylesheet()` trả `""`) trước khi tạo file thật.
+- Sanity check `main.py`'s logic qua `QT_QPA_PLATFORM=offscreen` — `MainWindow()` khởi tạo OK, `app.styleSheet()` không rỗng, chụp ảnh xác nhận trực quan: nút Flash xanh đậm bo góc, tab active viền xanh, header bảng nền xanh nhạt — đúng y hệt ảnh preview đã duyệt trước đó.
+- Không build thử `.exe` thật được (Windows-only, môi trường dev là macOS) — giới hạn đã ghi nhận nhất quán từ Phase 4.26.
+- Chạy toàn bộ test suite: **149/149 pass** (145 cũ + 4 mới).
+
+## Phase 4.41: Window Icon, Progress Bar Mượt, Màu Trạng Thái, Dark Mode, Table Placeholder (GUI TODO #12-16)
+
+Tiếp nối trực tiếp Phase 4.40 (cùng phiên làm việc, không commit giữa chừng — user chọn "Để nguyên như vậy, chưa commit" ở phase trước) — user yêu cầu làm tiếp 5 mục còn lại của "Cải Thiện Giao Diện (UI Polish)" cùng lúc.
+
+### Thay đổi
+
+- **#12 — Window icon**: `gui/style.py` thêm `ICON_PATH` (cùng pattern `_MEIPASS`-aware như `STYLE_PATH`). `MainWindow.__init__()` gọi `self.setWindowIcon(QIcon(ICON_PATH))`. `build.bat` thêm `--add-data "resources\icons;resources\icons"` — nếu không, bản `.exe` đóng gói sẽ chạy không có icon cửa sổ dù `QIcon(ICON_PATH)` không raise gì cả (path không tồn tại trong `_MEIPASS` → `QIcon` rỗng, âm thầm không lỗi).
+- **#13 — Progress bar animation**: `setup_flash_tab()` tạo `self._progress_animation = QPropertyAnimation(progressBar, b"value")` (200ms, `OutCubic`) làm instance attribute (tránh bị GC giữa chừng). `on_progress_changed()` retarget animation (`setStartValue`/`setEndValue`/`start()`) thay vì `setValue()` trực tiếp. `prepare_flash_ui()` gọi `.stop()` trước khi reset về 0 để animation cũ không "hồi sinh" đè lên giá trị reset của lần flash mới.
+- **#14 — Màu trạng thái hài hoà theme**: `config/settings.py` thêm `STATUS_COLOR_RUNNING`/`STATUS_COLOR_DONE`/`STATUS_COLOR_ERROR` (pastel desaturated, cùng "họ" với `accent-bg #eef3fa` của theme Engineering Blue). Thay toàn bộ `QColor("#FFFACD"/"#C8E6C9"/"#FFCDD2")` cứng trong `gui/flash_tab.py` bằng 3 hằng số này.
+- **#16 — Placeholder cho Steps/Segments table**: helper `_set_table_placeholder()` trong `gui/flash_tab.py` (mirror `configure_tab.py`'s `_add_placeholder_row()`). `add_step()` tự xoá placeholder khi có step thật đầu tiên (`_steps_placeholder_active` flag). `add_segments_from_datablocks()` viết lại để tự `setRowCount(0)` ở đầu hàm rồi tự thêm lại placeholder nếu rỗng — trước đó hàm này ngầm giả định caller (`prepare_flash_ui()`) đã clear bảng sẵn, gọi trực tiếp trong test sẽ cộng dồn row cũ. `report_export.py`'s `_report_steps_table()` skip placeholder row (dựa vào cột Description = `None`, cùng cách `_report_datablocks_table()` đã skip placeholder của `tableWidgetDatablocks`).
+- **#15 — Dark mode**: `resources/style_dark.qss` (mới) — mirror 1:1 mọi selector của `style.qss`, palette tối cùng họ xanh dương (accent sáng hơn `#5b8fd9` để đủ tương phản). `gui/style.py`: `load_stylesheet(dark=False)` nhận thêm tham số; `is_dark_mode_enabled()` đọc `QSettings` trực tiếp (cùng org/app/`IniFormat` như `gui/settings_profile.py`), độc lập với `MainWindow` vì `main.py` cần biết theme **trước khi** tạo cửa sổ đầu tiên. Menu mới **View > Dark Mode** (`actionDarkMode`, checkable, khai báo trong `gui/main_window.ui`) — `gui/menu_bar.py`'s `action_toggle_dark_mode()` áp `QApplication.instance().setStyleSheet(...)` và lưu vào `self._settings` (chung file profile với mục #7) mỗi lần bấm. `build.bat` thêm `--add-data` cho file mới.
+
+### 2 bug phát hiện khi làm dark mode (không lộ ra ở theme sáng)
+
+- **`QTextEdit` chưa có style**: `informationText` chưa từng có selector `QTextEdit` trong `.qss` nào — ở theme sáng vô hại (chữ đen mặc định OS trên nền trắng mặc định OS), nhưng ở theme tối, `QWidget { color: #e6e9ee }` (gần trắng) áp lên `QTextEdit` trong khi nền vẫn là trắng mặc định OS (không bị `QMainWindow, QDialog { background-color }` phủ vì `QTextEdit` không phải 1 trong 2 class đó) → chữ gần như vô hình. Phát hiện qua chụp ảnh headless (`QT_QPA_PLATFORM=offscreen` + `.grab().save()`), không phải qua test tự động. Fix: thêm rule `QTextEdit {...}` (nền + màu chữ tường minh) vào cả 2 file `.qss`.
+- **8 label tiêu đề section hardcode màu sáng**: `labelDatablocks`/`labelDetails`/`labelHardware`/`labelRadarSide`/`labelLogicalLink`/`labelFlashSequence`/`labelSecurityDll`/`labelCustomConfig` đều có `styleSheet` inline ngay trong `.ui` (`background-color: #E0E0E0; ...`) — style inline theo widget này override style toàn app cho property đó, nên dark mode không đổi được. Fix: gỡ `background-color` khỏi inline style, gắn Qt dynamic property `sectionHeader=true` (`stdset="0"` trong `.ui`) cho cả 8 widget, thêm selector `QLabel[sectionHeader="true"]` vào 2 file `.qss` (theme sáng giữ nguyên `#E0E0E0`, theme tối đổi màu phù hợp) — cùng kiểu property-selector Qt hỗ trợ sẵn, không cần class con.
+
+### Đã kiểm tra
+
+- Cập nhật 2 test cũ ở `TestEmptyDatablocksGuard` (trước assert `segmentsTable.rowCount() == 0` khi rỗng — nay đúng ra phải là 1 dòng placeholder).
+- Test mới: `tests/test_style.py` (icon path tồn tại, `load_stylesheet(dark=True)` đọc đúng file, `is_dark_mode_enabled()` đọc/ghi đúng qua `QSettings` redirect kiểu `tempfile` giống `tests/qt_test_utils.py`, cả 2 theme có `QLabel[sectionHeader="true"]` và `QTextEdit`); `tests/test_gui_smoke.py` (window icon không null, placeholder hiển thị đúng lúc khởi tạo và tự xoá khi có step/segment thật, report export skip placeholder, animation retarget đúng `endValue()`, `actionDarkMode` toggle đổi `app.styleSheet()` + lưu `self._settings` đúng, 8 label có `sectionHeader` property).
+- Chụp ảnh headless (`QT_QPA_PLATFORM=offscreen`) cả tab Flash và Configure, cả 2 theme, để xác nhận trực quan trước khi coi là xong — chính bước này bắt được cả 2 bug `QTextEdit`/section-label ở trên, không phải test tự động.
+- `tests/test_flash_threading.py` chạy riêng lẻ (bắt buộc theo quy tắc của repo vì `gui/flash_tab.py` bị đổi) — 4/4 pass.
+- Chạy toàn bộ test suite: **165/165 pass** (149 cũ + 16 mới).
+- Không build thử `.exe` thật được (Windows-only, môi trường dev là macOS).
+
+## Phase 4.42: Fix Chữ Không Đọc Được Trên Steps/Segments Table Ở Dark Mode
+
+User tự chạy thử app thật (không phải chụp ảnh headless của Claude), bật Dark Mode, chạy 1 lần flash, gửi ảnh chụp màn hình thật: toàn bộ dòng trong bảng Steps (và tương tự Segments) màu xanh lá pastel nhưng chữ mờ gần như không đọc được. Đây là bug thật, sót lại từ Phase 4.41 — bản thân Phase 4.41 chỉ verify bằng ảnh chụp bảng **rỗng** (chưa có dòng nào tô màu trạng thái), nên không bắt được lỗi này lúc đó.
+
+### Nguyên nhân
+
+`STATUS_COLOR_RUNNING`/`DONE`/`ERROR` (mục #14, Phase 4.41) chỉ set `item.setBackground(...)`, không bao giờ set `item.setForeground(...)`. Ở theme sáng, chữ vô tình vẫn đọc được vì `QWidget { color: #1a1a1a }` (gần đen) tình cờ tương phản tốt với nền pastel sáng. Ở theme tối, `QWidget { color: #e6e9ee }` (gần trắng, kế thừa toàn app) đè lên các ô này — chữ gần trắng trên nền pastel sáng gần như vô hình. `update_segments()`'s trạng thái "Waiting" còn tệ hơn — set cứng `QColor(Qt.white)` làm nền, kết hợp chữ gần trắng của theme tối thì hoàn toàn không đọc được (dù chưa có trong ảnh user gửi, cùng gốc lỗi).
+
+### Thay đổi
+
+- **`config/settings.py`**: thêm `STATUS_TEXT_COLOR = "#1a1a1a"` — cố định, không đổi theo theme, vì 3 màu pastel trạng thái vốn dĩ đã "phá" theme có chủ đích để làm nổi bật (không phải 1 phần của bảng màu nền/chữ thông thường).
+- **`gui/flash_tab.py`**: mọi chỗ `item.setBackground(QColor(STATUS_COLOR_*))` (5 chỗ: `on_segment_progress()`, `on_flash_finished()`, `on_flash_aborted()`, `add_step()` ×2, `update_segments()`) đều thêm `item.setForeground(QColor(STATUS_TEXT_COLOR))` đi kèm. `update_segments()`'s trạng thái "Waiting" đổi `QColor(Qt.white)` → `QColor(Qt.transparent)`, để hàng chưa tới lượt flash tự ăn theo nền bảng theo đúng theme hiện tại (đã set sẵn ở `resources/style.qss`/`style_dark.qss`'s `QTableWidget` selector) thay vì ép trắng cứng — không set `foreground` cho trạng thái này (giữ nguyên màu chữ mặc định theo theme, vốn đã đúng).
+
+### Đã kiểm tra
+
+- Test mới trong `tests/test_gui_smoke.py`: `test_colored_step_rows_have_explicit_readable_text_color`, `test_flash_finished_and_aborted_rows_have_readable_text_color` (đọc `.foreground().color().name()` đúng `STATUS_TEXT_COLOR`), và class mới `TestUpdateSegmentsColors` (Flashed/Flashing có foreground đúng; Waiting có `background().color().alpha() == 0`, tức trong suốt, không phải trắng cứng).
+- Tái hiện đúng kịch bản trong ảnh user gửi bằng headless script (`prepare_flash_ui([])` → nhiều `add_step()` → `on_flash_finished()`, dark theme) — chụp lại ảnh, xác nhận chữ đọc rõ trên nền xanh lá pastel. Cũng render riêng `segmentsTable` giữa tiến trình (`update_segments(50)`) để xác nhận cả 2 trạng thái Flashed/Flashing đọc rõ.
+- `tests/test_flash_threading.py` chạy riêng lẻ — 4/4 pass (bắt buộc vì `gui/flash_tab.py` bị đổi).
+- Chạy toàn bộ test suite: **169/169 pass** (165 cũ + 4 mới).
+
+## Phase 4.43: Fix Cột Header Đánh Số Dòng Bị Trắng Xấu Ở Dark Mode
+
+User gửi tiếp 1 ảnh chụp thật khác: bảng Steps mới mở app (chỉ có 1 dòng placeholder) — cột đánh số dòng bên trái ("1") có 1 ô xanh đúng màu, nhưng toàn bộ phần bên dưới đó (khoảng trống của cột, kéo dài hết chiều cao bảng) lại trắng xấu, lạc quẻ giữa nền tối.
+
+### Nguyên nhân
+
+`QHeaderView::section` (2 file `.qss`) chỉ style **từng ô số đã tồn tại** trong header dọc (vertical header) — bảng có ít dòng thì header chỉ có ít section, nhưng bản thân widget `QHeaderView` vẫn chiếm toàn bộ chiều cao bảng. Phần "thừa" bên dưới section cuối cùng không khớp `::section` nên rơi về màu nền mặc định của OS (trắng). Tương tự, ô vuông nhỏ ở góc trên-trái bảng (`QTableCornerButton`, giao giữa header ngang và dọc) cũng chưa có rule nào — cùng lộ trắng.
+
+### Thay đổi
+
+- **`resources/style.qss`, `resources/style_dark.qss`**: thêm rule `QHeaderView { background-color: ...; }` (style base widget, không phải `::section`) và `QTableCornerButton::section { background-color: ...; border: none; }` — cùng màu với `QHeaderView::section` đã có, để cả cột đánh số dòng đồng nhất 1 màu từ trên xuống dưới bất kể bảng có bao nhiêu dòng.
+
+### Đã kiểm tra
+
+- Test mới `tests/test_style.py::test_both_themes_style_header_view_and_corner_button` — cả 2 file `.qss` có rule `QHeaderView {` (base) và `QTableCornerButton::section`.
+- Chụp ảnh headless bảng hẹp (350px, giống tỉ lệ ảnh user gửi) ở cả 2 theme — dark mode cột đánh số dòng đồng màu xanh đậm từ trên xuống dưới, không còn trắng; light mode không đổi cảm nhận thị giác (trước đó trắng-trên-trắng nên vô hình, giờ có tint xanh nhạt nhẹ, không xấu đi).
+- Chạy toàn bộ test suite: **170/170 pass** (169 cũ + 1 mới).
+
+## Phase 4.44: Đổi Mặc Định Sang Dark Mode
+
+User yêu cầu trực tiếp: "hãy điều chỉnh giao diện mặc định là night mode".
+
+### Thay đổi
+
+- **`gui/style.py`**: `is_dark_mode_enabled()`'s `QSettings.value("appearance/darkMode", ..., type=bool)` đổi default value từ `False` → `True`. Chỉ ảnh hưởng lần chạy đầu tiên/cài mới (chưa từng lưu `appearance/darkMode` vào profile) — 1 khi user đã bấm toggle **View > Dark Mode** dù theo hướng nào, giá trị đã lưu luôn được đọc lại đúng như cũ, default mới không ghi đè lựa chọn đã lưu.
+- Không cần đổi gì ở `main.py`/`gui/menu_bar.py` — cả 2 đều gọi `is_dark_mode_enabled()` làm nguồn sự thật duy nhất (`main.py` áp stylesheet lúc khởi tạo `QApplication`, `setup_menu_bar()` set trạng thái checked ban đầu của `actionDarkMode`), nên đổi 1 chỗ là đủ.
+
+### Đã kiểm tra
+
+- Cập nhật 2 test cũ giả định mặc định sáng: `tests/test_style.py::test_defaults_to_false_when_never_set` → `test_defaults_to_true_when_never_set`; `tests/test_gui_smoke.py::test_dark_mode_action_starts_unchecked_by_default` → `test_dark_mode_action_starts_checked_by_default`. `test_dark_mode_toggle_applies_dark_stylesheet_and_persists` sửa lại để bắt đầu từ baseline sáng tường minh (`setChecked(False)` trước) thay vì giả định trạng thái ban đầu, vì mặc định giờ đã là tối.
+- Mô phỏng "cài mới" bằng `QSettings.setPath()` trỏ tới thư mục `tempfile.mkdtemp()` rỗng (chưa từng lưu gì), chạy đúng luồng khởi động thật của `main.py` (`QApplication` → `load_stylesheet(dark=is_dark_mode_enabled())` → `MainWindow()` → `show()`), chụp ảnh xác nhận: app mở lên đã là dark theme, `actionDarkMode` đã checked sẵn.
+- Chạy toàn bộ test suite: **170/170 pass** (không tăng/giảm số lượng test, chỉ đổi 2 test đã có + 1 test sửa logic).
+
+## Phase 4.45: Bộ Màu Trạng Thái Riêng Cho Dark Mode
+
+User xem ảnh chụp thật 1 lần flash xong (steps đều xanh lá, 1 dòng đỏ "Flash aborted") trong Dark Mode, hỏi trực tiếp "màu xanh đỏ vàng hiển thị progress như này theo bạn đã hợp mắt với người dùng chưa" — nhận định 3 khối màu pastel sáng nhìn "loè loẹt" như sticker dán đè lên nền tối, đề xuất đổi sang nền tối có tint màu + chữ sáng (kiểu VS Code/GitHub dark). User đồng ý ("có").
+
+### Thay đổi
+
+- **`config/settings.py`**: thêm 4 hằng số riêng cho Dark Mode — `STATUS_COLOR_RUNNING_DARK`/`DONE_DARK`/`ERROR_DARK` (nền tối có tint amber/xanh lá/đỏ, cùng tông độ sáng với `#1e2228`/`#262b33` của `style_dark.qss`) và `STATUS_TEXT_COLOR_DARK = "#f0f3f7"` (chữ sáng). Bộ màu sáng cũ (`STATUS_COLOR_RUNNING`/`DONE`/`ERROR`/`STATUS_TEXT_COLOR`) giữ nguyên, không đổi.
+- **`gui/flash_tab.py`**: thêm `_STATUS_COLOR_PAIRS` (dict `kind -> (light, dark)`) và method `_status_colors(kind)` trả về `(background, text)` phù hợp dựa trên `self._dark_mode_active`. Cả 5 chỗ set màu trạng thái (`on_segment_progress()`, `on_flash_finished()`, `on_flash_aborted()`, `add_step()` ×2, `update_segments()` ×3 nhánh) đều gọi qua helper này thay vì hardcode 1 hằng số cố định.
+- **`gui/menu_bar.py`**: thêm `self._dark_mode_active` — set lúc `setup_menu_bar()` (đọc từ `is_dark_mode_enabled()`) và cập nhật lại mỗi lần `action_toggle_dark_mode()` chạy (khi user bấm View > Dark Mode). Đây là nguồn sự thật **live** cho theme hiện tại — khác với `is_dark_mode_enabled()` (đọc `QSettings`, chỉ dùng lúc khởi động `main.py` trước khi `MainWindow` tồn tại), để việc tô màu status luôn theo đúng theme đang hiển thị ngay cả khi user vừa toggle giữa phiên flash.
+
+### Đã kiểm tra
+
+- Cập nhật 3 test cũ giả định implicit theme mặc định (nay Dark Mode là default — Phase 4.44) để set tường minh `self.window._dark_mode_active = False` trước khi assert theo cặp màu sáng.
+- Test mới `TestStatusColorsFollowLiveTheme` (3 test): mặc định dùng bộ màu tối; ép `_dark_mode_active = False` dùng đúng bộ màu sáng; toggle `_dark_mode_active` giữa 2 lần `add_step()` trong cùng 1 `MainWindow` — dòng mới tô theo đúng theme mới, chứng minh không bị cache lúc khởi tạo.
+- Tái hiện đúng kịch bản ảnh user gửi (8 bước + Flash aborted, dark theme) — chụp lại ảnh, xác nhận cảm nhận thị giác hài hoà hơn hẳn (nền xanh lá đậm/đỏ đậm hoà với nền navy, chữ trắng nổi rõ). Render thêm theme sáng để xác nhận không đổi gì (regression check).
+- `tests/test_flash_threading.py` chạy riêng lẻ — 4/4 pass.
+- Chạy toàn bộ test suite: **173/173 pass** (170 cũ + 3 mới).
+
+## Phase 4.46: Fix Dòng Xen Kẽ Của Trace Table Bị Trắng Xấu Ở Dark Mode
+
+User gửi tiếp ảnh chụp thật bảng Trace lúc chạy xong 1 lần flash: các dòng "Executing: ..." (SYSTEM) đọc rõ, nhưng các dòng TX/RX xen kẽ giữa (dữ liệu CAN thật) gần như vô hình.
+
+### Nguyên nhân
+
+`traceTable` được khai `alternatingRowColors=True` trong `main_window.ui` (zebra-striping cho dễ đọc). Cả 2 file `.qss` chỉ khai `QTableWidget { background-color: ... }` — tương ứng role "Base" của palette, dùng cho các dòng thường. Role "AlternateBase" (dùng cho *mọi dòng thứ 2*) là 1 property QSS **riêng biệt** (`alternate-background-color`) chưa từng được khai ở đâu cả — Qt fallback về màu `AlternateBase` mặc định của palette OS, 1 màu xám nhạt cố định hoàn toàn không liên quan tới theme app đang chọn. Dòng SYSTEM (thêm qua `log_trace()`) và dòng TX/RX (thêm qua `log_trace_row()`) chèn xen kẽ 1-1 vào cùng bảng, nên đúng 1 nửa số dòng luôn rơi vào màu xám mặc định này.
+
+### Thay đổi
+
+- **`resources/style.qss`, `resources/style_dark.qss`**: thêm `alternate-background-color` tường minh vào rule `QTableWidget` (`#f7f9fb` theme sáng — rất nhẹ, gần như không đổi cảm nhận cũ; `#20242b` theme tối — cùng họ với các nền tối khác của app). Nhân tiện thêm luôn `background-color: #ffffff` tường minh cho theme sáng (trước đó cũng ngầm dựa vào mặc định OS, giờ khai rõ ràng để nhất quán với theme tối).
+
+### Đã kiểm tra
+
+- Test mới `tests/test_style.py::test_both_themes_set_alternate_row_background` — cả 2 file `.qss` có `alternate-background-color`.
+- Tái hiện đúng kịch bản: `log_trace()`/`log_trace_row()` xen kẽ nhiều lần, chuyển sang tab Trace, chụp ảnh headless cả 2 theme — dark mode giờ mọi dòng đọc rõ với hiệu ứng zebra tinh tế; light mode không đổi cảm nhận thị giác so với trước.
+- Chạy toàn bộ test suite: **174/174 pass** (173 cũ + 1 mới).
+
+## Phase 4.47: Đổi Lại Mặc Định Sang Light Mode
+
+Sau khi xem qua ảnh chụp thật màu trạng thái ở cả Dark Mode (Phase 4.45) lẫn Light Mode, user hỏi ý kiến về Light Mode và xác nhận nó "hợp mắt" — sau đó yêu cầu trực tiếp: "điều chỉnh giao diện mặc định là light mode, không phải dark mode", đảo ngược quyết định mặc định Dark Mode từ Phase 4.44.
+
+### Thay đổi
+
+- **`gui/style.py`**: `is_dark_mode_enabled()`'s default value đổi lại `True` → `False`.
+- **`gui/flash_tab.py`**: `_status_colors()`'s fallback `getattr(self, '_dark_mode_active', True)` đổi lại thành `getattr(self, '_dark_mode_active', False)` — nhất quán với default mới.
+- **`gui/menu_bar.py`**: sửa lại comment (không còn tham chiếu "Default True").
+- Cập nhật lại các test đã đổi theo default Dark Mode ở Phase 4.44/4.45 về đúng default Light Mode: `tests/test_style.py::test_defaults_to_false_when_never_set` (đổi tên + assertion ngược lại), `tests/test_gui_smoke.py::test_dark_mode_action_starts_unchecked_by_default`, `test_dark_mode_toggle_applies_dark_stylesheet_and_persists` (bỏ bước "ép về light trước" không cần thiết nữa vì light đã là baseline mặc định), và `TestStatusColorsFollowLiveTheme`'s test "mặc định" đổi sang kiểm tra bộ màu sáng thay vì tối.
+
+### Đã kiểm tra
+
+- Mô phỏng "cài mới" (`QSettings.setPath()` trỏ thư mục rỗng) qua đúng luồng khởi động thật của `main.py` — xác nhận `is_dark_mode_enabled()` → `False`, `actionDarkMode.isChecked()` → `False`, `window._dark_mode_active` → `False`.
+- Chạy toàn bộ test suite: **174/174 pass** (không đổi số lượng test so với Phase 4.46, chỉ đổi nội dung/tên của các test giả định sai default).
+
+## Phase 4.48: Menu File > Recent Files + Menu Edit (GUI TODO #17, #18)
+
+User nhận xét menu bar còn ít chức năng, hỏi brainstorm nên thêm gì — dùng skill `superpowers/brainstorming`, phân loại **bounded** (mở rộng luồng menu/file-load đã có sẵn, không phải kiến trúc mới), trình bày thiết kế ngắn trong chat, user duyệt 2/6 ý tưởng đề xuất (File > Recent Files, menu Edit > Clear Trace/Information Log) rồi implement thẳng, không qua spec doc riêng (đúng quy trình "bounded" của skill).
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: submenu `menuRecentFiles` (rỗng, populate động lúc runtime) trong `menuFile`, ngay sau `actionLoadFirmware`. Action tĩnh `actionClearRecentFiles` ("Clear Recent Files"). Menu mới `menuEdit` (giữa File và View) với 2 action tĩnh `actionClearInformationLog`/`actionClearTrace`.
+- **`gui/configure_tab.py`**: tách `add_new_datablock()` — phần "parse 1 file + insert 1 row vào `tableWidgetDatablocks`" chuyển thành `_load_firmware_file(file_path)` (trả `True`/`False`), gọi `self._record_recent_file(file_path)` khi thành công. `add_new_datablock()` giờ chỉ lo việc mở dialog rồi loop gọi hàm mới cho từng file — hành vi output y hệt trước khi refactor.
+- **`gui/menu_bar.py`**: `MAX_RECENT_FILES = 8`. `_record_recent_file()` (dedupe + move-to-front + cap độ dài, lưu `QSettings` key `recentFiles/list`), `_rebuild_recent_files_menu()` (populate submenu từ list đã lưu, hoặc placeholder "(No Recent Files)" nếu rỗng), `load_recent_file()` (nạp lại 1 file, chuyển tab Data giống `action_load_firmware()`), `action_clear_recent_files()`. `action_clear_information_log()`/`action_clear_trace()` cho menu Edit.
+- **`gui/main_window.py`**: đổi thứ tự init — `setup_settings_profile()` chạy trước `setup_menu_bar()` (trước đó `setup_menu_bar()` chạy trước) — cần thiết vì lúc dựng submenu Recent Files lần đầu, `setup_menu_bar()` phải đọc được `self._settings` đã tồn tại.
+
+### Đã kiểm tra
+
+- Smoke test thủ công qua `python -c` (load file, click lại từ Recent Files, Clear Recent Files, Clear Information Log/Trace) trước khi viết test chính thức — xác nhận dedupe hoạt động đúng (load cùng 1 file 2 lần không bị lặp trong menu).
+- Test mới: `TestRecentFiles` (7 test — placeholder lúc rỗng, entry có tooltip = full path, dedupe, cap `MAX_RECENT_FILES`, Clear Recent Files, `load_recent_file()` chuyển tab + nạp đúng datablock, file bị xoá/di chuyển hiện đúng dialog lỗi và không bị ghi nhận vào Recent Files); `TestEditMenu` (2 test — Clear Information Log, Clear Trace Table).
+- Chụp ảnh headless xác nhận menu bar hiện đúng thứ tự File/Edit/View/Tools/Help (menu popup tự thân không chụp được ở chế độ offscreen — đã verify nội dung submenu qua test tự động thay vì ảnh chụp).
+- `tests/test_flash_threading.py` chạy riêng lẻ (thận trọng vì đổi thứ tự init trong `MainWindow.__init__()`, dù không đụng `gui/flash_tab.py`) — 4/4 pass.
+- Chạy toàn bộ test suite: **183/183 pass** (174 cũ + 9 mới).
+
+## Phase 4.49: Cập Nhật `docs/user_guide.html` Theo Các Thay Đổi Trong Phiên
+
+User yêu cầu cập nhật `docs/user_guide.html` cho khớp với những gì đã đổi trong phiên (Phase 4.41-4.48) — file này được viết ở Phase 4.35-4.37, **trước** khi theme Engineering Blue (Phase 4.40) tồn tại, nên cả 4 ảnh chụp minh hoạ đều là giao diện Qt Fusion mặc định cũ, menu bar chỉ có File/Tools/Help (chưa có Edit/View), bảng Steps/Segments trống trơn không placeholder (trước Phase 4.41's item #16) — sai lệch hoàn toàn so với app thật hiện tại.
+
+### Thay đổi
+
+- **Chụp lại cả 4 ảnh** bằng đúng kỹ thuật đã dùng xuyên suốt dự án (`QT_QPA_PLATFORM=offscreen` + `widget.grab().save()`), cùng kích thước 1100×850, theme sáng (mặc định — Phase 4.47) — nối tiếp 1 phiên `MainWindow` liên tục để giữ đúng mạch truyện của guide (nạp file → cấu hình kết nối → sẵn sàng bấm Flash → kết quả), thay vì 4 ảnh rời rạc:
+  - Ảnh 1 (Configure → Data): nạp `tests/sample.hex` thật qua `_load_firmware_file()` (hàm dùng chung mới tách ra ở Phase 4.48).
+  - Ảnh 2 (Configure → Communication): cấu hình mặc định (Virtual ECU Simulator, Radar S0, CAN).
+  - Ảnh 3 (Flash tab, chưa bấm): giờ hiện đúng placeholder "No steps recorded yet."/"No datablock loaded..." (item #16) — không cần dàn dựng gì thêm, đây là trạng thái thật khi vừa chuyển tab.
+  - Ảnh 4 (Flash tab, xong): chạy **flash thật qua `QThread`** (`flash_button_clicked()` + bơm event loop tới khi `window.thread is None`, cùng kỹ thuật `tests/test_flash_threading.py` dùng) qua Virtual ECU — không phải ảnh dàn dựng. Đợi thêm tới khi `progressBar.value() == 100` trước khi chụp, vì animation 200ms (item #13) chưa kịp chạy hết ngay lúc luồng vừa dừng.
+- **Cập nhật text**: bước 1 thêm 1 câu về **File → Recent Files** (item #17). Thêm 1 khối tip mới về **View → Dark Mode** và **Edit → Clear Information Log/Clear Trace Table** (item #18), ngay dưới tip Test Connection có sẵn.
+
+### Đã kiểm tra
+
+- Render bằng Chrome headless (`--headless --screenshot`, kỹ thuật đã dùng từ Phase 4.35) ở 2 chiều cao khác nhau để xem hết trang — layout đẹp, đủ nội dung, không lệch ảnh, không sót placeholder.
+- `tests/test_gui_smoke.py::test_open_guideline_opens_existing_file` (đã có sẵn) vẫn pass — path không đổi, chỉ nội dung file đổi.
+- Chạy toàn bộ test suite: **183/183 pass** (không đổi số lượng test — thay đổi chỉ ở file `.html`, không đụng code Python nào).

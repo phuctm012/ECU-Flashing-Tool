@@ -190,8 +190,11 @@
              </item>
              <item>
               <widget class="QLabel" name="labelDatablocks">
+               <property name="sectionHeader" stdset="0">
+                <bool>true</bool>
+               </property>
                <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+                <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
                 <string>Datablocks</string>
@@ -229,8 +232,11 @@
              </item>
              <item>
               <widget class="QLabel" name="labelDetails">
+               <property name="sectionHeader" stdset="0">
+                <bool>true</bool>
+               </property>
                <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+                <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
                 <string>Details</string>
@@ -339,8 +345,11 @@
              </item>
              <item>
               <widget class="QLabel" name="labelHardware">
+               <property name="sectionHeader" stdset="0">
+                <bool>true</bool>
+               </property>
                <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+                <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
                 <string>Hardware configure</string>
@@ -363,8 +372,11 @@
              </item>
              <item>
               <widget class="QLabel" name="labelRadarSide">
+               <property name="sectionHeader" stdset="0">
+                <bool>true</bool>
+               </property>
                <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+                <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
                 <string>Radar Side</string>
@@ -387,8 +399,11 @@
              </item>
              <item>
               <widget class="QLabel" name="labelLogicalLink">
+               <property name="sectionHeader" stdset="0">
+                <bool>true</bool>
+               </property>
                <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+                <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
                 <string>Logical Link</string>
@@ -521,8 +536,11 @@
              </item>
              <item>
               <widget class="QLabel" name="labelFlashSequence">
+               <property name="sectionHeader" stdset="0">
+                <bool>true</bool>
+               </property>
                <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+                <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
                 <string>Flash Sequence</string>
@@ -545,8 +563,11 @@
              </item>
              <item>
               <widget class="QLabel" name="labelSecurityDll">
+               <property name="sectionHeader" stdset="0">
+                <bool>true</bool>
+               </property>
                <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+                <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
                 <string>Security Access DLL (Optional)</string>
@@ -603,8 +624,11 @@
              </item>
              <item>
               <widget class="QLabel" name="labelCustomConfig">
+               <property name="sectionHeader" stdset="0">
+                <bool>true</bool>
+               </property>
                <property name="styleSheet">
-                <string notr="true">background-color: #E0E0E0; padding: 5px; font-weight: bold;</string>
+                <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
                 <string>Custom Configuration</string>
@@ -789,8 +813,27 @@
      <string>File</string>
     </property>
     <addaction name="actionLoadFirmware"/>
+    <widget class="QMenu" name="menuRecentFiles">
+     <property name="title">
+      <string>Recent Files</string>
+     </property>
+    </widget>
+    <addaction name="menuRecentFiles"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
+   </widget>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>Edit</string>
+    </property>
+    <addaction name="actionClearInformationLog"/>
+    <addaction name="actionClearTrace"/>
+   </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>View</string>
+    </property>
+    <addaction name="actionDarkMode"/>
    </widget>
    <widget class="QMenu" name="menuTools">
     <property name="title">
@@ -807,6 +850,8 @@
     <addaction name="actionOpenGuideline"/>
    </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
+   <addaction name="menuView"/>
    <addaction name="menuTools"/>
    <addaction name="menuHelp"/>
   </widget>
@@ -839,6 +884,29 @@
   <action name="actionOpenGuideline">
    <property name="text">
     <string>Open Guideline</string>
+   </property>
+  </action>
+  <action name="actionDarkMode">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Dark Mode</string>
+   </property>
+  </action>
+  <action name="actionClearRecentFiles">
+   <property name="text">
+    <string>Clear Recent Files</string>
+   </property>
+  </action>
+  <action name="actionClearInformationLog">
+   <property name="text">
+    <string>Clear Information Log</string>
+   </property>
+  </action>
+  <action name="actionClearTrace">
+   <property name="text">
+    <string>Clear Trace Table</string>
    </property>
   </action>
  </widget>
