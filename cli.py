@@ -126,7 +126,14 @@ def _warn_can_conflict(args):
 
     busy_channel_label = None
     for ch in detect_vector_channels():
-        if ch["channel"] == args.channel and ch.get("is_on_bus"):
+        if args.serial:
+            match = (
+                ch.get("hw_channel") == args.channel
+                and ch.get("serial") == args.serial
+            )
+        else:
+            match = ch["channel"] == args.channel
+        if match and ch.get("is_on_bus"):
             busy_channel_label = ch["label"]
             break
 
@@ -202,10 +209,20 @@ def cmd_list_hardware(args):
 
     channels = detect_vector_channels()
     if channels:
-        print("Real Vector channels detected on this machine "
-              "(use with --hardware vector --channel N):")
+        print("Real Vector channels detected on this machine:")
         for ch in channels:
-            print(f"  - {ch['label']} (--channel {ch['channel']})")
+            serial = ch.get("serial")
+            hw_ch = ch.get("hw_channel", ch["channel"])
+            if serial:
+                print(
+                    f"  - {ch['label']}"
+                    f" (--channel {hw_ch} --serial {serial})"
+                )
+            else:
+                print(
+                    f"  - {ch['label']}"
+                    f" (--channel {ch['channel']})"
+                )
     else:
         print(
             "No real Vector hardware detected right now "
@@ -281,6 +298,7 @@ def cmd_flash(args):
         security_dll_path=args.security_dll,
         keepalive_functional=(args.sequence == "suzuki"),
         can_channel=args.channel,
+        can_serial=args.serial,
         can_tx_id=tx_id,
         can_rx_id=rx_id,
         can_bitrate=args.bitrate,
@@ -403,6 +421,7 @@ def cmd_test_connection(args):
         use_virtual=use_virtual,
         security_dll_path=args.security_dll,
         can_channel=args.channel,
+        can_serial=args.serial,
         can_tx_id=tx_id,
         can_rx_id=rx_id,
         can_bitrate=args.bitrate,
@@ -507,7 +526,16 @@ def _add_can_args(parser):
     )
     parser.add_argument(
         "--channel", type=int, default=0,
-        help="Vector hardware channel index, 0-based (default 0)",
+        help="Vector hardware channel number, 0-based (default 0). "
+             "With --serial, this is the hardware channel on that "
+             "device; without --serial, it is the application "
+             "channel index in Vector Hardware Config",
+    )
+    parser.add_argument(
+        "--serial", type=int, default=None,
+        help="Vector device serial number — directly selects "
+             "the physical hardware, bypassing application "
+             "channel mapping in Vector Hardware Config",
     )
     parser.add_argument(
         "--sequence", choices=["generic", "suzuki"], default="suzuki",

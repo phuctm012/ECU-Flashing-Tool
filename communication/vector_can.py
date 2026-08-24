@@ -74,9 +74,16 @@ def detect_vector_channels():
         )
         hw_channel = getattr(cfg, "hw_channel", 0)
 
+        serial = (
+            getattr(cfg, "serial_number", 0)
+            or getattr(cfg, "serial", 0)
+        )
+
         channels.append({
             "label": f"{hw_name} - Channel {hw_channel + 1}",
             "channel": channel_index,
+            "hw_channel": hw_channel,
+            "serial": serial if serial else None,
             "is_on_bus": bool(getattr(cfg, "is_on_bus", False)),
         })
 
@@ -172,6 +179,7 @@ class VectorCanInterface(CanInterface):
         data_bitrate = kwargs.get(
             "data_bitrate", 2000000
         )
+        serial = kwargs.get("serial")
 
         self._tx_id = kwargs.get("tx_id", 0x778)
         self._rx_id = kwargs.get("rx_id", 0x788)
@@ -185,11 +193,21 @@ class VectorCanInterface(CanInterface):
                 "app_name": app_name,
             }
 
+            if serial:
+                bus_kwargs["serial"] = serial
+
             if fd:
                 bus_kwargs["fd"] = True
                 bus_kwargs["data_bitrate"] = data_bitrate
 
-            self._bus = can.Bus(**bus_kwargs)
+            try:
+                self._bus = can.Bus(**bus_kwargs)
+            except TypeError:
+                if "serial" in bus_kwargs:
+                    del bus_kwargs["serial"]
+                    self._bus = can.Bus(**bus_kwargs)
+                else:
+                    raise
             self._connected = True
 
             return True

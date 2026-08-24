@@ -46,6 +46,7 @@ class TestConnectionWorker(QObject):
         security_dll_path=None,
         functional=False,
         can_channel=0,
+        can_serial=None,
         can_tx_id=0x778,
         can_rx_id=0x788,
         can_bitrate=500000,
@@ -58,6 +59,7 @@ class TestConnectionWorker(QObject):
         self._security_dll_path = security_dll_path
         self._functional = functional
         self._can_channel = can_channel
+        self._can_serial = can_serial
         self._can_tx_id = can_tx_id
         self._can_rx_id = can_rx_id
         self._can_bitrate = can_bitrate
@@ -76,6 +78,7 @@ class TestConnectionWorker(QObject):
             use_virtual=self._use_virtual,
             security_dll_path=self._security_dll_path,
             can_channel=self._can_channel,
+            can_serial=self._can_serial,
             can_tx_id=self._can_tx_id,
             can_rx_id=self._can_rx_id,
             can_bitrate=self._can_bitrate,
