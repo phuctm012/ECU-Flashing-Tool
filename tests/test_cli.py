@@ -158,7 +158,7 @@ class TestCliTestConnection(unittest.TestCase):
             ["test-connection", "--sequence", "generic"]
         )
         self.assertEqual(code, 0)
-        self.assertIn("Security Access (ECU unlocked)", out)
+        self.assertIn("Read DID 0xF189", out)
         self.assertIn("Restored Default session", out)
         self.assertIn("PASSED", out)
 

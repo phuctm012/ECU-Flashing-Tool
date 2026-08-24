@@ -83,12 +83,26 @@ class ProjectFileMixin:
                 "checked": checked,
             })
 
-        hardware = {"is_virtual": True, "channel": -1}
+        hardware = {"is_virtual": True, "channel": -1, "serial": -1}
         if hasattr(self.ui, 'comboBoxHardware'):
-            channel = self.ui.comboBoxHardware.currentData()
+            # currentData() is None for the Virtual ECU
+            # Simulator entry, otherwise the full channel dict
+            # from detect_vector_channels() (keys: channel,
+            # hw_channel, serial, is_on_bus, label). Only the
+            # identifying fields (hw_channel + serial) are
+            # persisted, as plain JSON ints, matching
+            # gui/settings_profile.py's save_profile().
+            data = self.ui.comboBoxHardware.currentData()
             hardware = {
-                "is_virtual": channel is None,
-                "channel": channel if channel is not None else -1,
+                "is_virtual": data is None,
+                "channel": (
+                    data.get("hw_channel", data.get("channel", -1))
+                    if data is not None else -1
+                ),
+                "serial": (
+                    (data.get("serial") or -1)
+                    if data is not None else -1
+                ),
             }
 
         return {
@@ -169,10 +183,21 @@ class ProjectFileMixin:
         if hasattr(self.ui, 'comboBoxHardware'):
             is_virtual = hardware.get("is_virtual", True)
             channel = hardware.get("channel", -1)
-            target = None if is_virtual else channel
+            serial = hardware.get("serial", -1)
+            target = None if is_virtual else (channel, serial)
             combo = self.ui.comboBoxHardware
             for i in range(combo.count()):
-                if combo.itemData(i) == target:
+                item_data = combo.itemData(i)
+                if item_data is None:
+                    key = None
+                else:
+                    key = (
+                        item_data.get(
+                            "hw_channel", item_data.get("channel")
+                        ),
+                        item_data.get("serial") or -1,
+                    )
+                if key == target:
                     combo.setCurrentIndex(i)
                     break
             # No matching entry (e.g. saved real channel not

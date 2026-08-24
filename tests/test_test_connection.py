@@ -55,7 +55,11 @@ class TestGenericProbe(unittest.TestCase):
 
         self.assertTrue(result["passed"])
         self.assertIn("PASSED", result["message"])
-        self.assertIn("Security Access (ECU unlocked)", result["steps"])
+        self.assertIn(
+            "Read DID 0xF189: Vehicle Manufacturer ECU SW Version"
+            " = V1.0.0",
+            result["steps"],
+        )
         self.assertIn("Restored Default session", result["steps"])
 
     def test_reads_ecu_identification(self):
@@ -63,7 +67,9 @@ class TestGenericProbe(unittest.TestCase):
         result = _run_worker(worker)
 
         self.assertIsNotNone(result["ecu_info"])
-        self.assertIn("SW Version", result["ecu_info"])
+        self.assertIn(
+            "Vehicle Manufacturer ECU SW Version", result["ecu_info"]
+        )
 
     def test_never_sends_erase_or_download(self):
         # RequestDownload (0x34) / TransferData (0x36) must
