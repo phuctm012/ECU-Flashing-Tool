@@ -362,6 +362,13 @@
                 <widget class="QComboBox" name="comboBoxHardware"/>
                </item>
                <item>
+                <widget class="QPushButton" name="buttonTestConnectionHardware">
+                 <property name="text">
+                  <string>Test Connection</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
                 <widget class="QPushButton" name="buttonRefreshHardware">
                  <property name="text">
                   <string>Refresh</string>

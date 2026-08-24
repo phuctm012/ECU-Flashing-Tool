@@ -45,6 +45,14 @@ class TestConnectionDialog(QDialog):
         self._thread = None
         self._worker = None
 
+        # None until the probe actually finishes (_on_finished()
+        # below) — stays None if the dialog is closed mid-probe,
+        # so callers reading it after exec() can tell "closed
+        # early" apart from a real pass/fail (see
+        # gui/configure_tab.py's test_connection_button_clicked(),
+        # which colors a button off this).
+        self.passed = None
+
         layout = QVBoxLayout(self)
 
         self.logText = QPlainTextEdit(self)
@@ -137,6 +145,7 @@ class TestConnectionDialog(QDialog):
             self._log(f"  {key}: {value}")
 
     def _on_finished(self, passed, message):
+        self.passed = passed
         self._log("")
         self._log(message)
         self.buttonBox.button(

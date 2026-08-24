@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHeaderView,
     QMessageBox,
+    QMenu,
 )
 from PySide6.QtGui import QColor
 from PySide6.QtCore import Qt
@@ -96,6 +97,14 @@ class ConfigureTabMixin:
             self.on_datablock_cell_clicked
         )
 
+        # Right-click context menu (Add/Disable/Remove)
+        self.ui.tableWidgetDatablocks.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.ui.tableWidgetDatablocks.customContextMenuRequested.connect(
+            self._show_datablocks_context_menu
+        )
+
     # ==================================================
     # Placeholder Row
     # ==================================================
@@ -136,6 +145,97 @@ class ConfigureTabMixin:
 
         if row == total_rows - 1:
             self.add_new_datablock()
+
+    # ==================================================
+    # Right-Click Context Menu (Add/Disable/Remove)
+    # ==================================================
+
+    def _build_datablocks_context_menu(self, pos):
+        """
+        Add Datablock always shows (same file dialog as
+        clicking the placeholder row). Disable/Remove only
+        show when right-clicking an actual datablock row —
+        row index i corresponds to self._loaded_datablocks[i]
+        (see get_checked_datablocks()'s docstring for why that
+        invariant holds), so rowAt() directly indexes it.
+
+        Split from _show_datablocks_context_menu() (which
+        pops it up via menu.exec(), a blocking call) so tests
+        can build the menu and inspect its actions without
+        opening a real modal event loop.
+        """
+
+        table = self.ui.tableWidgetDatablocks
+        row = table.rowAt(pos.y())
+        is_datablock_row = 0 <= row < len(self._loaded_datablocks)
+
+        menu = QMenu(self)
+
+        add_action = menu.addAction("Add Datablock")
+        add_action.triggered.connect(self.add_new_datablock)
+
+        if is_datablock_row:
+            menu.addSeparator()
+
+            disable_action = menu.addAction("Disable Datablock")
+            disable_action.triggered.connect(
+                lambda: self._disable_datablock_row(row)
+            )
+
+            remove_action = menu.addAction("Remove Datablock")
+            remove_action.triggered.connect(
+                lambda: self._remove_datablock_row(row)
+            )
+
+        return menu
+
+    def _show_datablocks_context_menu(self, pos):
+
+        menu = self._build_datablocks_context_menu(pos)
+        menu.exec(self.ui.tableWidgetDatablocks.mapToGlobal(pos))
+
+    def _disable_datablock_row(self, row):
+        """
+        Unticks the row's checkbox (column 0) — the same state
+        get_checked_datablocks() already excludes from
+        flashing/segments, so this reuses that existing
+        mechanism instead of adding a separate "disabled" flag.
+        """
+
+        check_item = self.ui.tableWidgetDatablocks.item(row, 0)
+        if check_item is None:
+            return
+
+        check_item.setCheckState(Qt.Unchecked)
+
+        self.log_information(
+            f"Disabled datablock: "
+            f"{self._loaded_datablocks[row].file_name}"
+        )
+
+    def _remove_datablock_row(self, row):
+        """
+        Removes both the table row and the matching
+        self._loaded_datablocks entry together, at the same
+        index, so row i keeps lining up with datablock i for
+        every later row (get_checked_datablocks(), Save
+        Project, Export Issue, ...).
+        """
+
+        if not (0 <= row < len(self._loaded_datablocks)):
+            return
+
+        datablock = self._loaded_datablocks.pop(row)
+        self.ui.tableWidgetDatablocks.removeRow(row)
+
+        if self._loaded_datablocks:
+            self._update_details_table(self._loaded_datablocks[-1])
+        else:
+            self._clear_details_table()
+
+        self.log_information(
+            f"Removed datablock: {datablock.file_name}"
+        )
 
     # ==================================================
     # Add New Datablock (with real parsing)
@@ -247,9 +347,11 @@ class ConfigureTabMixin:
         Relies on datablock i (in self._loaded_datablocks)
         being at table row i: add_new_datablock() only ever
         appends rows in the same order it appends datablocks,
-        and there is no remove-row functionality, so the two
-        stay in lockstep — rowCount() is always
-        len(_loaded_datablocks) + 1 (the trailing "add a
+        and _remove_datablock_row() (Datablocks table's
+        right-click "Remove Datablock") always removes the
+        table row and the list entry together at the same
+        index, so the two stay in lockstep — rowCount() is
+        always len(_loaded_datablocks) + 1 (the trailing "add a
         Datablock" placeholder row) once that's true.
 
         If self._loaded_datablocks was populated some other
@@ -405,6 +507,18 @@ class ConfigureTabMixin:
             7, 1, QTableWidgetItem("Disabled")
         )
 
+    def _clear_details_table(self):
+        """Blanks the value column — used when the last
+        remaining datablock is removed, so stale info from a
+        deleted datablock doesn't linger on screen."""
+
+        if not hasattr(self.ui, 'tableWidgetDetails'):
+            return
+
+        table = self.ui.tableWidgetDetails
+        for row in range(table.rowCount()):
+            table.setItem(row, 1, QTableWidgetItem(""))
+
     # ==================================================
     # Communication Logic
     # ==================================================
@@ -424,6 +538,21 @@ class ConfigureTabMixin:
         if hasattr(self.ui, 'buttonRefreshHardware'):
             self.ui.buttonRefreshHardware.clicked.connect(
                 self.populate_hardware_combo
+            )
+
+        if hasattr(self.ui, 'buttonTestConnectionHardware'):
+            self.ui.buttonTestConnectionHardware.clicked.connect(
+                self.test_connection_button_clicked
+            )
+
+        # A stale green/red from a previous run would otherwise
+        # keep showing after the user picks different hardware —
+        # clear it as soon as the selection changes so the color
+        # never implies "already tested" for hardware that hasn't
+        # been.
+        if hasattr(self.ui, 'comboBoxHardware'):
+            self.ui.comboBoxHardware.currentIndexChanged.connect(
+                lambda _: self._reset_test_connection_button_status()
             )
 
         # Column widths
@@ -477,6 +606,12 @@ class ConfigureTabMixin:
         if not hasattr(self.ui, 'comboBoxHardware'):
             return
 
+        # Rebuilding below runs with signals blocked (no
+        # currentIndexChanged fires), so the reset connected to
+        # that signal in setup_communication_logic() wouldn't
+        # otherwise catch a Refresh — do it explicitly here too.
+        self._reset_test_connection_button_status()
+
         combo = self.ui.comboBoxHardware
         combo.blockSignals(True)
 
@@ -492,6 +627,47 @@ class ConfigureTabMixin:
 
         combo.setCurrentIndex(0)
         combo.blockSignals(False)
+
+    # ==================================================
+    # Test Connection button (Communication page)
+    # ==================================================
+
+    def test_connection_button_clicked(self):
+        """
+        Runs the same probe as Tools > Test Connection...
+        (gui/menu_bar.py's open_test_connection_dialog()), then
+        colors this button green/red based on the outcome so
+        the result stays visible on the Communication page
+        without reopening the dialog.
+        """
+
+        dialog = self.open_test_connection_dialog()
+
+        if dialog is None or dialog.passed is None:
+            # Declined the CAN conflict warning, or closed the
+            # dialog before the probe finished — no result to
+            # show, leave whatever color was already there.
+            return
+
+        self._set_test_connection_button_result(dialog.passed)
+
+    def _set_test_connection_button_result(self, passed):
+
+        if not hasattr(self.ui, 'buttonTestConnectionHardware'):
+            return
+
+        bg, fg = self._status_colors('done' if passed else 'error')
+
+        self.ui.buttonTestConnectionHardware.setStyleSheet(
+            f"background-color: {bg}; color: {fg};"
+        )
+
+    def _reset_test_connection_button_status(self):
+
+        if not hasattr(self.ui, 'buttonTestConnectionHardware'):
+            return
+
+        self.ui.buttonTestConnectionHardware.setStyleSheet("")
 
     # ==================================================
     # Radar Side selector (Suzuki Radar: S0/S1)

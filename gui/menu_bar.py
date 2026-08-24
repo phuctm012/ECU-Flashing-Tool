@@ -365,6 +365,24 @@ class MenuBarMixin:
 
     def action_test_connection(self):
 
+        self.open_test_connection_dialog()
+
+    def open_test_connection_dialog(self):
+        """
+        Builds CAN config from the current GUI state and runs
+        the Test Connection probe in a modal dialog. Shared by
+        the Tools > Test Connection... menu action above and
+        the Hardware configure page's own Test Connection
+        button (gui/configure_tab.py's
+        test_connection_button_clicked()), so both go through
+        identical setup/warning logic instead of duplicating it.
+
+        Returns the TestConnectionDialog once it closes (its
+        .passed is True/False, or None if the dialog was closed
+        before the probe finished), or None if a CAN conflict
+        warning was declined before the dialog ever opened.
+        """
+
         use_virtual = True
         if hasattr(self.ui, 'comboBoxHardware'):
             use_virtual = (
@@ -386,7 +404,7 @@ class MenuBarMixin:
                     QMessageBox.No,
                 )
                 if choice != QMessageBox.Yes:
-                    return
+                    return None
 
         functional = False
         if hasattr(self.ui, 'comboBoxFlashSequence'):
@@ -410,6 +428,8 @@ class MenuBarMixin:
             functional, can_config,
         )
         dialog.exec()
+
+        return dialog
 
     # ==================================================
     # Help

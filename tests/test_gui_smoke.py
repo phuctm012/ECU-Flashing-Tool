@@ -22,7 +22,7 @@ sys.path.insert(
 )
 
 from PySide6.QtWidgets import QLabel, QTableWidgetItem, QMessageBox
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint
 
 from tests.qt_test_utils import get_app
 from gui.main_window import MainWindow
@@ -532,6 +532,131 @@ class TestCheckedDatablocksFilter(unittest.TestCase):
             self.window.ui.segmentsTable.rowCount(),
             len(db1.segments),
         )
+
+
+class TestDatablocksContextMenu(unittest.TestCase):
+    """
+    Covers the Datablocks table's right-click context menu
+    (ConfigureTabMixin._show_datablocks_context_menu() and its
+    Disable/Remove handlers) — Add Datablock/Disable
+    Datablock/Remove Datablock. Uses real _load_firmware_file()
+    calls (not manual row injection) so row/list indices come
+    from the actual code path, not test bookkeeping.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def _pos_for_row(self, row):
+        table = self.window.ui.tableWidgetDatablocks
+        y = table.rowViewportPosition(row) + table.rowHeight(row) // 2
+        return QPoint(5, y)
+
+    def test_menu_on_datablock_row_has_disable_and_remove(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+        menu = self.window._build_datablocks_context_menu(
+            self._pos_for_row(0)
+        )
+        labels = [a.text() for a in menu.actions() if not a.isSeparator()]
+
+        self.assertIn("Add Datablock", labels)
+        self.assertIn("Disable Datablock", labels)
+        self.assertIn("Remove Datablock", labels)
+
+    def test_menu_on_placeholder_row_only_has_add(self):
+        # No datablocks loaded — the only row is the
+        # "Please click here to add a Datablock" placeholder.
+        menu = self.window._build_datablocks_context_menu(
+            self._pos_for_row(0)
+        )
+        labels = [a.text() for a in menu.actions() if not a.isSeparator()]
+
+        self.assertEqual(labels, ["Add Datablock"])
+
+    def test_menu_below_last_row_only_has_add(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+        table = self.window.ui.tableWidgetDatablocks
+        below_last_row_y = (
+            table.rowViewportPosition(table.rowCount() - 1)
+            + table.rowHeight(table.rowCount() - 1)
+            + 50
+        )
+        menu = self.window._build_datablocks_context_menu(
+            QPoint(5, below_last_row_y)
+        )
+        labels = [a.text() for a in menu.actions() if not a.isSeparator()]
+
+        self.assertEqual(labels, ["Add Datablock"])
+
+    def test_disable_datablock_row_unchecks_without_removing(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+        self.window._disable_datablock_row(0)
+
+        self.assertEqual(len(self.window._loaded_datablocks), 1)
+        self.assertEqual(
+            self.window.ui.tableWidgetDatablocks.item(0, 0).checkState(),
+            Qt.Unchecked,
+        )
+        self.assertEqual(self.window.get_checked_datablocks(), [])
+
+    def test_remove_datablock_row_removes_table_row_and_list_entry(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        table = self.window.ui.tableWidgetDatablocks
+        self.assertEqual(table.rowCount(), 2)  # 1 datablock + placeholder
+
+        self.window._remove_datablock_row(0)
+
+        self.assertEqual(len(self.window._loaded_datablocks), 0)
+        # Only the placeholder row remains.
+        self.assertEqual(table.rowCount(), 1)
+
+    def test_remove_middle_row_keeps_others_in_lockstep(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.window._load_firmware_file(SAMPLE_HEX)
+        db_middle = self.window._loaded_datablocks[1]
+        db_last = self.window._loaded_datablocks[2]
+
+        self.window._remove_datablock_row(0)
+
+        self.assertEqual(
+            self.window._loaded_datablocks, [db_middle, db_last]
+        )
+        table = self.window.ui.tableWidgetDatablocks
+        self.assertEqual(table.rowCount(), 3)  # 2 datablocks + placeholder
+        # Row 0 in the table must now correspond to db_middle —
+        # get_checked_datablocks() relies on exactly this.
+        table.item(0, 0).setCheckState(Qt.Unchecked)
+        self.assertEqual(
+            self.window.get_checked_datablocks(), [db_last]
+        )
+
+    def test_remove_last_datablock_clears_details_table(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        # _load_firmware_file() alone doesn't populate Details
+        # (only add_new_datablock() does, after the loop) —
+        # mirror that step here to get a non-empty starting
+        # value to verify gets cleared.
+        self.window._update_details_table(
+            self.window._loaded_datablocks[-1]
+        )
+        details = self.window.ui.tableWidgetDetails
+        self.assertNotEqual(details.item(0, 1).text(), "")
+
+        self.window._remove_datablock_row(0)
+
+        for row in range(details.rowCount()):
+            item = details.item(row, 1)
+            self.assertTrue(item is None or item.text() == "")
+
+    def test_remove_out_of_range_row_does_not_crash(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.window._remove_datablock_row(5)  # must not raise
+        self.assertEqual(len(self.window._loaded_datablocks), 1)
 
 
 class TestEmptyDatablocksGuard(unittest.TestCase):
@@ -1310,6 +1435,140 @@ class TestMenuBar(unittest.TestCase):
             self.window.ui.actionTestConnection.trigger()
 
         MockDialog.assert_not_called()
+
+
+class TestConnectionButton(unittest.TestCase):
+    """
+    Covers the Communication page's own Test Connection button
+    (gui/configure_tab.py's test_connection_button_clicked()) —
+    reuses gui/menu_bar.py's open_test_connection_dialog() (the
+    same dialog as Tools > Test Connection...) and colors the
+    button green/red based on the outcome.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def _add_real_channel(self):
+        combo = self.window.ui.comboBoxHardware
+        combo.addItem(
+            "VN1640A - Channel 1",
+            userData={
+                "label": "VN1640A - Channel 1",
+                "channel": 0, "hw_channel": 0,
+                "serial": None, "is_on_bus": False,
+            },
+        )
+        combo.setCurrentIndex(combo.count() - 1)
+
+    def test_click_opens_same_dialog_as_menu_action(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = True
+            self.window.ui.buttonTestConnectionHardware.click()
+
+        MockDialog.assert_called_once()
+        MockDialog.return_value.exec.assert_called_once()
+
+    def test_passed_colors_button_with_done_status_colors(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = True
+            self.window.ui.buttonTestConnectionHardware.click()
+
+        bg, fg = self.window._status_colors('done')
+        style = self.window.ui.buttonTestConnectionHardware.styleSheet()
+        self.assertIn(bg, style)
+        self.assertIn(fg, style)
+
+    def test_failed_colors_button_with_error_status_colors(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = False
+            self.window.ui.buttonTestConnectionHardware.click()
+
+        bg, fg = self.window._status_colors('error')
+        style = self.window.ui.buttonTestConnectionHardware.styleSheet()
+        self.assertIn(bg, style)
+        self.assertIn(fg, style)
+
+    def test_closed_before_finished_leaves_button_uncolored(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = None
+            self.window.ui.buttonTestConnectionHardware.click()
+
+        self.assertEqual(
+            self.window.ui.buttonTestConnectionHardware.styleSheet(), ""
+        )
+
+    def test_declined_can_conflict_warning_leaves_button_uncolored(self):
+        self._add_real_channel()
+
+        with unittest.mock.patch.object(
+            self.window, 'detect_can_conflict_warning',
+            return_value="Something is on the bus",
+        ), unittest.mock.patch(
+            "gui.menu_bar.QMessageBox.warning",
+            return_value=QMessageBox.No,
+        ), unittest.mock.patch(
+            "gui.menu_bar.TestConnectionDialog"
+        ) as MockDialog:
+            self.window.ui.buttonTestConnectionHardware.click()
+
+        MockDialog.assert_not_called()
+        self.assertEqual(
+            self.window.ui.buttonTestConnectionHardware.styleSheet(), ""
+        )
+
+    def test_changing_hardware_selection_resets_button_color(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = True
+            self.window.ui.buttonTestConnectionHardware.click()
+        self.assertNotEqual(
+            self.window.ui.buttonTestConnectionHardware.styleSheet(), ""
+        )
+
+        self._add_real_channel()
+
+        self.assertEqual(
+            self.window.ui.buttonTestConnectionHardware.styleSheet(), ""
+        )
+
+    def test_refresh_hardware_resets_button_color(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = False
+            self.window.ui.buttonTestConnectionHardware.click()
+        self.assertNotEqual(
+            self.window.ui.buttonTestConnectionHardware.styleSheet(), ""
+        )
+
+        self.window.ui.buttonRefreshHardware.click()
+
+        self.assertEqual(
+            self.window.ui.buttonTestConnectionHardware.styleSheet(), ""
+        )
+
+    def test_button_is_left_of_refresh_in_layout(self):
+        layout = self.window.ui.horizontalLayout_hardware
+        order = [
+            layout.itemAt(i).widget().objectName()
+            for i in range(layout.count())
+            if layout.itemAt(i).widget() is not None
+        ]
+        self.assertLess(
+            order.index("buttonTestConnectionHardware"),
+            order.index("buttonRefreshHardware"),
+        )
 
 
 class TestRecentFiles(unittest.TestCase):

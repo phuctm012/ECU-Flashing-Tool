@@ -288,6 +288,11 @@ class Ui_MainWindow(object):
 
         self.horizontalLayout_hardware.addWidget(self.comboBoxHardware)
 
+        self.buttonTestConnectionHardware = QPushButton(self.pageComm)
+        self.buttonTestConnectionHardware.setObjectName(u"buttonTestConnectionHardware")
+
+        self.horizontalLayout_hardware.addWidget(self.buttonTestConnectionHardware)
+
         self.buttonRefreshHardware = QPushButton(self.pageComm)
         self.buttonRefreshHardware.setObjectName(u"buttonRefreshHardware")
 
@@ -732,6 +737,7 @@ class Ui_MainWindow(object):
 
         self.labelCommTitle.setText(QCoreApplication.translate("MainWindow", u"Communication", None))
         self.labelHardware.setText(QCoreApplication.translate("MainWindow", u"Hardware configure", None))
+        self.buttonTestConnectionHardware.setText(QCoreApplication.translate("MainWindow", u"Test Connection", None))
         self.buttonRefreshHardware.setText(QCoreApplication.translate("MainWindow", u"Refresh", None))
         self.labelRadarSide.setText(QCoreApplication.translate("MainWindow", u"Radar Side", None))
         self.comboBoxRadarSide.setItemText(0, QCoreApplication.translate("MainWindow", u"S0 (77B/78B)", None))
