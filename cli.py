@@ -49,7 +49,6 @@ from communication.vector_can import (
     detect_vector_channels,
     detect_running_vector_tools,
 )
-from communication.ecu_simulator import EcuSimulator
 from core.flash_sequence import (
     build_flash_sequence,
     build_suzuki_slp1_flash_sequence,
@@ -375,15 +374,14 @@ def cmd_flash(args):
 # ==================================================
 #
 # A safe, non-destructive probe: connects, opens an Extended
-# then Programming session, and unlocks Security Access —
-# the same steps a real flash starts with, but stops there.
-# Never touches Erase Memory / TransferData / any write.
-# Always tries to leave the ECU back in Default session
-# (re-enabling DTC/Communication if they were disabled)
-# before exiting, whether the test passed or failed partway
-# through — meant to be run repeatedly against real hardware
-# to verify wiring/CAN IDs/security key before trusting a
-# real flash to it.
+# session (+ functional pre-steps for the Suzuki sequence),
+# then reads ECU Identification — enough to verify CAN wiring,
+# IDs, and ECU reachability. Never touches Programming session,
+# Security Access, Erase Memory, or TransferData. Always tries
+# to leave the ECU back in Default session (re-enabling DTC/
+# Communication if they were disabled) before exiting — meant
+# to be run repeatedly against real hardware to verify
+# connectivity before trusting a real flash to it.
 # ==================================================
 
 def cmd_test_connection(args):
@@ -462,13 +460,6 @@ def cmd_test_connection(args):
             uds.diagnostic_session_control(0x03)
             step("Extended Session")
 
-        uds.diagnostic_session_control(0x02)
-        step("Programming Session")
-
-        key_func = EcuSimulator.compute_key if use_virtual else None
-        uds.security_access(level=1, key_function=key_func)
-        step("Security Access (ECU unlocked)")
-
         if not args.quiet:
             print("  Reading ECU identification...")
         info = uds.read_ecu_identification()
@@ -507,7 +498,7 @@ def cmd_test_connection(args):
         worker._cleanup()
 
     if ok:
-        print("\nConnection test PASSED — session + security access OK.")
+        print("\nConnection test PASSED — ECU reachable.")
         return 0
 
     return 1
