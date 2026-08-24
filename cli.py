@@ -460,11 +460,19 @@ def cmd_test_connection(args):
             uds.diagnostic_session_control(0x03)
             step("Extended Session")
 
-        if not args.quiet:
-            print("  Reading ECU identification...")
-        info = uds.read_ecu_identification()
-        for key, value in info.items():
-            print(f"    {key}: {value}")
+        from core.test_connection import TEST_CONNECTION_DIDS
+        for did, name in TEST_CONNECTION_DIDS:
+            try:
+                data = uds.read_data_by_identifier(did)
+                try:
+                    value = data.decode("ascii").strip('\x00')
+                except (UnicodeDecodeError, ValueError):
+                    value = data.hex().upper()
+                step(f"Read DID 0x{did:04X}: {name} = {value}")
+            except Exception as e:
+                step(f"Read DID 0x{did:04X}: {name} = N/A")
+                if not args.quiet:
+                    print(f"         ({e})")
 
     except KeyboardInterrupt:
         print("\nInterrupted by user.", file=sys.stderr)

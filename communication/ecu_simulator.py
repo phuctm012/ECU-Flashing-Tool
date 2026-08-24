@@ -259,8 +259,10 @@ class EcuSimulator:
             0xF180: b'BOOT_1.0.0',
             0xF18C: b'SN-SIM-001-2026',
             0xF187: b'PN-12345-678',
+            0xF188: b'SW-12345-678',
             0xF18A: b'SUPPLIER_01',
             0xF18B: bytes([0x20, 0x26, 0x08, 0x01]),
+            0xF195: b'SUP_SW_1.0.0',
             0xF15A: self._get_fingerprint_data(),
             0xF186: bytes([self._current_session]),
         }

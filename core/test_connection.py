@@ -21,6 +21,15 @@
 from PySide6.QtCore import QObject, Signal
 
 from core.flash_controller import FlashWorker
+from communication.uds_client import UdsClient
+
+TEST_CONNECTION_DIDS = [
+    (UdsClient.DID_SUPPLIER_SW_VERSION, "System Supplier ECU SW Version"),
+    (UdsClient.DID_HW_VERSION, "Vehicle Manufacturer ECU HW Number"),
+    (UdsClient.DID_SERIAL_NUMBER, "ECU Serial Number"),
+    (UdsClient.DID_ECU_SW_NUMBER, "Vehicle Manufacturer ECU SW Number"),
+    (UdsClient.DID_SW_VERSION, "Vehicle Manufacturer ECU SW Version"),
+]
 
 
 class TestConnectionWorker(QObject):
@@ -119,9 +128,24 @@ class TestConnectionWorker(QObject):
                 uds.diagnostic_session_control(0x03)
                 self.step_message.emit("Extended Session")
 
-            info = uds.read_ecu_identification()
+            info = {}
+            for did, name in TEST_CONNECTION_DIDS:
+                try:
+                    data = uds.read_data_by_identifier(did)
+                    try:
+                        value = data.decode("ascii").strip('\x00')
+                    except (UnicodeDecodeError, ValueError):
+                        value = data.hex().upper()
+                    info[name] = value
+                    self.step_message.emit(
+                        f"Read DID 0x{did:04X}: {name} = {value}"
+                    )
+                except Exception as e:
+                    info[name] = f"N/A ({e})"
+                    self.step_message.emit(
+                        f"Read DID 0x{did:04X}: {name} = N/A"
+                    )
             self.ecu_info_message.emit(info)
-            self.step_message.emit("Read ECU Identification")
 
         except Exception as e:
             ok = False
