@@ -79,17 +79,26 @@ class SettingsProfileMixin:
 
         if hasattr(self.ui, 'comboBoxHardware'):
             # currentData() is None for the Virtual ECU
-            # Simulator entry, an int channel index otherwise.
-            # Stored as two separate values (rather than the
-            # raw None/int) so the round-trip through
-            # QSettings' native backends (Windows Registry,
-            # macOS plist, .ini) can't turn None into an
-            # ambiguous string on read-back.
-            channel = self.ui.comboBoxHardware.currentData()
-            s.setValue("hardware/isVirtual", channel is None)
+            # Simulator entry, otherwise the full channel dict
+            # from detect_vector_channels() (keys: channel,
+            # hw_channel, serial, is_on_bus, label). Only the
+            # identifying fields (hw_channel + serial) are
+            # persisted, as plain ints, so the round-trip
+            # through QSettings' native backends (Windows
+            # Registry, macOS plist, .ini) can't turn None into
+            # an ambiguous string on read-back, and so a stored
+            # value never depends on QSettings being able to
+            # serialize a whole dict.
+            data = self.ui.comboBoxHardware.currentData()
+            s.setValue("hardware/isVirtual", data is None)
             s.setValue(
                 "hardware/channel",
-                channel if channel is not None else -1
+                data.get("hw_channel", data.get("channel", -1))
+                if data is not None else -1
+            )
+            s.setValue(
+                "hardware/serial",
+                (data.get("serial") or -1) if data is not None else -1
             )
 
         if hasattr(self.ui, 'comboBoxRadarSide'):
@@ -129,11 +138,20 @@ class SettingsProfileMixin:
                 "hardware/isVirtual", True, type=bool
             )
             channel = s.value("hardware/channel", -1, type=int)
-            target = None if is_virtual else channel
+            serial = s.value("hardware/serial", -1, type=int)
+            target = None if is_virtual else (channel, serial)
 
             combo = self.ui.comboBoxHardware
             for i in range(combo.count()):
-                if combo.itemData(i) == target:
+                data = combo.itemData(i)
+                if data is None:
+                    key = None
+                else:
+                    key = (
+                        data.get("hw_channel", data.get("channel")),
+                        data.get("serial") or -1,
+                    )
+                if key == target:
                     combo.setCurrentIndex(i)
                     break
             # No matching entry (e.g. saved real channel not

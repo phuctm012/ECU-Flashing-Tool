@@ -488,7 +488,7 @@ class ConfigureTabMixin:
         from communication.vector_can import detect_vector_channels
 
         for ch in detect_vector_channels():
-            combo.addItem(ch["label"], userData=ch["channel"])
+            combo.addItem(ch["label"], userData=ch)
 
         combo.setCurrentIndex(0)
         combo.blockSignals(False)
@@ -638,14 +638,16 @@ class ConfigureTabMixin:
 
         running_tools = detect_running_vector_tools()
 
-        channel = None
+        channel_index = None
         if hasattr(self.ui, 'comboBoxHardware'):
-            channel = self.ui.comboBoxHardware.currentData()
+            data = self.ui.comboBoxHardware.currentData()
+            if data is not None:
+                channel_index = data.get("channel")
 
         busy_channel_label = None
-        if channel is not None:
+        if channel_index is not None:
             for ch in detect_vector_channels():
-                if ch["channel"] == channel and ch.get("is_on_bus"):
+                if ch["channel"] == channel_index and ch.get("is_on_bus"):
                     busy_channel_label = ch["label"]
                     break
 
@@ -717,9 +719,17 @@ class ConfigureTabMixin:
         }
 
         if hasattr(self.ui, 'comboBoxHardware'):
-            channel = self.ui.comboBoxHardware.currentData()
-            if channel is not None:
-                config["channel"] = channel
+            data = self.ui.comboBoxHardware.currentData()
+            if data is not None:
+                config["channel"] = data.get(
+                    "hw_channel", data.get("channel", 0)
+                )
+                serial = data.get("serial")
+                if serial:
+                    config["serial"] = serial
+                label = data.get("label")
+                if label:
+                    config["label"] = label
 
         if hasattr(self.ui, 'comboBoxLogicalLink'):
             config["fd"] = (

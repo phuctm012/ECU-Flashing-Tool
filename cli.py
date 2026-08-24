@@ -49,7 +49,6 @@ from communication.vector_can import (
     detect_vector_channels,
     detect_running_vector_tools,
 )
-from communication.ecu_simulator import EcuSimulator
 from core.flash_sequence import (
     build_flash_sequence,
     build_suzuki_slp1_flash_sequence,
@@ -126,7 +125,14 @@ def _warn_can_conflict(args):
 
     busy_channel_label = None
     for ch in detect_vector_channels():
-        if ch["channel"] == args.channel and ch.get("is_on_bus"):
+        if args.serial:
+            match = (
+                ch.get("hw_channel") == args.channel
+                and ch.get("serial") == args.serial
+            )
+        else:
+            match = ch["channel"] == args.channel
+        if match and ch.get("is_on_bus"):
             busy_channel_label = ch["label"]
             break
 
@@ -202,10 +208,20 @@ def cmd_list_hardware(args):
 
     channels = detect_vector_channels()
     if channels:
-        print("Real Vector channels detected on this machine "
-              "(use with --hardware vector --channel N):")
+        print("Real Vector channels detected on this machine:")
         for ch in channels:
-            print(f"  - {ch['label']} (--channel {ch['channel']})")
+            serial = ch.get("serial")
+            hw_ch = ch.get("hw_channel", ch["channel"])
+            if serial:
+                print(
+                    f"  - {ch['label']}"
+                    f" (--channel {hw_ch} --serial {serial})"
+                )
+            else:
+                print(
+                    f"  - {ch['label']}"
+                    f" (--channel {ch['channel']})"
+                )
     else:
         print(
             "No real Vector hardware detected right now "
@@ -281,6 +297,7 @@ def cmd_flash(args):
         security_dll_path=args.security_dll,
         keepalive_functional=(args.sequence == "suzuki"),
         can_channel=args.channel,
+        can_serial=args.serial,
         can_tx_id=tx_id,
         can_rx_id=rx_id,
         can_bitrate=args.bitrate,
@@ -357,15 +374,14 @@ def cmd_flash(args):
 # ==================================================
 #
 # A safe, non-destructive probe: connects, opens an Extended
-# then Programming session, and unlocks Security Access —
-# the same steps a real flash starts with, but stops there.
-# Never touches Erase Memory / TransferData / any write.
-# Always tries to leave the ECU back in Default session
-# (re-enabling DTC/Communication if they were disabled)
-# before exiting, whether the test passed or failed partway
-# through — meant to be run repeatedly against real hardware
-# to verify wiring/CAN IDs/security key before trusting a
-# real flash to it.
+# session (+ functional pre-steps for the Suzuki sequence),
+# then reads ECU Identification — enough to verify CAN wiring,
+# IDs, and ECU reachability. Never touches Programming session,
+# Security Access, Erase Memory, or TransferData. Always tries
+# to leave the ECU back in Default session (re-enabling DTC/
+# Communication if they were disabled) before exiting — meant
+# to be run repeatedly against real hardware to verify
+# connectivity before trusting a real flash to it.
 # ==================================================
 
 def cmd_test_connection(args):
@@ -403,6 +419,7 @@ def cmd_test_connection(args):
         use_virtual=use_virtual,
         security_dll_path=args.security_dll,
         can_channel=args.channel,
+        can_serial=args.serial,
         can_tx_id=tx_id,
         can_rx_id=rx_id,
         can_bitrate=args.bitrate,
@@ -443,18 +460,19 @@ def cmd_test_connection(args):
             uds.diagnostic_session_control(0x03)
             step("Extended Session")
 
-        uds.diagnostic_session_control(0x02)
-        step("Programming Session")
-
-        key_func = EcuSimulator.compute_key if use_virtual else None
-        uds.security_access(level=1, key_function=key_func)
-        step("Security Access (ECU unlocked)")
-
-        if not args.quiet:
-            print("  Reading ECU identification...")
-        info = uds.read_ecu_identification()
-        for key, value in info.items():
-            print(f"    {key}: {value}")
+        from core.test_connection import TEST_CONNECTION_DIDS
+        for did, name in TEST_CONNECTION_DIDS:
+            try:
+                data = uds.read_data_by_identifier(did)
+                try:
+                    value = data.decode("ascii").strip('\x00')
+                except (UnicodeDecodeError, ValueError):
+                    value = data.hex().upper()
+                step(f"Read DID 0x{did:04X}: {name} = {value}")
+            except Exception as e:
+                step(f"Read DID 0x{did:04X}: {name} = N/A")
+                if not args.quiet:
+                    print(f"         ({e})")
 
     except KeyboardInterrupt:
         print("\nInterrupted by user.", file=sys.stderr)
@@ -488,7 +506,7 @@ def cmd_test_connection(args):
         worker._cleanup()
 
     if ok:
-        print("\nConnection test PASSED — session + security access OK.")
+        print("\nConnection test PASSED — ECU reachable.")
         return 0
 
     return 1
@@ -507,7 +525,16 @@ def _add_can_args(parser):
     )
     parser.add_argument(
         "--channel", type=int, default=0,
-        help="Vector hardware channel index, 0-based (default 0)",
+        help="Vector hardware channel number, 0-based (default 0). "
+             "With --serial, this is the hardware channel on that "
+             "device; without --serial, it is the application "
+             "channel index in Vector Hardware Config",
+    )
+    parser.add_argument(
+        "--serial", type=int, default=None,
+        help="Vector device serial number — directly selects "
+             "the physical hardware, bypassing application "
+             "channel mapping in Vector Hardware Config",
     )
     parser.add_argument(
         "--sequence", choices=["generic", "suzuki"], default="suzuki",

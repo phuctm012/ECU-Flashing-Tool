@@ -476,6 +476,8 @@ class UdsClient:
     DID_ECU_MANUFACTURING_DATE = 0xF18B
     DID_FINGERPRINT = 0xF15A        # Programming Fingerprint
     DID_ACTIVE_DIAGNOSTIC_SESSION = 0xF186
+    DID_SUPPLIER_SW_VERSION = 0xF195
+    DID_ECU_SW_NUMBER = 0xF188
 
     def read_data_by_identifier(
         self,

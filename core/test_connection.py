@@ -3,11 +3,11 @@
 # ==================================================
 #
 # QObject-based worker (run on a QThread, same pattern as
-# FlashWorker) driving the same safe, read-only session +
-# Security Access probe as cli.py's cmd_test_connection() —
-# connects, Extended (+ functional pre-steps for the Suzuki
-# sequence) then Programming session, Security Access, reads
-# ECU Identification. Never touches Erase Memory/TransferData/
+# FlashWorker) driving a safe, read-only connectivity probe
+# as cli.py's cmd_test_connection() — connects, Extended
+# session (+ functional pre-steps for the Suzuki sequence),
+# then reads ECU Identification. Never touches Programming
+# session, Security Access, Erase Memory, TransferData, or
 # any write. Always tries to restore Default session before
 # finishing, regardless of where it stopped — the try/finally
 # below is exactly why this doesn't go through the linear,
@@ -21,7 +21,15 @@
 from PySide6.QtCore import QObject, Signal
 
 from core.flash_controller import FlashWorker
-from communication.ecu_simulator import EcuSimulator
+from communication.uds_client import UdsClient
+
+TEST_CONNECTION_DIDS = [
+    (UdsClient.DID_SUPPLIER_SW_VERSION, "System Supplier ECU SW Version"),
+    (UdsClient.DID_HW_VERSION, "Vehicle Manufacturer ECU HW Number"),
+    (UdsClient.DID_SERIAL_NUMBER, "ECU Serial Number"),
+    (UdsClient.DID_ECU_SW_NUMBER, "Vehicle Manufacturer ECU SW Number"),
+    (UdsClient.DID_SW_VERSION, "Vehicle Manufacturer ECU SW Version"),
+]
 
 
 class TestConnectionWorker(QObject):
@@ -46,6 +54,7 @@ class TestConnectionWorker(QObject):
         security_dll_path=None,
         functional=False,
         can_channel=0,
+        can_serial=None,
         can_tx_id=0x778,
         can_rx_id=0x788,
         can_bitrate=500000,
@@ -58,6 +67,7 @@ class TestConnectionWorker(QObject):
         self._security_dll_path = security_dll_path
         self._functional = functional
         self._can_channel = can_channel
+        self._can_serial = can_serial
         self._can_tx_id = can_tx_id
         self._can_rx_id = can_rx_id
         self._can_bitrate = can_bitrate
@@ -76,6 +86,7 @@ class TestConnectionWorker(QObject):
             use_virtual=self._use_virtual,
             security_dll_path=self._security_dll_path,
             can_channel=self._can_channel,
+            can_serial=self._can_serial,
             can_tx_id=self._can_tx_id,
             can_rx_id=self._can_rx_id,
             can_bitrate=self._can_bitrate,
@@ -93,7 +104,7 @@ class TestConnectionWorker(QObject):
 
         uds = worker._uds_client
         ok = True
-        message = "Connection test PASSED — session + security access OK."
+        message = "Connection test PASSED — ECU reachable."
 
         try:
             if self._functional:
@@ -117,21 +128,24 @@ class TestConnectionWorker(QObject):
                 uds.diagnostic_session_control(0x03)
                 self.step_message.emit("Extended Session")
 
-            uds.diagnostic_session_control(0x02)
-            self.step_message.emit("Programming Session")
-
-            key_func = (
-                EcuSimulator.compute_key
-                if self._use_virtual else None
-            )
-            uds.security_access(level=1, key_function=key_func)
-            self.step_message.emit(
-                "Security Access (ECU unlocked)"
-            )
-
-            info = uds.read_ecu_identification()
+            info = {}
+            for did, name in TEST_CONNECTION_DIDS:
+                try:
+                    data = uds.read_data_by_identifier(did)
+                    try:
+                        value = data.decode("ascii").strip('\x00')
+                    except (UnicodeDecodeError, ValueError):
+                        value = data.hex().upper()
+                    info[name] = value
+                    self.step_message.emit(
+                        f"Read DID 0x{did:04X}: {name} = {value}"
+                    )
+                except Exception as e:
+                    info[name] = f"N/A ({e})"
+                    self.step_message.emit(
+                        f"Read DID 0x{did:04X}: {name} = N/A"
+                    )
             self.ecu_info_message.emit(info)
-            self.step_message.emit("Read ECU Identification")
 
         except Exception as e:
             ok = False

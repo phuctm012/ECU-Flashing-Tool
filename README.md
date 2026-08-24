@@ -195,7 +195,9 @@ Nếu bỏ qua bước này, kết nối từ tool sẽ báo lỗi kiểu *"no c
 
 ### Lưu ý về đánh số channel (`--channel N`)
 
-`--channel`/channel trong combo Hardware hiện lấy theo `channel_index` toàn cục do driver trả về. Có khả năng `python-can` (khi có `app_name`) diễn giải số channel theo thứ tự **đã gán riêng cho app đó** trong Vector Hardware Config (không phải số toàn cục) — chưa kiểm chứng được với hardware thật. Nếu sau khi cấu hình xong ở bước B mà `--channel 0`/channel đầu tiên trong combo kết nối nhầm thiết bị, hoặc báo lỗi liên quan tới channel, hãy lưu lại thông báo lỗi/log (xem mục [Test Trên ECU Thật](#test-trên-ecu-thật-từ-máy-windows)) để điều chỉnh lại `detect_vector_channels()`/`VectorCanInterface.connect()` cho khớp đúng cách driver diễn giải trên máy thật.
+**GUI**: combo Hardware tự phát hiện serial number của thiết bị Vector và dùng nó để chọn đúng channel vật lý — **không cần** cấu hình bước B (Vector Hardware Config) nếu python-can hỗ trợ tham số `serial` (phiên bản 4.x trở lên). Nếu python-can không hỗ trợ `serial`, app tự động fallback về dùng `app_name`/`xlGetApplConfig` — khi đó bước B là bắt buộc.
+
+**CLI**: `--channel N` mặc định là application channel index (cần bước B). Để bypass hoàn toàn, dùng `--channel <hw_channel> --serial <serial_number>` — xem `list-hardware` để lấy giá trị đúng.
 
 ---
 

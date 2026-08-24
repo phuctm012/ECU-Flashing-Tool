@@ -76,7 +76,7 @@ class TestConnectionDialog(QDialog):
             + (
                 "Virtual ECU Simulator"
                 if use_virtual
-                else f"Vector channel {can_config.get('channel', 0)}"
+                else can_config.get('label', f"Vector channel {can_config.get('channel', 0)}")
             )
             + f" | Tx=0x{can_config.get('tx_id', 0x778):X}"
             f" Rx=0x{can_config.get('rx_id', 0x788):X}"
@@ -89,6 +89,7 @@ class TestConnectionDialog(QDialog):
             security_dll_path=security_dll_path,
             functional=functional,
             can_channel=can_config.get("channel", 0),
+            can_serial=can_config.get("serial"),
             can_tx_id=can_config.get("tx_id", 0x778),
             can_rx_id=can_config.get("rx_id", 0x788),
             can_bitrate=can_config.get("bitrate", 500000),

@@ -57,6 +57,7 @@ class FlashWorker(QObject):
         security_dll_path=None,
         keepalive_functional=False,
         can_channel=0,
+        can_serial=None,
         can_tx_id=0x778,
         can_rx_id=0x788,
         can_bitrate=500000,
@@ -77,6 +78,7 @@ class FlashWorker(QObject):
         # the Configure -> Communication page. Ignored for
         # the Virtual ECU Simulator, which only uses tx/rx.
         self._can_channel = can_channel
+        self._can_serial = can_serial
         self._can_tx_id = can_tx_id
         self._can_rx_id = can_rx_id
         self._can_bitrate = can_bitrate
@@ -262,6 +264,7 @@ class FlashWorker(QObject):
             self._can_interface.connect(
                 channel=self._can_channel,
                 bitrate=self._can_bitrate,
+                serial=self._can_serial,
                 tx_id=self._can_tx_id,
                 rx_id=self._can_rx_id,
                 fd=self._can_fd,

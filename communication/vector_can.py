@@ -74,9 +74,16 @@ def detect_vector_channels():
         )
         hw_channel = getattr(cfg, "hw_channel", 0)
 
+        serial = (
+            getattr(cfg, "serial_number", 0)
+            or getattr(cfg, "serial", 0)
+        )
+
         channels.append({
             "label": f"{hw_name} - Channel {hw_channel + 1}",
             "channel": channel_index,
+            "hw_channel": hw_channel,
+            "serial": serial if serial else None,
             "is_on_bus": bool(getattr(cfg, "is_on_bus", False)),
         })
 
@@ -172,6 +179,7 @@ class VectorCanInterface(CanInterface):
         data_bitrate = kwargs.get(
             "data_bitrate", 2000000
         )
+        serial = kwargs.get("serial")
 
         self._tx_id = kwargs.get("tx_id", 0x778)
         self._rx_id = kwargs.get("rx_id", 0x788)
@@ -185,11 +193,21 @@ class VectorCanInterface(CanInterface):
                 "app_name": app_name,
             }
 
+            if serial:
+                bus_kwargs["serial"] = serial
+
             if fd:
                 bus_kwargs["fd"] = True
                 bus_kwargs["data_bitrate"] = data_bitrate
 
-            self._bus = can.Bus(**bus_kwargs)
+            try:
+                self._bus = can.Bus(**bus_kwargs)
+            except TypeError:
+                if "serial" in bus_kwargs:
+                    del bus_kwargs["serial"]
+                    self._bus = can.Bus(**bus_kwargs)
+                else:
+                    raise
             self._connected = True
 
             return True
@@ -287,12 +305,22 @@ class VectorCanInterface(CanInterface):
                 data=ff,
             ))
 
-            # Wait for Flow Control
-            fc = self.receive(timeout=1.0)
-            if fc is None:
-                raise CanTimeoutError(
-                    "No Flow Control received"
-                )
+            # Wait for Flow Control (from target ECU only)
+            import time as _time
+            fc_deadline = _time.time() + 1.0
+            while True:
+                fc_remaining = fc_deadline - _time.time()
+                if fc_remaining <= 0:
+                    raise CanTimeoutError(
+                        "No Flow Control received"
+                    )
+                fc = self.receive(timeout=fc_remaining)
+                if fc is None:
+                    raise CanTimeoutError(
+                        "No Flow Control received"
+                    )
+                if fc.arbitration_id == self._rx_id:
+                    break
 
             # Parse FC
             fc_flag = fc.data[0] & 0x0F
@@ -339,11 +367,30 @@ class VectorCanInterface(CanInterface):
     ) -> Optional[bytes]:
         """
         Receive and reassemble ISO-TP response.
+
+        Filters by self._rx_id so that frames from
+        other ECUs (e.g. stale responses to a previous
+        functional request) are silently discarded.
         """
 
-        msg = self.receive(timeout=timeout)
-        if msg is None:
-            return None
+        import time
+
+        deadline = time.time() + timeout
+
+        # Loop until we get a frame from the target ECU
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return None
+
+            msg = self.receive(timeout=remaining)
+            if msg is None:
+                return None
+
+            if msg.arbitration_id != self._rx_id:
+                continue
+
+            break
 
         raw = msg.data
         pci_type = (raw[0] >> 4) & 0x0F
@@ -370,14 +417,20 @@ class VectorCanInterface(CanInterface):
                 data=fc,
             ))
 
-            # Receive Consecutive Frames
-            import time
+            # Receive Consecutive Frames (target ECU only)
             while len(buffer) < total_len:
-                cf = self.receive(timeout=timeout)
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    raise CanTimeoutError(
+                        "Timeout waiting for CF"
+                    )
+                cf = self.receive(timeout=remaining)
                 if cf is None:
                     raise CanTimeoutError(
                         "Timeout waiting for CF"
                     )
+                if cf.arbitration_id != self._rx_id:
+                    continue
                 cf_pci = (cf.data[0] >> 4) & 0x0F
                 if cf_pci != 2:
                     raise CanError(

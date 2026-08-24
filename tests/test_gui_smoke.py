@@ -232,11 +232,19 @@ class TestCanConfig(unittest.TestCase):
 
     def test_channel_read_from_hardware_combo_userdata(self):
         # Simulates what populate_hardware_combo() would add
-        # for a real detected channel (userData = channel
-        # index), and confirms get_can_config() reads it —
-        # not by parsing the display text.
+        # for a real detected channel (userData = the full
+        # channel dict from detect_vector_channels()), and
+        # confirms get_can_config() reads it — not by parsing
+        # the display text.
         combo = self.window.ui.comboBoxHardware
-        combo.addItem("VN1640A - Channel 2", userData=1)
+        combo.addItem(
+            "VN1640A - Channel 2",
+            userData={
+                "label": "VN1640A - Channel 2",
+                "channel": 1, "hw_channel": 1,
+                "serial": None, "is_on_bus": False,
+            },
+        )
         combo.setCurrentIndex(combo.count() - 1)
         config = self.window.get_can_config()
         self.assertEqual(config["channel"], 1)
@@ -310,7 +318,14 @@ class TestCanConflictWarning(unittest.TestCase):
 
     def test_warns_when_selected_channel_is_on_bus(self):
         combo = self.window.ui.comboBoxHardware
-        combo.addItem("VN1640A - Channel 1", userData=0)
+        combo.addItem(
+            "VN1640A - Channel 1",
+            userData={
+                "label": "VN1640A - Channel 1",
+                "channel": 0, "hw_channel": 0,
+                "serial": None, "is_on_bus": True,
+            },
+        )
         combo.setCurrentIndex(combo.count() - 1)
 
         with unittest.mock.patch(
@@ -661,6 +676,30 @@ class TestSettingsProfile(unittest.TestCase):
 
         window2 = MainWindow()
         self.assertIsNone(window2.ui.comboBoxHardware.currentData())
+
+    def test_real_hardware_channel_persists_across_restart(self):
+        # comboBoxHardware's userData is the full channel dict
+        # from detect_vector_channels() (not a bare int), so
+        # the profile must persist/match on the identifying
+        # fields (hw_channel + serial) rather than comparing
+        # the dict itself against a stored QSettings value.
+        channel_entry = {
+            "label": "VN1640A - Channel 2",
+            "channel": 1, "hw_channel": 1,
+            "serial": 5551234, "is_on_bus": False,
+        }
+        with unittest.mock.patch(
+            "communication.vector_can.detect_vector_channels",
+            return_value=[channel_entry],
+        ):
+            window1 = MainWindow()
+            window1.ui.comboBoxHardware.setCurrentIndex(1)
+
+            window2 = MainWindow()
+
+        self.assertEqual(
+            window2.ui.comboBoxHardware.currentData(), channel_entry
+        )
 
 
 class TestReportExport(unittest.TestCase):
@@ -1249,7 +1288,14 @@ class TestMenuBar(unittest.TestCase):
         # conflict shows a Yes/No warning; answering No must
         # skip opening the dialog entirely.
         combo = self.window.ui.comboBoxHardware
-        combo.addItem("VN1640A - Channel 1", userData=0)
+        combo.addItem(
+            "VN1640A - Channel 1",
+            userData={
+                "label": "VN1640A - Channel 1",
+                "channel": 0, "hw_channel": 0,
+                "serial": None, "is_on_bus": False,
+            },
+        )
         combo.setCurrentIndex(combo.count() - 1)
 
         with unittest.mock.patch.object(
@@ -1415,7 +1461,7 @@ class TestProjectFile(unittest.TestCase):
         )
         self.assertTrue(data["firmware_files"][0]["checked"])
         self.assertEqual(data["hardware"], {
-            "is_virtual": True, "channel": -1
+            "is_virtual": True, "channel": -1, "serial": -1
         })
         self.assertEqual(data["radar_side_index"], 1)
 
@@ -1455,6 +1501,45 @@ class TestProjectFile(unittest.TestCase):
         )
         self.assertEqual(
             window2.ui.comboBoxRadarSide.currentIndex(), 1
+        )
+
+    def test_save_and_open_project_round_trip_real_hardware(self):
+        # comboBoxHardware's userData is the full channel dict
+        # from detect_vector_channels(), not a bare int — the
+        # saved/reopened hardware selection must match on the
+        # identifying fields (hw_channel + serial).
+        channel_entry = {
+            "label": "VN1640A - Channel 2",
+            "channel": 1, "hw_channel": 1,
+            "serial": 5551234, "is_on_bus": False,
+        }
+        path = self._project_path("real_hw.ffproj")
+        with unittest.mock.patch(
+            "communication.vector_can.detect_vector_channels",
+            return_value=[channel_entry],
+        ):
+            # Fresh window, built while the mock is active, so
+            # its combo actually has the real-channel entry —
+            # self.window from setUp() was already populated
+            # (Virtual-only) before this patch took effect.
+            window1 = MainWindow()
+            window1.ui.comboBoxHardware.setCurrentIndex(1)
+
+            with unittest.mock.patch(
+                "gui.project_file.QFileDialog.getSaveFileName",
+                return_value=(path, ""),
+            ):
+                window1.save_project_as()
+
+            window2 = MainWindow()
+            with unittest.mock.patch(
+                "gui.project_file.QFileDialog.getOpenFileName",
+                return_value=(path, ""),
+            ):
+                window2.open_project()
+
+        self.assertEqual(
+            window2.ui.comboBoxHardware.currentData(), channel_entry
         )
 
     def test_save_project_appends_ffproj_extension(self):
