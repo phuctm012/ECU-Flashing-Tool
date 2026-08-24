@@ -200,7 +200,7 @@
     <h2>Mục lục</h2>
     <ol>
       <li><a href="#a-setup">A. Setup môi trường trên máy Windows mới</a></li>
-      <li><a href="#b-vhwconfig">B. Cấu hình Vector Hardware Config (bắt buộc)</a></li>
+      <li><a href="#b-vhwconfig">B. Cấu hình Vector Hardware Config (bắt buộc nếu không dùng serial)</a></li>
       <li><a href="#c-canoe">C. Nếu máy có cài CANoe/CANalyzer</a></li>
       <li><a href="#d-selftest">D. Tự kiểm tra môi trường trước (test suite ảo, không cần hardware)</a></li>
       <li><a href="#e-safeflow">E. Quy trình test an toàn trên ECU thật (theo đúng thứ tự)</a></li>
@@ -236,21 +236,35 @@ pip install python-can</pre>
     máy từng cài CANoe/CANalyzer/CANape. Gói này cài 2 thứ cần thiết:</p>
     <ul class="plain">
       <li><strong>XL Driver Library</strong> — thư viện driver mà <code>python-can</code> dùng để giao tiếp phần cứng.</li>
-      <li><strong>Vector Hardware Config</strong> (tên cũ: Vector Hardware Manager) — bắt buộc dùng ở mục B bên dưới.</li>
+      <li><strong>Vector Hardware Config</strong> (tên cũ: Vector Hardware Manager) — bắt buộc dùng ở mục B bên dưới, <strong>trừ khi</strong> chọn channel theo serial number (cũng nói ở mục B) và <code>python-can</code> &ge; 4.x.</li>
     </ul>
 
     <h3>4. Cắm hardware</h3>
     <p>Cắm VN1640A/VN1630 vào máy qua USB. Windows tự nhận driver nếu Vector Driver Setup đã cài xong.</p>
   </div>
 
-  <h2 class="section-title" id="b-vhwconfig">B. Cấu hình Vector Hardware Config (bắt buộc)</h2>
+  <h2 class="section-title" id="b-vhwconfig">B. Cấu hình Vector Hardware Config (bắt buộc nếu không dùng serial)</h2>
+
+  <div class="ok">
+    <strong class="label">Cách nhanh hơn — chọn channel theo serial number:</strong> app có thể chọn thẳng
+    channel vật lý qua <strong>serial number</strong> của thiết bị Vector (<code>can.Bus(serial=...)</code>),
+    bỏ qua hoàn toàn việc phải tra kênh theo tên ứng dụng đã đăng ký (<code>xlGetApplConfig</code>) — bước này
+    từng là nguyên nhân phổ biến nhất gây lỗi kiểu <code>"Channel N of application 'FlashTool' is not assigned
+    to any interface"</code>. <strong>GUI</strong>: combo Hardware tự phát hiện serial và dùng ngay, không cần
+    làm gì thêm — chỉ cần <code>python-can</code> &ge; 4.x. <strong>CLI</strong>: dùng
+    <code>--channel &lt;hw_channel&gt; --serial &lt;serial_number&gt;</code> (lấy 2 giá trị này từ
+    <code>python cli.py list-hardware</code>, sẽ hiện sẵn đúng cờ cần dùng cho từng channel). Nếu
+    <code>python-can</code> không hỗ trợ tham số <code>serial</code> (bản cũ hơn 4.x), app tự động fallback về
+    cách cũ (mục B bên dưới) — khi đó bước cấu hình Vector Hardware Config là <strong>bắt buộc</strong>.
+  </div>
 
   <div class="danger">
-    <strong class="label">Quan trọng:</strong> đây là bước <strong>hay bị bỏ sót nhất</strong> và là nguyên nhân
-    phổ biến nhất khiến kết nối thất bại dù hardware đã cắm vào máy và Windows đã nhận driver. Vector XL Driver
-    không cho ứng dụng truy cập channel tự do — mỗi phần mềm phải được <strong>đăng ký tên ứng dụng</strong>, và
-    channel vật lý phải được <strong>gán (assign)</strong> cho đúng tên đó. Tool này đăng ký với tên
-    <code>FlashTool</code> (xem <code>communication/vector_can.py</code>, tham số <code>app_name</code>).
+    <strong class="label">Quan trọng (nếu không dùng serial ở trên):</strong> đây là bước <strong>hay bị bỏ sót
+    nhất</strong> và là nguyên nhân phổ biến nhất khiến kết nối thất bại dù hardware đã cắm vào máy và Windows đã
+    nhận driver. Vector XL Driver không cho ứng dụng truy cập channel tự do — mỗi phần mềm phải được
+    <strong>đăng ký tên ứng dụng</strong>, và channel vật lý phải được <strong>gán (assign)</strong> cho đúng tên
+    đó. Tool này đăng ký với tên <code>FlashTool</code> (xem <code>communication/vector_can.py</code>, tham số
+    <code>app_name</code>).
   </div>
 
   <ol class="steps">
@@ -266,9 +280,10 @@ pip install python-can</pre>
   <div class="note">
     <strong class="label">Vì sao "thấy" hardware mà vẫn không kết nối được:</strong> lệnh
     <code>python cli.py list-hardware</code> (hoặc nút <strong>Refresh</strong> trong GUI) chỉ hỏi driver
-    "có hardware nào cắm vào máy" — bước quét này <strong>không cần</strong> đăng ký app. Nhưng bước
-    <strong>kết nối thật</strong> (Test Connection / Flash) thì driver bắt buộc phải tra kênh theo tên app đã
-    đăng ký ở bước B — nếu chưa gán, sẽ báo lỗi ngay khi bắt đầu kết nối chứ không phải lúc quét.
+    "có hardware nào cắm vào máy" — bước quét này <strong>không cần</strong> đăng ký app. Nhưng nếu không dùng
+    cách chọn theo serial ở trên, bước <strong>kết nối thật</strong> (Test Connection / Flash) thì driver bắt
+    buộc phải tra kênh theo tên app đã đăng ký ở bước B — nếu chưa gán, sẽ báo lỗi ngay khi bắt đầu kết nối chứ
+    không phải lúc quét.
   </div>
 
   <h2 class="section-title" id="c-canoe">C. Nếu máy có cài CANoe/CANalyzer song song</h2>
@@ -317,7 +332,9 @@ python -m unittest discover -s tests -p "test_*.py" -v
   <div class="card">
     <p><span class="badge">1</span><strong>Xác nhận hardware đã được nhận diện đúng</strong></p>
     <pre>python cli.py list-hardware</pre>
-    <p>Kỳ vọng: thấy đúng channel VN1640A/VN1630 đã gán ở mục B, không phải danh sách rỗng.</p>
+    <p>Kỳ vọng: thấy đúng channel VN1640A/VN1630 (đã gán ở mục B, hoặc tự nhận qua serial nếu dùng cách đó),
+    không phải danh sách rỗng. Nếu dùng serial, ghi lại luôn cờ <code>--channel N --serial S</code> mà lệnh này
+    in ra cho channel muốn dùng.</p>
   </div>
 
   <div class="card">
@@ -332,12 +349,16 @@ python -m unittest discover -s tests -p "test_*.py" -v
   </div>
 
   <div class="card">
-    <p><span class="badge">4</span><strong>Test kết nối + Security Access — an toàn, KHÔNG Erase/Download</strong></p>
+    <p><span class="badge">4</span><strong>Test kết nối — an toàn, KHÔNG Security Access, KHÔNG Erase/Download</strong></p>
     <pre>python cli.py test-connection --hardware vector --channel 0 --sequence suzuki --verbose</pre>
-    <p>Chỉ thực hiện Session Control + Security Access (+ đọc ECU Identification, read-only) — không bao giờ
-    đụng Erase Memory/TransferData. Luôn tự khôi phục ECU về Default Session khi kết thúc, dù pass hay fail giữa
+    <p>Chỉ thực hiện Session Control rồi đọc vài DID nhận diện ECU (SW Version, HW Version, Serial Number,
+    Supplier SW Version, ECU SW Number — read-only) — không bao giờ đụng Programming Session, Security Access,
+    Erase Memory, hay TransferData. Luôn tự khôi phục ECU về Default Session khi kết thúc, dù pass hay fail giữa
     chừng. Kết quả in <strong>PASSED</strong> (exit code 0) hoặc <strong>FAILED</strong> kèm lý do cụ thể (exit
-    code 1) — ví dụ NRC 0x35 (Invalid Key) nghĩa là thuật toán/DLL security chưa đúng (xem mục F).</p>
+    code 1) — một DID đọc lỗi chỉ hiện <code>N/A (&lt;lý do&gt;)</code> cho DID đó chứ không làm cả bài test
+    fail, miễn ECU vẫn phản hồi ở tầng session. <strong>Lưu ý:</strong> vì bước này không còn chạm tới Security
+    Access, nó <em>không</em> còn dùng để xác nhận Security DLL/thuật toán đúng hay sai — điều đó giờ chỉ lộ ra
+    khi chạy <code>flash</code> thật (bước 5).</p>
     <p>Cũng có trên GUI: menu <strong>Tools → Test Connection...</strong>, cùng logic, hiện kết quả trong 1
     dialog nhỏ.</p>
   </div>
@@ -446,9 +467,12 @@ UINT32 GenerateKeyEx(UINT32 seed);</pre>
       <td>Đóng/dừng measurement CANoe trước (xem mục C), rồi thử lại</td>
     </tr>
     <tr>
-      <td>Test Connection <strong>FAILED</strong> — NRC <code>0x35</code> (Invalid Key) ở bước Security Access</td>
-      <td>Thuật toán/Security DLL chưa đúng với ECU thật (đang dùng thuật toán "dummy" mặc định, hoặc DLL sai)</td>
-      <td>Xác nhận đã chọn đúng Security DLL cho ECU này (mục F); liên hệ để xác nhận thuật toán/DLL đúng</td>
+      <td>Flash thật <strong>FAILED</strong> — NRC <code>0x35</code> (Invalid Key) ở bước Security Access</td>
+      <td>Thuật toán/Security DLL chưa đúng với ECU thật (đang dùng thuật toán "dummy" mặc định, hoặc DLL sai).
+      Test Connection (bước 4) <strong>không còn</strong> chạm Security Access nên không bắt được lỗi này trước
+      — chỉ lộ ra khi chạy <code>flash</code> thật</td>
+      <td>Xác nhận đã chọn đúng Security DLL cho ECU này (mục F); liên hệ để xác nhận thuật toán/DLL đúng; nên
+      test trên ECU dự phòng/bench trước khi thử ECU sản xuất</td>
     </tr>
     <tr>
       <td>Timeout, không có phản hồi nào từ ECU ở bất kỳ bước nào</td>
@@ -457,11 +481,13 @@ UINT32 GenerateKeyEx(UINT32 seed);</pre>
     </tr>
     <tr>
       <td>Kết nối được channel sai / <code>--channel N</code> không khớp thiết bị mong đợi</td>
-      <td>Đánh số channel của <code>python-can</code> (khi có <code>app_name</code>) có thể theo thứ tự đã gán
-      riêng cho app trong Vector Hardware Config, khác với số toàn cục — <strong>chưa kiểm chứng với hardware
-      thật</strong> (giới hạn đã biết, xem <code>README.md</code>)</td>
-      <td>Lưu lại log/thông báo lỗi (mục G) rồi gửi lại để điều chỉnh <code>detect_vector_channels()</code>/
-      <code>VectorCanInterface.connect()</code> cho khớp đúng cách driver diễn giải trên máy thật</td>
+      <td>Nếu chỉ dùng <code>--channel N</code> (không kèm <code>--serial</code>), số channel là application
+      channel index theo Vector Hardware Config — có thể khác thứ tự toàn cục của driver, dễ nhầm nếu có nhiều
+      channel</td>
+      <td>Dùng cách chọn theo serial number thay vì chỉ số channel (mục B): thêm
+      <code>--serial &lt;serial_number&gt;</code>, lấy đúng giá trị <code>--channel</code>/<code>--serial</code>
+      từ <code>python cli.py list-hardware</code> — cách này chọn thẳng phần cứng, không phụ thuộc cách driver
+      đánh số channel</td>
     </tr>
     <tr>
       <td>App crash không rõ lý do, cửa sổ terminal đóng ngay</td>
@@ -476,7 +502,8 @@ UINT32 GenerateKeyEx(UINT32 seed);</pre>
     <li>Đã <code>git clone</code> + tạo conda env + <code>pip install -r requirements.txt</code> + <code>pip install python-can</code></li>
     <li>Đã cài Vector Driver Setup (XL Driver Library + Vector Hardware Config)</li>
     <li>Đã cắm VN1640A/VN1630 qua USB</li>
-    <li>Vector Hardware Config: đã thêm app <code>FlashTool</code> và gán đúng channel vật lý, đã Save</li>
+    <li>Vector Hardware Config: đã thêm app <code>FlashTool</code> và gán đúng channel vật lý, đã Save
+    (bỏ qua được nếu dùng cách chọn theo serial number, mục B)</li>
     <li>Nếu có CANoe: đã đóng/dừng measurement trước khi chạy FFlash</li>
     <li><code>python -m unittest discover -s tests -p "test_*.py" -v</code> → <strong>OK</strong>, không lỗi</li>
     <li><code>python cli.py list-hardware</code> → thấy đúng channel mong đợi</li>

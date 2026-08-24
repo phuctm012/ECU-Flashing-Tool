@@ -21,7 +21,7 @@ python main.py
 python cli.py info tests/sample.hex
 python cli.py flash tests/sample.hex --dry-run
 python cli.py flash tests/sample.hex --sequence suzuki --radar-side s1
-python cli.py test-connection --sequence suzuki --verbose  # session+security only, no Erase/Download
+python cli.py test-connection --sequence suzuki --verbose  # session + DID reads only, no Security Access, no Erase/Download
 
 # Run all tests
 python -m unittest discover -s tests -p "test_*.py" -v

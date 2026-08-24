@@ -155,7 +155,7 @@ python main.py
 
 ## Sử Dụng Với Phần Cứng Vector Thật
 
-Phần cứng Vector (VN1640A/VN1630) **chỉ chạy được trên Windows** (XL Driver Library không có bản macOS/Linux). Cần cài đặt + cấu hình đúng thứ tự dưới đây — bỏ qua bước cấu hình **Vector Hardware Config** là nguyên nhân phổ biến nhất khiến kết nối thất bại dù hardware đã cắm vào máy.
+Phần cứng Vector (VN1640A/VN1630) **chỉ chạy được trên Windows** (XL Driver Library không có bản macOS/Linux). Cần cài đặt đúng thứ tự dưới đây. Từ khi app hỗ trợ chọn channel theo **serial number** (mục "Lưu ý về đánh số channel" bên dưới), bước cấu hình **Vector Hardware Config** (mục B) chỉ còn **bắt buộc nếu `python-can` không hỗ trợ tham số `serial`** (bản cũ hơn 4.x) — nếu không chắc, cứ làm mục B cho chắc, không tốn thêm gì.
 
 ### A. Cài đặt (làm 1 lần trên máy Windows)
 
@@ -165,7 +165,7 @@ Phần cứng Vector (VN1640A/VN1630) **chỉ chạy được trên Windows** (X
 2. `pip install python-can` (đã ghi sẵn nhưng comment trong `requirements.txt` — chạy `pip install python-can` riêng, hoặc bỏ comment dòng đó rồi `pip install -r requirements.txt`).
 3. Cắm thiết bị VN1640A/VN1630 vào máy qua USB.
 
-### B. Cấu hình Vector Hardware Config (**bắt buộc**, làm 1 lần mỗi máy)
+### B. Cấu hình Vector Hardware Config (bắt buộc nếu không dùng serial — xem mục "Lưu ý về đánh số channel")
 
 Vector XL Driver không cho ứng dụng truy cập channel tự do — mỗi phần mềm (CANoe, CANalyzer, hay app tự viết như tool này) phải được **đăng ký tên ứng dụng**, và channel vật lý phải được **gán (assign)** cho đúng tên đó. Tool này đăng ký với tên **`FlashTool`** (xem `communication/vector_can.py`, tham số `app_name`).
 
@@ -221,8 +221,9 @@ python cli.py flash firmware.s3 --sequence suzuki --radar-side s1
 # Flash hardware Vector thật, channel 2, kèm CAN trace chi tiết
 python cli.py flash firmware.s3 --hardware vector --channel 1 --verbose
 
-# Test kết nối + Security Access an toàn — KHÔNG Erase/Download —
-# trước khi tin tưởng flash thật (xem mục "Test Trên ECU Thật" bên dưới)
+# Test kết nối an toàn (đọc ECU Identification, KHÔNG Erase/Download,
+# KHÔNG Security Access) — trước khi tin tưởng flash thật
+# (xem mục "Test Trên ECU Thật" bên dưới)
 python cli.py test-connection --hardware vector --channel 0 --sequence suzuki --verbose
 
 # Xem danh sách hardware/CAN option (tự quét hardware Vector thật đang cắm)
@@ -239,11 +240,11 @@ Các cờ chính của `flash`/`test-connection` (dùng chung): `--hardware {vir
 
 ### `test-connection` — kiểm tra kết nối an toàn trước khi flash thật
 
-Chỉ thực hiện **Session Control + Security Access** (và đọc ECU Identification, read-only) — **không bao giờ** đụng tới Erase Memory / TransferData / bất kỳ lệnh ghi nào. Dùng để xác nhận đấu dây/CAN ID/thuật toán security đúng trước khi tin tưởng chạy `flash` thật lên ECU.
+Chỉ thực hiện **Session Control** rồi đọc một số DID nhận diện ECU (SW Version, HW Version, Serial Number, Supplier SW Version, ECU SW Number — read-only) — **không bao giờ** đụng tới Programming Session, Security Access, Erase Memory, TransferData, hay bất kỳ lệnh ghi nào. Dùng để xác nhận đấu dây/CAN ID/ECU có phản hồi đúng trước khi tin tưởng chạy `flash` thật lên ECU (Security Access thật sự chỉ được test khi chạy `flash`).
 
-- Với `--sequence suzuki`: thực hiện đúng các bước tiền-Security giống log thật (Extended Session, Disable DTC, Disable Communication — đều functional/broadcast tới `0x700`), sau đó Programming Session + Security Access ở địa chỉ vật lý.
+- Với `--sequence suzuki`: thực hiện đúng các bước tiền-Security giống log thật (Extended Session, Disable DTC, Disable Communication — đều functional/broadcast tới `0x700`), rồi đọc các DID ở địa chỉ vật lý.
 - **Luôn cố khôi phục ECU về trạng thái an toàn khi kết thúc**, dù thành công hay lỗi giữa chừng: bật lại DTC/Communication (nếu đã tắt) rồi trả về Default Session — nhờ `try/finally`, không phụ thuộc bước nào ở trên có pass hay không.
-- Kết quả in: `PASSED` (exit 0) hoặc `FAILED` kèm lý do cụ thể (exit 1) — ví dụ Security Access bị từ chối (NRC 0x35 Invalid Key) nghĩa là thuật toán/DLL security chưa đúng với ECU thật.
+- Kết quả in: `PASSED` (exit 0) hoặc `FAILED` kèm lý do cụ thể (exit 1) — mỗi DID đọc lỗi sẽ hiện `N/A (<lý do>)` thay vì làm cả bài test fail, miễn ECU vẫn phản hồi ở tầng session.
 
 **Có cả trên GUI**: menu **Tools → Test Connection...** chạy đúng logic này (cùng file `core/test_connection.py`), hiện kết quả trong 1 dialog nhỏ — không cần rời khỏi GUI để dùng CLI.
 
@@ -275,7 +276,7 @@ python cli.py list-hardware
 # 2. Xem trước sequence, KHÔNG đụng ECU — kiểm tra logic trước
 python cli.py flash firmware.s3 --sequence suzuki --dry-run
 
-# 3. Test kết nối + Security Access — an toàn, không Erase/Download
+# 3. Test kết nối — an toàn, không Security Access, không Erase/Download
 python cli.py test-connection --hardware vector --channel 0 --sequence suzuki --verbose
 
 # 4. Chỉ khi bước 3 PASSED mới flash thật — nên test trên ECU dự phòng/bench trước
