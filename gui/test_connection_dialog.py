@@ -76,7 +76,7 @@ class TestConnectionDialog(QDialog):
             + (
                 "Virtual ECU Simulator"
                 if use_virtual
-                else f"Vector channel {can_config.get('channel', 0)}"
+                else can_config.get('label', f"Vector channel {can_config.get('channel', 0)}")
             )
             + f" | Tx=0x{can_config.get('tx_id', 0x778):X}"
             f" Rx=0x{can_config.get('rx_id', 0x788):X}"

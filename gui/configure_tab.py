@@ -727,6 +727,9 @@ class ConfigureTabMixin:
                 serial = data.get("serial")
                 if serial:
                     config["serial"] = serial
+                label = data.get("label")
+                if label:
+                    config["label"] = label
 
         if hasattr(self.ui, 'comboBoxLogicalLink'):
             config["fd"] = (
