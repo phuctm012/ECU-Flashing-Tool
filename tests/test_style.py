@@ -143,6 +143,17 @@ class TestShippedDarkStylesheetContent(unittest.TestCase):
         self.assertIn("QTextEdit", load_stylesheet(dark=False))
         self.assertIn("QTextEdit", load_stylesheet(dark=True))
 
+    def test_both_themes_style_plain_text_edit(self):
+        # gui/test_connection_dialog.py's logText is a
+        # QPlainTextEdit — a separate Qt class from QTextEdit
+        # (both derive from QAbstractScrollArea, neither from
+        # the other), so the "QTextEdit { ... }" rule above never
+        # applied to it: same near-invisible dark-on-dark text
+        # bug as informationText, reported by user screenshot in
+        # the Test Connection dialog specifically.
+        self.assertIn("QPlainTextEdit", load_stylesheet(dark=False))
+        self.assertIn("QPlainTextEdit", load_stylesheet(dark=True))
+
 
 class TestDarkModePreference(unittest.TestCase):
     """

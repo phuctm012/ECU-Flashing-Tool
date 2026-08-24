@@ -148,7 +148,7 @@ QLineEdit:focus, QComboBox:focus {
     border-color: #5b8fd9;
 }
 
-QTextEdit {
+QTextEdit, QPlainTextEdit {
     background-color: #262b33;
     color: #e6e9ee;
     border: 1px solid #3a4048;
