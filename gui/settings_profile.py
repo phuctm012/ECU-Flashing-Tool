@@ -69,6 +69,16 @@ class SettingsProfileMixin:
                 lambda _: self.save_profile()
             )
 
+        if hasattr(self.ui, 'comboBoxCompressionMethod'):
+            self.ui.comboBoxCompressionMethod.currentIndexChanged.connect(
+                lambda _: self.save_profile()
+            )
+
+        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
+            self.ui.comboBoxEncryptionMethod.currentIndexChanged.connect(
+                lambda _: self.save_profile()
+            )
+
     # ==================================================
     # Save
     # ==================================================
@@ -117,6 +127,18 @@ class SettingsProfileMixin:
             "securityDll/path",
             getattr(self, '_security_dll_path', '') or ''
         )
+
+        if hasattr(self.ui, 'comboBoxCompressionMethod'):
+            s.setValue(
+                "dataFormat/compression",
+                self.ui.comboBoxCompressionMethod.currentIndex()
+            )
+
+        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
+            s.setValue(
+                "dataFormat/encrypting",
+                self.ui.comboBoxEncryptionMethod.currentIndex()
+            )
 
         # Force an immediate flush to disk/registry rather than
         # relying on Qt's internal deferred sync — save_profile()
@@ -180,3 +202,19 @@ class SettingsProfileMixin:
             # deleted) — silently leave the field at its
             # built-in-algorithm default rather than pointing
             # at a DLL that no longer exists.
+
+        if hasattr(self.ui, 'comboBoxCompressionMethod'):
+            index = s.value(
+                "dataFormat/compression", 0, type=int
+            )
+            combo = self.ui.comboBoxCompressionMethod
+            if 0 <= index < combo.count():
+                combo.setCurrentIndex(index)
+
+        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
+            index = s.value(
+                "dataFormat/encrypting", 0, type=int
+            )
+            combo = self.ui.comboBoxEncryptionMethod
+            if 0 <= index < combo.count():
+                combo.setCurrentIndex(index)

@@ -29,12 +29,14 @@
 import os
 import sys
 import unittest
+import unittest.mock
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
 
 from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QMessageBox
 
 from tests.qt_test_utils import get_app
 from gui.main_window import MainWindow
@@ -245,6 +247,98 @@ class TestCloseWindowMidFlash(_ThreadLifecycleTestCase):
         self.assertTrue(
             cleaned_up, "close-mid-flash did not clean up in time"
         )
+
+
+class TestStressTest(_ThreadLifecycleTestCase):
+    """
+    Custom Actions > Stress Test (gui/stress_test.py) — a
+    testing-only tool that chains N real flash_button_clicked()
+    runs back-to-back. Only starts the next cycle off the
+    current cycle's thread.finished (after _cleanup_thread()
+    has already nulled self.thread/self.worker), so this must
+    be exercised through the real QThread path, same reasoning
+    as every other test in this file.
+    """
+
+    def _wait_for_stress_test_done(self, timeout_ms=15000):
+        return self._run_event_loop_until(
+            lambda: not self.window._stress_test_running,
+            timeout_ms=timeout_ms,
+        )
+
+    def test_runs_n_cycles_and_finishes(self):
+        db = parse_hex_file(SAMPLE_HEX)
+        self.window._loaded_datablocks = [db]
+        self.window.ui.spinBoxStressTestCount.setValue(3)
+
+        with unittest.mock.patch(
+            "gui.stress_test.QMessageBox.question",
+            return_value=QMessageBox.Yes,
+        ):
+            self.window.stress_test_button_clicked()
+
+        done = self._wait_for_stress_test_done()
+
+        self.assertTrue(done, "stress test did not finish in time")
+        self.assertEqual(self.window._stress_test_current, 3)
+        self.assertEqual(self.window._stress_test_pass_count, 3)
+        self.assertEqual(self.window._stress_test_fail_count, 0)
+        self.assertEqual(
+            self.window.ui.buttonStressTestStart.text(),
+            "Start Stress Test",
+        )
+        self.assertTrue(
+            self.window.ui.spinBoxStressTestCount.isEnabled()
+        )
+        # Real QThread cleanup must have actually happened for
+        # the last cycle too, not just the loop's own bookkeeping.
+        self.assertIsNone(self.window.thread)
+        self.assertIsNone(self.window.worker)
+
+    def test_declined_confirmation_does_not_start(self):
+        db = parse_hex_file(SAMPLE_HEX)
+        self.window._loaded_datablocks = [db]
+
+        with unittest.mock.patch(
+            "gui.stress_test.QMessageBox.question",
+            return_value=QMessageBox.No,
+        ):
+            self.window.stress_test_button_clicked()
+
+        self.assertFalse(self.window._stress_test_running)
+        self.assertIsNone(self.window.thread)
+
+    def test_stop_mid_run_does_not_crash(self):
+        # Large first-cycle payload so there's still time to
+        # click Stop before it finishes on its own.
+        db = Datablock(file_path="synthetic.bin")
+        db.segments.append(
+            Segment(start_address=0x1000, data=bytes([0xAA]) * 200_000)
+        )
+        self.window._loaded_datablocks = [db]
+        self.window.ui.spinBoxStressTestCount.setValue(5)
+
+        with unittest.mock.patch(
+            "gui.stress_test.QMessageBox.question",
+            return_value=QMessageBox.Yes,
+        ):
+            self.window.stress_test_button_clicked()
+
+        QTimer.singleShot(
+            80, self.window.stress_test_button_clicked
+        )
+
+        done = self._wait_for_stress_test_done()
+
+        self.assertTrue(done, "stress test did not stop in time")
+        # Stopped well before all 5 requested cycles ran.
+        self.assertLess(self.window._stress_test_current, 5)
+        self.assertEqual(
+            self.window.ui.buttonStressTestStart.text(),
+            "Start Stress Test",
+        )
+        self.assertIsNone(self.window.thread)
+        self.assertIsNone(self.window.worker)
 
 
 if __name__ == "__main__":

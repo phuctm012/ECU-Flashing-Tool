@@ -28,6 +28,7 @@ from gui.settings_profile import SettingsProfileMixin
 from gui.report_export import ReportExportMixin
 from gui.project_file import ProjectFileMixin
 from gui.issue_export import IssueExportMixin
+from gui.stress_test import StressTestMixin
 from gui.menu_bar import MenuBarMixin
 from gui.style import ICON_PATH
 from config.settings import (
@@ -45,6 +46,7 @@ class MainWindow(
     ReportExportMixin,
     ProjectFileMixin,
     IssueExportMixin,
+    StressTestMixin,
     MenuBarMixin,
     QMainWindow
 ):
@@ -89,6 +91,7 @@ class MainWindow(
 
         self.setup_flash_tab()
         self.setup_configure_tab()
+        self.setup_stress_test()
 
         # Restore the saved profile (Hardware/Radar Side/
         # Security DLL/Flash Sequence) — must run after

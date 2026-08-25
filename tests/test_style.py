@@ -154,6 +154,15 @@ class TestShippedDarkStylesheetContent(unittest.TestCase):
         self.assertIn("QPlainTextEdit", load_stylesheet(dark=False))
         self.assertIn("QPlainTextEdit", load_stylesheet(dark=True))
 
+    def test_both_themes_style_spin_box(self):
+        # spinBoxStressTestCount (gui/stress_test.py) was the
+        # first QSpinBox in the app — QLineEdit/QComboBox had a
+        # dark rule but QSpinBox didn't, same near-invisible
+        # dark-on-light-gray bug as the other unstyled widgets
+        # above, caught by screenshot before it shipped.
+        self.assertIn("QSpinBox", load_stylesheet(dark=False))
+        self.assertIn("QSpinBox", load_stylesheet(dark=True))
+
 
 class TestDarkModePreference(unittest.TestCase):
     """
@@ -169,7 +178,7 @@ class TestDarkModePreference(unittest.TestCase):
         from PySide6.QtCore import QSettings
         QSettings.setPath(
             QSettings.IniFormat, QSettings.UserScope,
-            tempfile.mkdtemp(prefix="fflash_test_settings_"),
+            tempfile.mkdtemp(prefix="sflash_test_settings_"),
         )
 
     def test_defaults_to_false_when_never_set(self):

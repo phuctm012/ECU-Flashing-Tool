@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ==================================================
-# FFlash — Command Line Interface
+# SFlash — Command Line Interface
 # ==================================================
 #
 # Run the app's flashing functions without the GUI:
@@ -303,6 +303,8 @@ def cmd_flash(args):
         can_bitrate=args.bitrate,
         can_fd=args.can_fd,
         can_data_bitrate=args.data_bitrate,
+        download_compression=args.compression,
+        download_encrypting=args.encryption,
     )
 
     result = {"finished": False, "aborted": False}
@@ -571,6 +573,20 @@ def _add_can_args(parser):
         "--security-dll", default=None,
         help="Path to an external Security Access DLL (ctypes). "
              "If not given, uses the built-in dummy seed/key algorithm.",
+    )
+    parser.add_argument(
+        "--compression", type=_parse_hex_int, default=0x00,
+        help="RequestDownload dataFormatIdentifier compressionMethod "
+             "nibble, 0-15 (default 0 = none). Only changes what the "
+             "ECU is told the data format is — does not actually "
+             "compress the firmware file; the loaded file must "
+             "already be in that format.",
+    )
+    parser.add_argument(
+        "--encryption", type=_parse_hex_int, default=0x00,
+        help="RequestDownload dataFormatIdentifier encryptingMethod "
+             "nibble, 0-15 (default 0 = none). Same caveat as "
+             "--compression — does not actually encrypt the file.",
     )
     parser.add_argument(
         "-q", "--quiet", action="store_true",

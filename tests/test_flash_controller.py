@@ -87,6 +87,30 @@ class TestDefaultSequenceFlash(unittest.TestCase):
 
         self.assertEqual(progress[-1], 100)
 
+    def test_download_compression_encrypting_reach_request_download(self):
+        # FlashWorker's download_compression/download_encrypting
+        # constructor args must reach RequestDownload's actual
+        # dataFormatIdentifier byte on the wire — not just be
+        # stored and silently dropped.
+        db = _make_datablock(size=32)
+        steps = build_flash_sequence([db])
+        worker = FlashWorker(
+            steps=steps, datablocks=[db], use_virtual=True,
+            download_compression=0x2, download_encrypting=0x7,
+        )
+
+        rows = []
+        worker.trace_row.connect(rows.append)
+        _run_worker(worker)
+
+        req_download = next(
+            r for r in rows
+            if (r.get("req_data") or "").startswith("34 ")
+        )
+        # "34 XX ..." — XX is dataFormatIdentifier
+        data_format_byte = req_download["req_data"].split(" ")[1]
+        self.assertEqual(data_format_byte, "27")
+
     def test_no_steps_finishes_immediately(self):
         worker = FlashWorker(steps=[], datablocks=[], use_virtual=True)
         result = _run_worker(worker)
@@ -109,6 +133,105 @@ class TestDefaultSequenceFlash(unittest.TestCase):
 
         self.assertIsNone(worker._uds_client._tp_keepalive)
         self.assertFalse(worker._can_interface.is_connected)
+
+
+class TestProgressWeighting(unittest.TestCase):
+    """
+    Covers run()'s byte-weighted progress calculation and
+    _execute_download()'s intra-step interpolation — a real
+    flash spends most of its wall-clock time in TYPE_DOWNLOAD
+    (TransferData), so equal-weight-per-step progress used to
+    leave the bar frozen for that entire phase, then jump
+    straight to 100%. Weighting each TYPE_DOWNLOAD step by its
+    byte count (vs. a nominal weight of 1 for every other step)
+    and emitting progress_changed per TransferData block fixes
+    that.
+    """
+
+    def test_progress_still_reaches_100_and_is_monotonic(self):
+        db = _make_datablock(size=500)
+        steps = build_flash_sequence([db])
+        worker = FlashWorker(
+            steps=steps, datablocks=[db], use_virtual=True
+        )
+
+        progress = []
+        worker.progress_changed.connect(progress.append)
+        _run_worker(worker)
+
+        self.assertEqual(progress[0], 0)
+        self.assertEqual(progress[-1], 100)
+        self.assertTrue(
+            all(
+                progress[i] <= progress[i + 1]
+                for i in range(len(progress) - 1)
+            )
+        )
+
+    def test_download_step_emits_intermediate_progress(self):
+        # A download spanning 2+ TransferData blocks (chunk
+        # size is ~4094 bytes against the Virtual ECU's default
+        # maxNumberOfBlockLength) must produce more
+        # progress_changed emissions than there are steps —
+        # proof that _execute_download() is interpolating per
+        # block, not just updating once when the whole step
+        # finishes. Kept just over one chunk (not a large real
+        # firmware size) because VirtualCanInterface.send_isotp()
+        # simulates real per-CAN-frame ISO-TP timing (~1ms per
+        # 7-byte Consecutive Frame) — a much bigger payload here
+        # would make this test genuinely slow for no extra
+        # coverage.
+        db = _make_datablock(size=5_000)
+        steps = build_flash_sequence([db])
+        worker = FlashWorker(
+            steps=steps, datablocks=[db], use_virtual=True
+        )
+
+        progress = []
+        worker.progress_changed.connect(progress.append)
+        _run_worker(worker)
+
+        self.assertGreater(len(progress), len(steps))
+
+    def test_small_steps_stay_near_zero_until_large_download(self):
+        # With a download step weighing far more than the
+        # nominal weight-1 steps around it, progress must stay
+        # negligible until the download step actually starts —
+        # otherwise a user would see the bar race ahead on fast
+        # steps that take no real time, same complaint as before
+        # this change. Only needs enough bytes for a lopsided
+        # weight ratio against the ~10 nominal-weight-1 steps
+        # around it, not a realistic firmware size — see the
+        # note above about VirtualCanInterface's per-frame
+        # ISO-TP timing.
+        db = _make_datablock(size=2_000)
+        steps = build_flash_sequence([db])
+        download_index = next(
+            i for i, s in enumerate(steps)
+            if s.step_type == FlashStep.TYPE_DOWNLOAD
+        )
+
+        progress_before_download = []
+        started_steps = {"count": 0}
+
+        def on_step_started(_desc):
+            started_steps["count"] += 1
+
+        def on_progress(value):
+            if started_steps["count"] <= download_index:
+                progress_before_download.append(value)
+
+        worker = FlashWorker(
+            steps=steps, datablocks=[db], use_virtual=True
+        )
+        worker.step_started.connect(on_step_started)
+        worker.progress_changed.connect(on_progress)
+        _run_worker(worker)
+
+        self.assertTrue(
+            all(v <= 1 for v in progress_before_download),
+            progress_before_download,
+        )
 
 
 class TestVerifyMemoryPassFail(unittest.TestCase):

@@ -198,6 +198,28 @@ class TestRequestDownloadByteOrder(unittest.TestCase):
 
         self.assertEqual(received["bytes"], 500)
 
+    def test_download_firmware_passes_compression_and_encrypting(self):
+        # download_firmware() must actually thread compression/
+        # encrypting through to request_download() — it used to
+        # accept no such parameters at all, silently always
+        # sending dataFormatIdentifier=0x00 regardless of what
+        # the caller wanted.
+        client, can, trace = _make_client()
+        self._unlock_and_erase(client)
+
+        client.download_firmware(
+            memory_address=0x1000,
+            data=bytes([0xAB]) * 10,
+            compression=0x3,
+            encrypting=0x5,
+        )
+
+        tx_frames = [d for direction, d in trace if direction == "TX"]
+        req_download = next(d for d in tx_frames if d[0] == 0x34)
+
+        # dataFormatIdentifier = compressionMethod<<4 | encryptingMethod
+        self.assertEqual(req_download[1], 0x35)
+
 
 # --------------------------------------------------
 # Deterministic NRC retry / ResponsePending tests via a

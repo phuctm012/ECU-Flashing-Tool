@@ -135,13 +135,13 @@ QListWidget::item:selected {
     color: white;
 }
 
-QLineEdit, QComboBox {
+QLineEdit, QComboBox, QSpinBox {
     border: 1px solid #d7dde5;
     border-radius: 5px;
     padding: 4px 8px;
     background: #ffffff;
 }
-QLineEdit:focus, QComboBox:focus {
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
     border-color: #4a7fd6;
 }
 

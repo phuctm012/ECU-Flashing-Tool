@@ -466,19 +466,26 @@ class ConfigureTabMixin:
             )
         )
 
-        # Signature
+        # Compression / Encryption — reflect the actual
+        # RequestDownload dataFormatIdentifier nibbles the user
+        # configured (Configure > Miscellaneous), not a
+        # hardcoded "None"; see get_data_format_config().
+        data_format = self.get_data_format_config()
+
         table.setItem(
-            2, 1, QTableWidgetItem("")
+            2, 1,
+            QTableWidgetItem(
+                "None" if data_format["compression"] == 0
+                else f"0x{data_format['compression']:X}"
+            )
         )
 
-        # Compression
         table.setItem(
-            3, 1, QTableWidgetItem("None")
-        )
-
-        # Encryption
-        table.setItem(
-            4, 1, QTableWidgetItem("None")
+            3, 1,
+            QTableWidgetItem(
+                "None" if data_format["encrypting"] == 0
+                else f"0x{data_format['encrypting']:X}"
+            )
         )
 
         # Start address (first segment)
@@ -487,7 +494,7 @@ class ConfigureTabMixin:
             first_seg = datablock.segments[0]
 
             table.setItem(
-                5, 1,
+                4, 1,
                 QTableWidgetItem(
                     f"0x{first_seg.start_address:08X}"
                 )
@@ -495,17 +502,12 @@ class ConfigureTabMixin:
 
             # Total memory size
             table.setItem(
-                6, 1,
+                5, 1,
                 QTableWidgetItem(
                     f"{datablock.total_size} bytes "
                     f"({datablock.total_size / 1024:.1f} KB)"
                 )
             )
-
-        # Delta download
-        table.setItem(
-            7, 1, QTableWidgetItem("Disabled")
-        )
 
     def _clear_details_table(self):
         """Blanks the value column — used when the last
@@ -586,6 +588,9 @@ class ConfigureTabMixin:
 
         # Security Access DLL selector
         self.setup_security_dll_selector()
+
+        # Data Format (RequestDownload compression/encryption)
+        self.setup_data_format_selector()
 
     # ==================================================
     # Hardware combobox (Virtual + real Vector channels)
@@ -778,6 +783,87 @@ class ConfigureTabMixin:
 
         if hasattr(self, 'save_profile'):
             self.save_profile()
+
+    # ==================================================
+    # Data Format (RequestDownload dataFormatIdentifier)
+    # ==================================================
+
+    def setup_data_format_selector(self):
+        """
+        comboBoxCompressionMethod/comboBoxEncryptionMethod
+        (defined in main_window.ui) let the user set the
+        compressionMethod/encryptingMethod nibbles of
+        RequestDownload's dataFormatIdentifier byte (ISO
+        14229-1) — combo index IS the nibble value (0 = None,
+        1-F = manufacturer-specific), read by
+        get_data_format_config(). This only changes what the
+        tool tells the ECU the data format is; it does not
+        actually compress/encrypt the firmware bytes being
+        sent — the caller is responsible for the loaded file
+        already being in that format if a non-zero value is
+        used.
+        """
+
+        if hasattr(self.ui, 'comboBoxCompressionMethod'):
+            self.ui.comboBoxCompressionMethod.currentIndexChanged.connect(
+                self._on_data_format_changed
+            )
+
+        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
+            self.ui.comboBoxEncryptionMethod.currentIndexChanged.connect(
+                self._on_data_format_changed
+            )
+
+    def _on_data_format_changed(self, _index):
+        """
+        Only refreshes the Details table — does NOT call
+        save_profile() itself. Unlike browse_security_dll()
+        (a button click, always well after startup),
+        currentIndexChanged also fires when
+        settings_profile.py's load_profile() restores a saved
+        index at startup; if that restore triggered a save
+        here, compression's restore would fire a save that
+        captures encrypting's value before ITS restore has run
+        yet, clobbering the just-loaded setting with a stale
+        default. gui/settings_profile.py wires these combos'
+        save-on-change itself, the same way it already does for
+        comboBoxHardware/comboBoxRadarSide/comboBoxFlashSequence
+        — connected only after its own load_profile() call, so
+        the ordering hazard doesn't apply there.
+        """
+
+        if self._loaded_datablocks:
+            self._update_details_table(
+                self._loaded_datablocks[-1]
+            )
+
+    def get_data_format_config(self):
+        """
+        Returns {"compression": int, "encrypting": int} (each
+        0-15) from the current combo selections — read by
+        FlashWorker/cli.py to build RequestDownload's
+        dataFormatIdentifier byte. Defaults to
+        {"compression": 0, "encrypting": 0} (None/None) if the
+        combos aren't present.
+        """
+
+        compression = 0
+        encrypting = 0
+
+        if hasattr(self.ui, 'comboBoxCompressionMethod'):
+            compression = max(
+                0, self.ui.comboBoxCompressionMethod.currentIndex()
+            )
+
+        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
+            encrypting = max(
+                0, self.ui.comboBoxEncryptionMethod.currentIndex()
+            )
+
+        return {
+            "compression": compression,
+            "encrypting": encrypting,
+        }
 
     # ==================================================
     # CAN Bus Conflict Detection (CANoe/CANalyzer/CANape)

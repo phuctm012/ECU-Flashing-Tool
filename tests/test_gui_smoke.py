@@ -277,6 +277,57 @@ class TestCanConfig(unittest.TestCase):
         self.assertEqual(config["tx_id"], 0x7E0)
 
 
+class TestDataFormatConfig(unittest.TestCase):
+    """
+    Covers the Miscellaneous page's Compression/Encryption
+    method selectors (ConfigureTabMixin.get_data_format_config()
+    and comboBoxCompressionMethod/comboBoxEncryptionMethod) —
+    these only change RequestDownload's dataFormatIdentifier
+    byte, not any real data transform (see
+    core/flash_controller.py/communication/uds_client.py for
+    where the value actually reaches the wire).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_defaults_to_none_none(self):
+        config = self.window.get_data_format_config()
+        self.assertEqual(
+            config, {"compression": 0, "encrypting": 0}
+        )
+
+    def test_combo_index_is_the_nibble_value(self):
+        self.window.ui.comboBoxCompressionMethod.setCurrentIndex(3)
+        self.window.ui.comboBoxEncryptionMethod.setCurrentIndex(10)  # 'A'
+
+        config = self.window.get_data_format_config()
+
+        self.assertEqual(
+            config, {"compression": 3, "encrypting": 10}
+        )
+
+    def test_details_table_reflects_non_default_value(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.window.ui.comboBoxCompressionMethod.setCurrentIndex(3)
+
+        details = self.window.ui.tableWidgetDetails
+        self.assertEqual(details.item(2, 1).text(), "0x3")
+
+    def test_details_table_shows_none_at_default(self):
+        self.window._load_firmware_file(SAMPLE_HEX)
+        # _load_firmware_file() alone doesn't populate Details
+        # (only add_new_datablock() does) — mirror that step.
+        self.window._update_details_table(
+            self.window._loaded_datablocks[-1]
+        )
+
+        details = self.window.ui.tableWidgetDetails
+        self.assertEqual(details.item(2, 1).text(), "None")
+        self.assertEqual(details.item(3, 1).text(), "None")
+
+
 class TestCanConflictWarning(unittest.TestCase):
     """
     Covers ConfigureTabMixin.detect_can_conflict_warning() —
@@ -753,6 +804,17 @@ class TestSettingsProfile(unittest.TestCase):
         self.assertEqual(window2.ui.comboBoxRadarSide.currentIndex(), 1)
         self.assertEqual(
             window2.ui.comboBoxFlashSequence.currentIndex(), 1
+        )
+
+    def test_data_format_selection_persists_across_restart(self):
+        window1 = MainWindow()
+        window1.ui.comboBoxCompressionMethod.setCurrentIndex(3)
+        window1.ui.comboBoxEncryptionMethod.setCurrentIndex(10)
+
+        window2 = MainWindow()
+        self.assertEqual(
+            window2.get_data_format_config(),
+            {"compression": 3, "encrypting": 10},
         )
 
     def test_security_dll_path_persists_if_file_still_exists(self):
@@ -1694,7 +1756,7 @@ class TestProjectFile(unittest.TestCase):
     """
     Covers File > Save Project As.../Open Project... (module
     gui/project_file.py, docs/gui_todo.md item #20) — a named
-    .ffproj JSON snapshot of the loaded firmware (+ ticked
+    .sfproj JSON snapshot of the loaded firmware (+ ticked
     state) and CAN/hardware configuration, distinct from
     gui/settings_profile.py's single auto-saved profile.
     """
@@ -1737,8 +1799,10 @@ class TestProjectFile(unittest.TestCase):
     def test_save_and_open_project_round_trip(self):
         self.window._load_firmware_file(SAMPLE_HEX)
         self.window.ui.comboBoxRadarSide.setCurrentIndex(1)
+        self.window.ui.comboBoxCompressionMethod.setCurrentIndex(3)
+        self.window.ui.comboBoxEncryptionMethod.setCurrentIndex(10)
 
-        path = self._project_path("roundtrip.ffproj")
+        path = self._project_path("roundtrip.sfproj")
         with unittest.mock.patch(
             "gui.project_file.QFileDialog.getSaveFileName",
             return_value=(path, ""),
@@ -1761,6 +1825,10 @@ class TestProjectFile(unittest.TestCase):
         self.assertEqual(
             window2.ui.comboBoxRadarSide.currentIndex(), 1
         )
+        self.assertEqual(
+            window2.get_data_format_config(),
+            {"compression": 3, "encrypting": 10},
+        )
 
     def test_save_and_open_project_round_trip_real_hardware(self):
         # comboBoxHardware's userData is the full channel dict
@@ -1772,7 +1840,7 @@ class TestProjectFile(unittest.TestCase):
             "channel": 1, "hw_channel": 1,
             "serial": 5551234, "is_on_bus": False,
         }
-        path = self._project_path("real_hw.ffproj")
+        path = self._project_path("real_hw.sfproj")
         with unittest.mock.patch(
             "communication.vector_can.detect_vector_channels",
             return_value=[channel_entry],
@@ -1801,7 +1869,7 @@ class TestProjectFile(unittest.TestCase):
             window2.ui.comboBoxHardware.currentData(), channel_entry
         )
 
-    def test_save_project_appends_ffproj_extension(self):
+    def test_save_project_appends_sfproj_extension(self):
         path = self._project_path("no_extension")
         with unittest.mock.patch(
             "gui.project_file.QFileDialog.getSaveFileName",
@@ -1809,7 +1877,7 @@ class TestProjectFile(unittest.TestCase):
         ):
             self.window.save_project_as()
 
-        self.assertTrue(os.path.isfile(path + ".ffproj"))
+        self.assertTrue(os.path.isfile(path + ".sfproj"))
 
     def test_save_project_cancelled_dialog_does_nothing(self):
         with unittest.mock.patch(
@@ -1822,7 +1890,7 @@ class TestProjectFile(unittest.TestCase):
         self.window._load_firmware_file(SAMPLE_HEX)
         self.assertEqual(len(self.window._loaded_datablocks), 1)
 
-        path = self._project_path("empty.ffproj")
+        path = self._project_path("empty.sfproj")
         with open(path, "w") as f:
             json.dump({"format_version": 1, "firmware_files": []}, f)
 
@@ -1838,7 +1906,7 @@ class TestProjectFile(unittest.TestCase):
         )  # just the "add a Datablock" placeholder row
 
     def test_open_project_missing_firmware_file_warns_not_crash(self):
-        path = self._project_path("missing_fw.ffproj")
+        path = self._project_path("missing_fw.sfproj")
         with open(path, "w") as f:
             json.dump({
                 "format_version": 1,
@@ -1857,7 +1925,7 @@ class TestProjectFile(unittest.TestCase):
         self.assertEqual(len(self.window._loaded_datablocks), 0)
 
     def test_open_project_invalid_json_shows_error_not_crash(self):
-        path = self._project_path("corrupt.ffproj")
+        path = self._project_path("corrupt.sfproj")
         with open(path, "w") as f:
             f.write("{not valid json")
 

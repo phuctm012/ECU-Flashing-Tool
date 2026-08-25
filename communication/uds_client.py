@@ -996,6 +996,8 @@ class UdsClient:
         progress_callback=None,
         addr_length=4,
         size_length=4,
+        compression=0x00,
+        encrypting=0x00,
     ):
         """
         High-level firmware download.
@@ -1016,6 +1018,16 @@ class UdsClient:
             size_length: memorySize byte length
                         for RequestDownload (ECU/OEM
                         specific, default 4).
+            compression: dataFormatIdentifier
+                        compressionMethod nibble
+                        (0 = none, ECU/OEM specific
+                        otherwise). Does not actually
+                        compress `data` — the caller
+                        is responsible for `data`
+                        already being in that format.
+            encrypting: dataFormatIdentifier
+                        encryptingMethod nibble, same
+                        caveat as `compression`.
         """
 
         total_bytes = len(data)
@@ -1024,6 +1036,8 @@ class UdsClient:
         max_block = self.request_download(
             memory_address,
             total_bytes,
+            compression=compression,
+            encrypting=encrypting,
             addr_length=addr_length,
             size_length=size_length,
         )

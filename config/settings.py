@@ -76,9 +76,9 @@ LOGICAL_LINK_OPTIONS = [
 # --------------------------------------------------
 
 FILE_FILTER = (
-    "Hex Files (*.hex);;"
     "S-Record Files "
     "(*.s19 *.s28 *.s37 *.s1 *.s2 *.s3 *.srec *.mot);;"
+    "Hex Files (*.hex);;"
     "Binary Files (*.bin);;"
     "All Files (*)"
 )

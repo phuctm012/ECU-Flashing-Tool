@@ -270,6 +270,12 @@ class FlashTabMixin:
                 else {}
             )
 
+            data_format_config = (
+                self.get_data_format_config()
+                if hasattr(self, 'get_data_format_config')
+                else {}
+            )
+
             self.thread = QThread()
             self.worker = FlashWorker(
                 steps=steps,
@@ -285,6 +291,12 @@ class FlashTabMixin:
                 can_fd=can_config.get("fd", False),
                 can_data_bitrate=can_config.get(
                     "data_bitrate", 2000000
+                ),
+                download_compression=data_format_config.get(
+                    "compression", 0x00
+                ),
+                download_encrypting=data_format_config.get(
+                    "encrypting", 0x00
                 ),
             )
 

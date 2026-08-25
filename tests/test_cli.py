@@ -150,6 +150,19 @@ class TestCliFlashVirtual(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("0x123", out)
 
+    def test_compression_encryption_reach_request_download(self):
+        # --compression/--encryption must reach RequestDownload's
+        # actual dataFormatIdentifier byte on the wire, not just
+        # be accepted and silently dropped.
+        code, out = _run_cli([
+            "flash", SAMPLE_HEX,
+            "--compression", "2", "--encryption", "7",
+            "--verbose", "-q",
+        ])
+        self.assertEqual(code, 0)
+        # dataFormatIdentifier = compressionMethod<<4 | encryptingMethod
+        self.assertIn("34 27 ", out)
+
 
 class TestCliTestConnection(unittest.TestCase):
 

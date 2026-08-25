@@ -63,6 +63,8 @@ class FlashWorker(QObject):
         can_bitrate=500000,
         can_fd=False,
         can_data_bitrate=2000000,
+        download_compression=0x00,
+        download_encrypting=0x00,
     ):
         super().__init__()
 
@@ -73,6 +75,14 @@ class FlashWorker(QObject):
         self._use_virtual = use_virtual
         self._security_dll_path = security_dll_path
         self._keepalive_functional = keepalive_functional
+
+        # RequestDownload dataFormatIdentifier nibbles (ISO
+        # 14229-1) — from Configure -> Communication's Data
+        # Format selectors. Only changes what the tool tells
+        # the ECU the data format is; the firmware bytes sent
+        # are not actually compressed/encrypted by this tool.
+        self._download_compression = download_compression
+        self._download_encrypting = download_encrypting
 
         # CAN bus parameters (real hardware) — read from
         # the Configure -> Communication page. Ignored for
@@ -148,6 +158,35 @@ class FlashWorker(QObject):
             return
 
         # ------------------------------------------
+        # Progress weighting
+        # ------------------------------------------
+        #
+        # A real flash spends the vast majority of its
+        # wall-clock time in TYPE_DOWNLOAD steps (TransferData,
+        # one CAN round trip per ~4KB block) — Erase/Verify
+        # routines and session/security steps are comparatively
+        # fast (see docs/walkthrough.md's real-trace timing
+        # analysis). Weighting every step equally made the bar
+        # race through the first ~half of the sequence, then
+        # sit frozen on a single narrow slice for minutes during
+        # Download, then jump straight to 100% — this weights
+        # each TYPE_DOWNLOAD step by its byte count (so larger
+        # firmware = proportionally more of the bar, matching
+        # how long it actually takes) and gives every other step
+        # a nominal weight of 1, then interpolates smoothly
+        # within a Download step's slot via _execute_download()'s
+        # progress_callback instead of only updating at step
+        # boundaries.
+        step_weights = [
+            max(1, len(step.params.get("data", b"")))
+            if step.step_type == FlashStep.TYPE_DOWNLOAD
+            else 1
+            for step in self.steps
+        ]
+        self._total_progress_weight = sum(step_weights)
+        cumulative_weight = 0
+
+        # ------------------------------------------
         # Execute flash sequence
         # ------------------------------------------
 
@@ -177,6 +216,11 @@ class FlashWorker(QObject):
                 f"Executing: {step.description}"
             )
 
+            # _execute_download()'s progress_callback reads
+            # these to interpolate within this step's slot.
+            self._progress_weight_before_step = cumulative_weight
+            self._progress_weight_of_step = step_weights[current_step]
+
             # Execute step
             success = self._execute_step(step)
 
@@ -194,12 +238,11 @@ class FlashWorker(QObject):
                 self.flash_aborted.emit()
                 return
 
+            cumulative_weight += step_weights[current_step]
+
             # Calculate progress
             progress = int(
-                (
-                    (current_step + 1)
-                    / total_steps
-                )
+                (cumulative_weight / self._total_progress_weight)
                 * 100
             )
 
@@ -336,7 +379,7 @@ class FlashWorker(QObject):
 
         if direction in ("TX", "TX(FUNC)"):
 
-            hex_str = " ".join(f"{b:02X}" for b in data)
+            hex_str = data.hex(" ").upper()
 
             # Flush any still-open row (e.g. a suppressed
             # TesterPresent that never got a response).
@@ -359,7 +402,7 @@ class FlashWorker(QObject):
 
         elif direction == "RX":
 
-            hex_str = " ".join(f"{b:02X}" for b in data)
+            hex_str = data.hex(" ").upper()
             source = f"0x{self._can_rx_id:03X}"
 
             if self._pending_trace_row is None:
@@ -396,7 +439,7 @@ class FlashWorker(QObject):
             try:
                 text = bytes(data).decode()
             except (UnicodeDecodeError, AttributeError):
-                text = " ".join(f"{b:02X}" for b in data)
+                text = bytes(data).hex(" ").upper()
 
             self.trace_row.emit({
                 "req_ts": elapsed,
@@ -653,12 +696,36 @@ class FlashWorker(QObject):
                 seg_idx, bytes_sent, total
             )
 
+            # Smoothly advance the main progress bar within
+            # this step's weighted slot (see run()'s progress
+            # weighting) as real TransferData bytes go out,
+            # instead of leaving the bar frozen until the whole
+            # Download step finishes — this is the only step
+            # type with continuous progress data to show.
+            weight_before = getattr(
+                self, '_progress_weight_before_step', 0
+            )
+            step_weight = getattr(
+                self, '_progress_weight_of_step', total
+            )
+            total_weight = getattr(
+                self, '_total_progress_weight', total
+            ) or 1
+            frac = (bytes_sent / total) if total > 0 else 0
+            overall = int(
+                (weight_before + frac * step_weight)
+                / total_weight * 100
+            )
+            self.progress_changed.emit(overall)
+
         self._uds_client.download_firmware(
             memory_address=address,
             data=data,
             progress_callback=on_progress,
             addr_length=addr_length,
             size_length=size_length,
+            compression=self._download_compression,
+            encrypting=self._download_encrypting,
         )
 
         self.information_message.emit(

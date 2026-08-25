@@ -30,7 +30,7 @@ class CanMessage:
 
     def hex_string(self):
         """Return data as hex string like '10 02 FF 00'."""
-        return " ".join(f"{b:02X}" for b in self.data)
+        return self.data.hex(" ").upper()
 
     def __repr__(self):
         direction = "TX" if hasattr(self, '_is_tx') else "  "
