@@ -403,9 +403,9 @@ int GenerateKeyExOpt(
 
 <span class="comment">// Legacy signature (chỉ seed 4 byte)</span>
 UINT32 GenerateKeyEx(UINT32 seed);</pre>
-  <p><strong>Quan trọng:</strong> nếu ECU gửi seed dài hơn 4 byte (ví dụ 16 byte như nhiều ECU đời mới), bắt buộc
-  phải load DLL có signature chuẩn ODX/ASAM — thuật toán dummy chỉ xử lý được seed 4 byte, và legacy DLL cũng vậy.
-  Khi không có DLL mà seed &gt; 4 byte, tool sẽ báo lỗi rõ ràng thay vì gửi key sai độ dài.</p>
+  <p><strong>Lưu ý:</strong> thuật toán dummy mặc định xử lý được seed bất kỳ độ dài (chia 4-byte chunk, XOR từng
+  chunk). Nếu ECU chỉ check độ dài key (không validate nội dung), dummy algorithm đủ dùng mà không cần DLL.
+  Khi ECU thật yêu cầu key đúng nội dung, cần load DLL phù hợp.</p>
 
   <h2 class="section-title" id="g-logs">G. Cách lấy log gửi lại để debug</h2>
 
@@ -486,10 +486,10 @@ UINT32 GenerateKeyEx(UINT32 seed);</pre>
     <tr>
       <td>Flash thật <strong>FAILED</strong> — NRC <code>0x13</code> (Incorrect Message Length) ở bước Security
       Access</td>
-      <td>ECU gửi seed dài hơn 4 byte (ví dụ 16 byte) nhưng chưa load Security DLL, hoặc DLL chỉ hỗ trợ
-      <code>UINT32</code> legacy signature. Tool gửi key ngắn hơn ECU kỳ vọng → NRC 0x13</td>
-      <td>Load Security DLL có signature chuẩn ODX/ASAM (<code>GenerateKeyExOpt</code>) hỗ trợ seed bất kỳ
-      độ dài — xem mục F. Nếu chưa có DLL, liên hệ nhà cung cấp ECU</td>
+      <td>Tool phiên bản cũ chỉ lấy 4 byte đầu của seed, gửi key 4 byte dù ECU kỳ vọng key dài hơn (ví dụ
+      16 byte). Đã fix: giờ dummy algorithm xử lý seed bất kỳ độ dài</td>
+      <td>Cập nhật lên phiên bản mới nhất. Nếu vẫn gặp NRC 0x13: kiểm tra Security DLL có trả key đúng
+      độ dài không (legacy DLL chỉ trả 4 byte)</td>
     </tr>
     <tr>
       <td>Timeout, không có phản hồi nào từ ECU ở bất kỳ bước nào</td>

@@ -524,8 +524,7 @@ class FlashWorker(QObject):
         if not self._use_virtual and not dll_loaded:
             self.trace_message.emit(
                 "Security Access: no DLL loaded — "
-                "using dummy seed/key algorithm "
-                "(4-byte seeds only)"
+                "using dummy seed/key algorithm"
             )
 
         self._uds_client.security_access(

@@ -310,19 +310,22 @@ class TestVariableLengthSeed(unittest.TestCase):
             bytes([0x27, 0x02]) + fake_key
         )
 
-    def test_16_byte_seed_no_dll_raises(self):
+    def test_16_byte_seed_dummy_sends_16_byte_key(self):
         seed_16 = bytes(range(0x10, 0x20))
         responses = [
             bytes([0x67, 0x01]) + seed_16,
+            bytes([0x67, 0x02]),
         ]
         can = _ScriptedCanInterface(responses)
         client = UdsClient(can, retry_delay=0.01)
 
-        with self.assertRaises(UdsError) as ctx:
-            client.security_access(level=1)
+        resp = client.security_access(level=1)
 
-        self.assertIn("16-byte seed", str(ctx.exception))
-        self.assertIn("Security DLL", str(ctx.exception))
+        self.assertEqual(resp[0], 0x67)
+        send_key_msg = can.sent[1]
+        self.assertEqual(send_key_msg[0], 0x27)
+        self.assertEqual(send_key_msg[1], 0x02)
+        self.assertEqual(len(send_key_msg), 2 + 16)
 
     def test_4_byte_seed_dummy_still_works(self):
         import struct

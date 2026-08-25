@@ -642,7 +642,6 @@ class UdsClient:
         1. key_function parameter (if provided)
         2. Loaded Security DLL (if loaded)
         3. ECU Simulator default algorithm
-           (4-byte seeds only)
 
         Supports variable-length seeds: the full
         seed payload from the ECU response is used,
@@ -708,21 +707,20 @@ class UdsClient:
                 "Security DLL"
             )
 
-        # 3) Built-in simulator algorithm (4 bytes)
-        if seed_len != 4:
-            raise UdsError(
-                f"ECU sent {seed_len}-byte seed but "
-                f"no Security DLL is loaded. The "
-                f"built-in dummy algorithm only "
-                f"handles 4-byte seeds. Load the "
-                f"correct Security DLL for this ECU."
-            )
+        # 3) Built-in dummy algorithm — process in
+        #    4-byte chunks so any seed length works
         from communication.ecu_simulator import (
             EcuSimulator,
         )
-        seed_int = struct.unpack(">I", seed_bytes)[0]
-        key_int = EcuSimulator.compute_key(seed_int)
-        return struct.pack(">I", key_int)
+        key_buf = bytearray()
+        for i in range(0, seed_len, 4):
+            chunk = seed_bytes[i:i + 4]
+            if len(chunk) < 4:
+                chunk = chunk + b'\x00' * (4 - len(chunk))
+            seed_int = struct.unpack(">I", chunk)[0]
+            key_int = EcuSimulator.compute_key(seed_int)
+            key_buf += struct.pack(">I", key_int)
+        return bytes(key_buf[:seed_len])
 
     @staticmethod
     def _call_key_func(func, seed_bytes, level, name):
