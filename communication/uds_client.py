@@ -178,6 +178,7 @@ class UdsClient:
 
         # Security DLL function reference
         self._security_dll_func = None
+        self._security_dll_is_bytes = False
 
     # ==========================================
     # Core: Send & Receive
@@ -377,41 +378,105 @@ class UdsClient:
     def load_security_dll(
         self,
         dll_path,
-        function_name="GenerateKeyEx",
+        function_name="GenerateKeyExOpt",
     ):
         """
         Load an external DLL for security key
         calculation.
 
+        Tries ``function_name`` first with the
+        standard ODX/ASAM signature (byte-buffer
+        seed of any length):
+            GenerateKeyExOpt(
+                iSeedArray, iSeedLen,
+                iSecurityLevel, iVariant,
+                oKeyArray,  iMaxKeyLen,
+                oKeyLen) -> int
+
+        Falls back to "GenerateKeyEx" with the
+        same signature, then to a legacy
+        UINT32 -> UINT32 wrapper.
+
         Args:
             dll_path: Path to the DLL file.
-            function_name: Name of the key generation
-                          function in the DLL.
-
-        The DLL function should accept:
-            (seed: UINT32) -> UINT32 (key)
+            function_name: Entry point to try first.
         """
 
         import ctypes
 
         try:
             dll = ctypes.CDLL(dll_path)
-            func = getattr(dll, function_name)
-            func.argtypes = [ctypes.c_uint32]
-            func.restype = ctypes.c_uint32
-
-            self._security_dll_func = func
-
-            if self._trace_callback:
-                self._trace_callback(
-                    "INFO",
-                    f"Security DLL loaded: "
-                    f"{dll_path}".encode()
-                )
-
         except Exception as e:
             raise UdsError(
                 f"Failed to load security DLL: {e}"
+            )
+
+        buf_func = None
+        for name in dict.fromkeys(
+            [function_name, "GenerateKeyExOpt",
+             "GenerateKeyEx"]
+        ):
+            fn = getattr(dll, name, None)
+            if fn is None:
+                continue
+            try:
+                fn.argtypes = [
+                    ctypes.POINTER(ctypes.c_uint8),
+                    ctypes.c_uint32,
+                    ctypes.c_uint32,
+                    ctypes.c_char_p,
+                    ctypes.POINTER(ctypes.c_uint8),
+                    ctypes.c_uint32,
+                    ctypes.POINTER(ctypes.c_uint32),
+                ]
+                fn.restype = ctypes.c_int32
+                buf_func = fn
+                break
+            except Exception:
+                continue
+
+        if buf_func is not None:
+            def _dll_key_func(seed_bytes, level=1):
+                n = len(seed_bytes)
+                seed_arr = (ctypes.c_uint8 * n)(
+                    *seed_bytes
+                )
+                max_key = max(n, 128)
+                key_arr = (ctypes.c_uint8 * max_key)()
+                key_len = ctypes.c_uint32(0)
+                rc = buf_func(
+                    seed_arr, n, level,
+                    b"", key_arr, max_key,
+                    ctypes.byref(key_len),
+                )
+                if rc != 0:
+                    raise UdsError(
+                        f"Security DLL returned "
+                        f"error {rc}"
+                    )
+                return bytes(
+                    key_arr[: key_len.value]
+                )
+
+            self._security_dll_func = _dll_key_func
+            self._security_dll_is_bytes = True
+        else:
+            fn = getattr(dll, function_name, None)
+            if fn is None:
+                raise UdsError(
+                    f"Security DLL has no "
+                    f"'{function_name}' export"
+                )
+            fn.argtypes = [ctypes.c_uint32]
+            fn.restype = ctypes.c_uint32
+            self._security_dll_func = fn
+            self._security_dll_is_bytes = False
+
+        if self._trace_callback:
+            self._trace_callback(
+                "INFO",
+                f"Security DLL loaded: "
+                f"{dll_path}".encode()
             )
 
     # ==========================================
@@ -577,10 +642,18 @@ class UdsClient:
         1. key_function parameter (if provided)
         2. Loaded Security DLL (if loaded)
         3. ECU Simulator default algorithm
+           (4-byte seeds only)
+
+        Supports variable-length seeds: the full
+        seed payload from the ECU response is used,
+        not a fixed 4-byte slice.
 
         Args:
             level: Security level (odd number).
-            key_function: Function(seed_int) -> key_int.
+            key_function: Function(seed_int) -> key_int
+                for 4-byte seeds, or
+                Function(seed_bytes) -> key_bytes
+                for arbitrary length.
 
         Returns:
             Response payload from SendKey.
@@ -591,34 +664,80 @@ class UdsClient:
             bytes([SID_SECURITY_ACCESS, level])
         )
 
-        # Extract seed (4 bytes after SID + subFunction)
-        seed_bytes = seed_response[2:6]
+        # Extract full seed (everything after
+        # positive-response SID + subFunction)
+        seed_bytes = seed_response[2:]
 
-        if seed_bytes == b'\x00\x00\x00\x00':
-            # Already unlocked
+        if all(b == 0 for b in seed_bytes):
             return seed_response
 
-        seed = struct.unpack(">I", seed_bytes)[0]
-
         # Step 2: Calculate Key (priority order)
-        if key_function is not None:
-            key = key_function(seed)
-        elif self._security_dll_func is not None:
-            key = self._security_dll_func(seed)
-        else:
-            # Default: use simulator's algorithm
-            from communication.ecu_simulator import (
-                EcuSimulator,
-            )
-            key = EcuSimulator.compute_key(seed)
-
-        key_bytes = struct.pack(">I", key)
+        key_bytes = self._compute_security_key(
+            seed_bytes, level, key_function
+        )
 
         # Step 3: Send Key
         return self._send_request(
             bytes([SID_SECURITY_ACCESS, level + 1])
             + key_bytes
         )
+
+    def _compute_security_key(
+        self, seed_bytes, level, key_function
+    ):
+        """Resolve and call the right key algorithm."""
+
+        seed_len = len(seed_bytes)
+
+        # 1) Explicit key_function parameter
+        if key_function is not None:
+            return self._call_key_func(
+                key_function, seed_bytes, level,
+                "key_function"
+            )
+
+        # 2) Loaded Security DLL
+        if self._security_dll_func is not None:
+            if self._security_dll_is_bytes:
+                return self._security_dll_func(
+                    seed_bytes, level
+                )
+            return self._call_key_func(
+                self._security_dll_func,
+                seed_bytes, level,
+                "Security DLL"
+            )
+
+        # 3) Built-in simulator algorithm (4 bytes)
+        if seed_len != 4:
+            raise UdsError(
+                f"ECU sent {seed_len}-byte seed but "
+                f"no Security DLL is loaded. The "
+                f"built-in dummy algorithm only "
+                f"handles 4-byte seeds. Load the "
+                f"correct Security DLL for this ECU."
+            )
+        from communication.ecu_simulator import (
+            EcuSimulator,
+        )
+        seed_int = struct.unpack(">I", seed_bytes)[0]
+        key_int = EcuSimulator.compute_key(seed_int)
+        return struct.pack(">I", key_int)
+
+    @staticmethod
+    def _call_key_func(func, seed_bytes, level, name):
+        """Call a uint32->uint32 key function,
+        requiring a 4-byte seed."""
+        if len(seed_bytes) != 4:
+            raise UdsError(
+                f"{name} expects a 4-byte seed but "
+                f"ECU sent {len(seed_bytes)} bytes. "
+                f"Use a Security DLL that supports "
+                f"variable-length seeds."
+            )
+        seed_int = struct.unpack(">I", seed_bytes)[0]
+        key_int = func(seed_int)
+        return struct.pack(">I", key_int)
 
     # ==========================================
     # Communication Control (0x28)

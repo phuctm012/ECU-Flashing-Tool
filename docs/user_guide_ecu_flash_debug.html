@@ -389,14 +389,23 @@ python -m unittest discover -s tests -p "test_*.py" -v
   <h3>Security Access DLL (nếu ECU dùng thuật toán OEM riêng)</h3>
   <p>Thứ tự ưu tiên tính key bảo mật: <code>key_function</code> truyền thẳng (không dùng trong GUI/CLI thông
   thường) → <strong>Security DLL đã load</strong> → thuật toán "dummy" mặc định của Virtual ECU Simulator (chỉ
-  dùng được với ECU giả lập, không hoạt động trên ECU thật có bảo mật thật).</p>
+  dùng được với ECU giả lập hoặc ECU dùng seed 4 byte + thuật toán dummy).</p>
   <p>Nếu ECU yêu cầu thuật toán riêng: chọn file DLL ở mục <strong>Security Access DLL</strong> (Browse... trong
-  GUI), hoặc <code>--security-dll &lt;path&gt;</code> trong CLI. DLL phải export đúng hàm:</p>
-  <pre><span class="comment">// C signature mong đợi trong DLL</span>
+  GUI), hoặc <code>--security-dll &lt;path&gt;</code> trong CLI.</p>
+  <p>Tool tự detect signature DLL theo thứ tự: <code>GenerateKeyExOpt</code> → <code>GenerateKeyEx</code> (chuẩn
+  ODX/ASAM, hỗ trợ seed bất kỳ độ dài) → fallback <code>UINT32→UINT32</code> legacy.</p>
+  <pre><span class="comment">// Signature chuẩn ODX/ASAM (ưu tiên — hỗ trợ seed mọi độ dài)</span>
+int GenerateKeyExOpt(
+    const unsigned char* iSeedArray, unsigned int iSeedArraySize,
+    unsigned int iSecurityLevel, const char* iVariant,
+    unsigned char* ioKeyArray, unsigned int iMaxKeyArraySize,
+    unsigned int* oActualKeyArraySize);
+
+<span class="comment">// Legacy signature (chỉ seed 4 byte)</span>
 UINT32 GenerateKeyEx(UINT32 seed);</pre>
-  <p>Tool load DLL qua <code>ctypes.CDLL</code>, gọi hàm <code>GenerateKeyEx</code> (mặc định — có thể đổi tên
-  hàm qua tham số riêng nếu cần) với <code>seed</code> nhận từ ECU, kỳ vọng nhận lại <code>key</code> dạng
-  <code>UINT32</code>.</p>
+  <p><strong>Quan trọng:</strong> nếu ECU gửi seed dài hơn 4 byte (ví dụ 16 byte như nhiều ECU đời mới), bắt buộc
+  phải load DLL có signature chuẩn ODX/ASAM — thuật toán dummy chỉ xử lý được seed 4 byte, và legacy DLL cũng vậy.
+  Khi không có DLL mà seed &gt; 4 byte, tool sẽ báo lỗi rõ ràng thay vì gửi key sai độ dài.</p>
 
   <h2 class="section-title" id="g-logs">G. Cách lấy log gửi lại để debug</h2>
 
@@ -473,6 +482,14 @@ UINT32 GenerateKeyEx(UINT32 seed);</pre>
       — chỉ lộ ra khi chạy <code>flash</code> thật</td>
       <td>Xác nhận đã chọn đúng Security DLL cho ECU này (mục F); liên hệ để xác nhận thuật toán/DLL đúng; nên
       test trên ECU dự phòng/bench trước khi thử ECU sản xuất</td>
+    </tr>
+    <tr>
+      <td>Flash thật <strong>FAILED</strong> — NRC <code>0x13</code> (Incorrect Message Length) ở bước Security
+      Access</td>
+      <td>ECU gửi seed dài hơn 4 byte (ví dụ 16 byte) nhưng chưa load Security DLL, hoặc DLL chỉ hỗ trợ
+      <code>UINT32</code> legacy signature. Tool gửi key ngắn hơn ECU kỳ vọng → NRC 0x13</td>
+      <td>Load Security DLL có signature chuẩn ODX/ASAM (<code>GenerateKeyExOpt</code>) hỗ trợ seed bất kỳ
+      độ dài — xem mục F. Nếu chưa có DLL, liên hệ nhà cung cấp ECU</td>
     </tr>
     <tr>
       <td>Timeout, không có phản hồi nào từ ECU ở bất kỳ bước nào</td>

@@ -515,19 +515,17 @@ class FlashWorker(QObject):
         if self._use_virtual:
             key_func = EcuSimulator.compute_key
 
-        # If no key_function and no Security DLL is loaded,
-        # UdsClient.security_access() falls back to the same
-        # dummy seed/key algorithm as the ECU Simulator. That
-        # matches ECUs (e.g. Suzuki Radar) currently running
-        # dummy security access on their end.
         dll_loaded = (
-            getattr(self._uds_client, '_security_dll_func', None)
-            is not None
+            getattr(
+                self._uds_client,
+                '_security_dll_func', None
+            ) is not None
         )
         if not self._use_virtual and not dll_loaded:
             self.trace_message.emit(
                 "Security Access: no DLL loaded — "
-                "using dummy seed/key algorithm"
+                "using dummy seed/key algorithm "
+                "(4-byte seeds only)"
             )
 
         self._uds_client.security_access(

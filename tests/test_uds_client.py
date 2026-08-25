@@ -285,5 +285,83 @@ class TestSecurityDllLoader(unittest.TestCase):
             client.load_security_dll("/nonexistent/path/to.dll")
 
 
+class TestVariableLengthSeed(unittest.TestCase):
+
+    def test_16_byte_seed_with_bytes_key_function(self):
+        seed_16 = bytes(range(0x10, 0x20))
+        fake_key = bytes(range(0x20, 0x30))
+        responses = [
+            bytes([0x67, 0x01]) + seed_16,
+            bytes([0x67, 0x02]),
+        ]
+        can = _ScriptedCanInterface(responses)
+        client = UdsClient(can, retry_delay=0.01)
+        client._security_dll_func = (
+            lambda sb, lvl: fake_key
+        )
+        client._security_dll_is_bytes = True
+
+        resp = client.security_access(level=1)
+
+        self.assertEqual(resp[0], 0x67)
+        send_key_msg = can.sent[1]
+        self.assertEqual(
+            send_key_msg,
+            bytes([0x27, 0x02]) + fake_key
+        )
+
+    def test_16_byte_seed_no_dll_raises(self):
+        seed_16 = bytes(range(0x10, 0x20))
+        responses = [
+            bytes([0x67, 0x01]) + seed_16,
+        ]
+        can = _ScriptedCanInterface(responses)
+        client = UdsClient(can, retry_delay=0.01)
+
+        with self.assertRaises(UdsError) as ctx:
+            client.security_access(level=1)
+
+        self.assertIn("16-byte seed", str(ctx.exception))
+        self.assertIn("Security DLL", str(ctx.exception))
+
+    def test_4_byte_seed_dummy_still_works(self):
+        import struct
+        seed_int = 0x12345678
+        seed_bytes = struct.pack(">I", seed_int)
+        expected_key = EcuSimulator.compute_key(
+            seed_int
+        )
+        expected_key_bytes = struct.pack(
+            ">I", expected_key
+        )
+        responses = [
+            bytes([0x67, 0x01]) + seed_bytes,
+            bytes([0x67, 0x02]),
+        ]
+        can = _ScriptedCanInterface(responses)
+        client = UdsClient(can, retry_delay=0.01)
+
+        resp = client.security_access(level=1)
+
+        self.assertEqual(resp[0], 0x67)
+        send_key_msg = can.sent[1]
+        self.assertEqual(
+            send_key_msg,
+            bytes([0x27, 0x02]) + expected_key_bytes
+        )
+
+    def test_already_unlocked_variable_seed(self):
+        responses = [
+            bytes([0x67, 0x01, 0, 0, 0, 0, 0, 0]),
+        ]
+        can = _ScriptedCanInterface(responses)
+        client = UdsClient(can, retry_delay=0.01)
+
+        resp = client.security_access(level=1)
+
+        self.assertEqual(resp[0], 0x67)
+        self.assertEqual(len(can.sent), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
