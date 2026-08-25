@@ -1,6 +1,6 @@
 @echo off
 REM ==================================================
-REM FFlash — Build script (Windows only)
+REM SFlash — Build script (Windows only)
 REM ==================================================
 REM
 REM Builds main.py (the GUI app) with PyInstaller. Run this
@@ -18,7 +18,7 @@ setlocal
 
 cd /d "%~dp0"
 
-set APP_NAME=FFlash
+set APP_NAME=SFlash
 set ICON_PATH=resources\icons\flash_bolt_blue.ico
 
 echo ==================================================
@@ -30,7 +30,7 @@ echo Choose build type:
 echo   1. Onefile - single .exe, easiest to share, but self-extracts
 echo      to a temp folder on every launch (slower to start, worse
 echo      on slow disks / with antivirus scanning the extracted files).
-echo   2. Onedir  - a folder (FFlash.exe + its support files together),
+echo   2. Onedir  - a folder (SFlash.exe + its support files together),
 echo      starts noticeably faster since there is no self-extract step,
 echo      but you must keep/copy the whole folder together, not just
 echo      the .exe.

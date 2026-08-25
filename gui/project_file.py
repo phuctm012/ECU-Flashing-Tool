@@ -1,12 +1,12 @@
 # ==================================================
-# Save / Load Project (.ffproj)
+# Save / Load Project (.sfproj)
 # ==================================================
 #
 # A named, user-initiated snapshot of a flashing session —
 # which firmware files are loaded (and ticked/unticked), plus
 # the Hardware/Radar Side/Logical Link/Security DLL/Flash
 # Sequence configuration — saved to a plain JSON file with a
-# .ffproj extension so it can be reopened exactly as left, or
+# .sfproj extension so it can be reopened exactly as left, or
 # handed to someone else (docs/gui_todo.md item #20).
 #
 # Distinct from gui/settings_profile.py's single auto-saved
@@ -21,7 +21,7 @@ import os
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-PROJECT_FILE_FILTER = "FFlash Project (*.ffproj);;All Files (*)"
+PROJECT_FILE_FILTER = "SFlash Project (*.sfproj);;All Files (*)"
 PROJECT_FORMAT_VERSION = 1
 
 
@@ -49,8 +49,8 @@ class ProjectFileMixin:
         if not path:
             return
 
-        if not path.lower().endswith(".ffproj"):
-            path += ".ffproj"
+        if not path.lower().endswith(".sfproj"):
+            path += ".sfproj"
 
         data = self._build_project_data()
 
@@ -123,6 +123,16 @@ class ProjectFileMixin:
             "flash_sequence_index": (
                 self.ui.comboBoxFlashSequence.currentIndex()
                 if hasattr(self.ui, 'comboBoxFlashSequence') else 0
+            ),
+            "compression_method": (
+                self.ui.comboBoxCompressionMethod.currentIndex()
+                if hasattr(self.ui, 'comboBoxCompressionMethod')
+                else 0
+            ),
+            "encryption_method": (
+                self.ui.comboBoxEncryptionMethod.currentIndex()
+                if hasattr(self.ui, 'comboBoxEncryptionMethod')
+                else 0
             ),
         }
 
@@ -228,5 +238,17 @@ class ProjectFileMixin:
         if hasattr(self.ui, 'comboBoxFlashSequence'):
             index = data.get("flash_sequence_index", 0)
             combo = self.ui.comboBoxFlashSequence
+            if 0 <= index < combo.count():
+                combo.setCurrentIndex(index)
+
+        if hasattr(self.ui, 'comboBoxCompressionMethod'):
+            index = data.get("compression_method", 0)
+            combo = self.ui.comboBoxCompressionMethod
+            if 0 <= index < combo.count():
+                combo.setCurrentIndex(index)
+
+        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
+            index = data.get("encryption_method", 0)
+            combo = self.ui.comboBoxEncryptionMethod
             if 0 <= index < combo.count():
                 combo.setCurrentIndex(index)

@@ -60,14 +60,14 @@ class IssueExportMixin:
 
         if include_firmware:
             default_name = (
-                "fflash_issue_"
+                "sflash_issue_"
                 + datetime.now().strftime("%Y%m%d_%H%M%S")
                 + ".zip"
             )
             file_filter = "Zip Files (*.zip);;All Files (*)"
         else:
             default_name = (
-                "fflash_issue_"
+                "sflash_issue_"
                 + datetime.now().strftime("%Y%m%d_%H%M%S")
                 + ".txt"
             )

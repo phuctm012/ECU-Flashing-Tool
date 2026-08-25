@@ -1,5 +1,5 @@
 # ==================================================
-# Build dependencies — chỉ cần khi build FFlash thành
+# Build dependencies — chỉ cần khi build SFlash thành
 # file .exe cho Windows (KHÔNG cần để chạy app bình
 # thường bằng "python main.py").
 #

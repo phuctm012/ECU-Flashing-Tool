@@ -1,4 +1,4 @@
-# FFlash (v1.1)
+# SFlash (v1.1)
 
 Ứng dụng desktop (PySide6) để **flash firmware ECU** qua giao thức **UDS (ISO 14229)** trên bus CAN — hỗ trợ chạy với **ECU giả lập** (không cần phần cứng) hoặc với thiết bị **Vector VN1640A / VN1630** thật.
 
@@ -15,7 +15,7 @@
 - **Security DLL loader**: có thể trỏ tới DLL ngoài (`ctypes`) để tính key bảo mật theo thuật toán riêng của OEM khi flash ECU thật.
 - **Đọc thông tin ECU (ReadDID)**: đọc SW/HW Version, Part Number, Serial Number trước và sau khi flash để xác nhận.
 - **GUI theo dõi tiến trình real-time**: bảng các bước UDS, tiến trình từng segment, progress bar, log kỹ thuật (trace CAN frame) và log dễ đọc (information) tách riêng.
-- **Menu bar (File/Edit/View/Tools/Help)**: Load Firmware..., **Recent Files** (tối đa 8 file gần nhất, click để nạp lại nhanh), **Save Project As... / Open Project...** (lưu/nạp lại 1 phiên làm việc trọn vẹn — firmware đã nạp + cấu hình CAN — thành file `.ffproj`, khác với Profile tự động chỉ nhớ cấu hình lần cuối), Close Window, Clear Information Log / Clear Trace Table, **Dark Mode** (toggle, mặc định tắt — Light Mode — ở lần chạy đầu tiên, nhớ lại lựa chọn giữa các lần mở app sau đó), **Resize Window** (Default/Medium/Large + Maximize/Full Screen), **Flash / Abort** (tương đương nút Flash/Abort trên tab Flash — chỉ 1 trong 2 bật tuỳ trạng thái đang chạy hay không), **Test Connection...** (kiểm tra session + security access an toàn ngay trên GUI, không cần dùng CLI — không đụng Erase/Download), Export Report..., About, **Open Guideline** (hướng dẫn sử dụng nhanh dành cho end-user, `docs/user_guide.html`, có ảnh minh hoạ — ngắn gọn hơn README này), **Export Issue...** (xuất 1 file `.txt` gom Environment/Configuration/CAN Details/Datablocks/Information Log/Trace — để đính kèm khi cần hỗ trợ debug, cố tình bỏ bảng Steps vì Information Log đã narrate lại đủ chi tiết; có tuỳ chọn tick checkbox để đính kèm luôn file firmware đang nạp, xuất ra `.zip` — hữu ích khi nghi ngờ lỗi do sai định dạng/parse sai firmware, mặc định không tick vì firmware có thể nhạy cảm).
+- **Menu bar (File/Edit/View/Tools/Help)**: Load Firmware..., **Recent Files** (tối đa 8 file gần nhất, click để nạp lại nhanh), **Save Project As... / Open Project...** (lưu/nạp lại 1 phiên làm việc trọn vẹn — firmware đã nạp + cấu hình CAN — thành file `.sfproj`, khác với Profile tự động chỉ nhớ cấu hình lần cuối), Close Window, Clear Information Log / Clear Trace Table, **Dark Mode** (toggle, mặc định tắt — Light Mode — ở lần chạy đầu tiên, nhớ lại lựa chọn giữa các lần mở app sau đó), **Resize Window** (Default/Medium/Large + Maximize/Full Screen), **Flash / Abort** (tương đương nút Flash/Abort trên tab Flash — chỉ 1 trong 2 bật tuỳ trạng thái đang chạy hay không), **Test Connection...** (kiểm tra session + security access an toàn ngay trên GUI, không cần dùng CLI — không đụng Erase/Download), Export Report..., About, **Open Guideline** (hướng dẫn sử dụng nhanh dành cho end-user, `docs/user_guide.html`, có ảnh minh hoạ — ngắn gọn hơn README này), **Export Issue...** (xuất 1 file `.txt` gom Environment/Configuration/CAN Details/Datablocks/Information Log/Trace — để đính kèm khi cần hỗ trợ debug, cố tình bỏ bảng Steps vì Information Log đã narrate lại đủ chi tiết; có tuỳ chọn tick checkbox để đính kèm luôn file firmware đang nạp, xuất ra `.zip` — hữu ích khi nghi ngờ lỗi do sai định dạng/parse sai firmware, mặc định không tick vì firmware có thể nhạy cảm).
 - **Export Report (HTML)**: xuất báo cáo tổng hợp 1 phiên flash (ECU info, checksum, các bước, trace) ra file HTML — menu **Tools → Export Report...**.
 - **Lưu cấu hình tự động**: Hardware/Radar Side/Security DLL/Flash Sequence/Dark Mode được nhớ lại giữa các lần mở app.
 - **Giao diện theme nhất quán ("Engineering Blue"), có Dark Mode**: QSS áp dụng toàn app (`resources/style.qss` sáng, `resources/style_dark.qss` tối, toggle qua menu **View → Dark Mode**) — button/tab/table/progress bar/menu đồng bộ 1 tông màu xanh dương, có phản hồi hover/pressed rõ ràng, progress bar chuyển động mượt thay vì nhảy cứng theo từng bước, thay vì style mặc định rời rạc của OS. Icon app cũng được set làm window/taskbar icon lúc chạy (không chỉ icon file `.exe`).
@@ -47,7 +47,7 @@
 │   ├── test_connection_dialog.py  ← Dialog Tools > Test Connection...
 │   ├── report_export.py       ← Export Report... (HTML), gọi từ menu Tools
 │   ├── settings_profile.py    ← Lưu/nạp cấu hình (QSettings)
-│   ├── project_file.py        ← Save/Open Project (.ffproj, JSON) — File menu
+│   ├── project_file.py        ← Save/Open Project (.sfproj, JSON) — File menu
 │   ├── issue_export.py        ← Export Issue (.txt debug bundle) — Help menu
 │   └── style.py               ← load_stylesheet(dark=), is_dark_mode_enabled(), ICON_PATH
 │
@@ -190,8 +190,9 @@ Nếu bỏ qua bước này, kết nối từ tool sẽ báo lỗi kiểu *"no c
 ### D. Sử dụng trong app
 
 1. Tab **Configure → Communication** → bấm **"Refresh"** cạnh combo Hardware để quét lại thiết bị đang cắm, rồi chọn kênh tương ứng vừa xuất hiện. Combo mặc định chỉ có **"Virtual ECU Simulator"** — kênh thật chỉ hiện ra khi có hardware Vector thật sự được nhận diện *và* đã đăng ký ở bước B (không còn danh sách kênh giả cố định như trước).
-2. Nếu ECU yêu cầu thuật toán bảo mật riêng của OEM: chọn file DLL ở mục **"Security Access DLL"** (Browse...).
-3. Nạp file firmware và nhấn **Flash** như trên. Khuyến nghị chạy `test-connection` trước (xem mục [Command Line Interface](#command-line-interface-clipy)) để xác nhận đấu dây/channel/security đúng trước khi flash thật.
+2. Nếu ECU yêu cầu thuật toán bảo mật riêng của OEM: tab **Configure → Miscellaneous** → chọn file DLL ở mục **"Security Access DLL"** (Browse...).
+3. Nếu ECU yêu cầu khai báo compression/encryption method trong RequestDownload: cùng tab **Miscellaneous**, mục **"Data Format (RequestDownload)"** — 2 combo **Compression**/**Encryption** (giá trị 0-F, mặc định 0 = None) chỉ set nibble tương ứng trong byte `dataFormatIdentifier` gửi cho ECU, **không** tự nén/mã hóa dữ liệu firmware — file nạp vào phải đã ở đúng định dạng đó từ trước nếu chọn giá trị khác 0.
+4. Nạp file firmware và nhấn **Flash** như trên. Khuyến nghị chạy `test-connection` trước (xem mục [Command Line Interface](#command-line-interface-clipy)) để xác nhận đấu dây/channel/security đúng trước khi flash thật.
 
 ### Lưu ý về đánh số channel (`--channel N`)
 
@@ -234,7 +235,7 @@ python cli.py flash --help
 python cli.py test-connection --help
 ```
 
-Các cờ chính của `flash`/`test-connection` (dùng chung): `--hardware {virtual,vector}`, `--channel`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `-q`/`--quiet`, `-v`/`--verbose`. Riêng `flash` có thêm `--base-address` (cho file `.bin`) và `--dry-run`. Mã thoát (exit code): `0` = thành công, `1` = abort/lỗi, `2` = lỗi tham số/parse file, `130` = bị ngắt (Ctrl+C) — thuận tiện để dùng trong script CI/automation.
+Các cờ chính của `flash`/`test-connection` (dùng chung): `--hardware {virtual,vector}`, `--channel`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `--compression`/`--encryption` (nibble `dataFormatIdentifier` của RequestDownload, 0-15, mặc định 0 — chỉ khai báo định dạng cho ECU, không tự nén/mã hóa file), `-q`/`--quiet`, `-v`/`--verbose`. Riêng `flash` có thêm `--base-address` (cho file `.bin`) và `--dry-run`. Mã thoát (exit code): `0` = thành công, `1` = abort/lỗi, `2` = lỗi tham số/parse file, `130` = bị ngắt (Ctrl+C) — thuận tiện để dùng trong script CI/automation.
 
 **Lưu ý**: `--hardware vector` (Vector VN1640A/VN1630 thật) chỉ dùng được trên **Windows** vì driver Vector XL Driver Library chỉ có bản Windows. `--hardware virtual` (mặc định) chạy y hệt trên mọi hệ điều hành.
 
@@ -302,7 +303,7 @@ Hoặc test qua GUI (`python main.py`): Configure → Communication → bấm **
 | 2 | File parser (HEX, S-Record, Binary) | ✅ |
 | 3 | CAN Communication + UDS Protocol + ECU Simulator | ✅ |
 | 4 | UDS nâng cao: keepalive, ReadDID, NRC retry, Security DLL loader | ✅ |
-| 5 | GUI theme + Dark Mode, menu bar (Recent Files/Edit/Save-Load Project), đọc DTC sau flash | 🔜 (Save/Load Project `.ffproj` xong, còn đọc DTC) |
+| 5 | GUI theme + Dark Mode, menu bar (Recent Files/Edit/Save-Load Project), đọc DTC sau flash | 🔜 (Save/Load Project `.sfproj` xong, còn đọc DTC) |
 
 Xem chi tiết từng phase (kiến trúc, file mới, kết quả test) trong [`docs/walkthrough.md`](docs/walkthrough.md).
 
@@ -328,7 +329,7 @@ python -m unittest tests.test_parsers -v
 | `test_uds_client.py` | UDS Client qua Virtual ECU: session/security/read/write, functional addressing, NRC retry, ResponsePending (0x78), regression byte-order `RequestDownload` (ISO 14229) |
 | `test_flash_controller.py` | `FlashWorker.run()` end-to-end (đồng bộ) qua Virtual ECU — cả sequence generic lẫn Suzuki |
 | `test_flash_threading.py` | **Regression cho crash `QThread: Destroyed while thread is still running`** — chạy qua đúng `QThread` thật (`flash_button_clicked()` + `app.exec()`): 1 lần, lặp 5 lần, abort giữa chừng, đóng cửa sổ giữa chừng |
-| `test_gui_smoke.py` | Khởi tạo `MainWindow`, tồn tại widget, `get_can_config()` (Radar Side, channel, CAN FD), lưu log `.txt`/`.csv`, cảnh báo xung đột CAN bus, lọc datablock theo checkbox, Export Report, lưu/nạp profile (`QSettings`), wiring menu bar, File > Recent Files, menu Edit (Clear Information Log/Trace), Save/Open Project (`.ffproj`), Resize Window, Export Issue (`.txt`/`.zip` kèm firmware) |
+| `test_gui_smoke.py` | Khởi tạo `MainWindow`, tồn tại widget, `get_can_config()` (Radar Side, channel, CAN FD), lưu log `.txt`/`.csv`, cảnh báo xung đột CAN bus, lọc datablock theo checkbox, Export Report, lưu/nạp profile (`QSettings`), wiring menu bar, File > Recent Files, menu Edit (Clear Information Log/Trace), Save/Open Project (`.sfproj`), Resize Window, Export Issue (`.txt`/`.zip` kèm firmware) |
 | `test_cli.py` | `cli.py` — `info`/`flash`/`list-hardware`/`test-connection`, `--dry-run`, Suzuki + Radar Side, `--quiet`/`--verbose`, cleanup khôi phục DTC/Comm, mã lỗi khi thiếu `python-can`/sai tham số |
 | `test_vector_can.py` | `detect_running_vector_tools()` (nhận diện CANoe/CANalyzer/CANape qua `tasklist`, chỉ Windows) và field `is_on_bus` trong `detect_vector_channels()` |
 | `test_test_connection.py` | `TestConnectionWorker.run()` đồng bộ qua Virtual ECU — generic/suzuki, đọc ECU ID, không bao giờ gửi SID `0x34`/`0x36`, khôi phục Default session |
@@ -352,7 +353,7 @@ build.bat
 
 | | Onefile (mặc định) | Onedir |
 |---|---|---|
-| Kết quả | 1 file `dist\FFlash.exe` duy nhất | 1 thư mục `dist\FFlash\` (chứa `FFlash.exe` + file phụ trợ) |
+| Kết quả | 1 file `dist\SFlash.exe` duy nhất | 1 thư mục `dist\SFlash\` (chứa `SFlash.exe` + file phụ trợ) |
 | Gửi/copy | Dễ — chỉ 1 file | Phải giữ nguyên cả thư mục, không tách riêng `.exe` |
 | Tốc độ mở | Chậm hơn — mỗi lần chạy tự giải nén ra thư mục temp trước | Nhanh hơn rõ rệt — không có bước tự giải nén |
 

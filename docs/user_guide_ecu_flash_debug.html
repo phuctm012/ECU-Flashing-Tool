@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<title>FFlash — Hướng Dẫn Setup &amp; Debug Flash ECU Thật (Windows)</title>
+<title>SFlash — Hướng Dẫn Setup &amp; Debug Flash ECU Thật (Windows)</title>
 <style>
   :root {
     --accent: #2b579a;
@@ -182,7 +182,7 @@
 <div class="wrap">
 
   <header>
-    <h1>FFlash</h1>
+    <h1>SFlash</h1>
     <span class="version">v1.1 — Setup &amp; Debug Guide (Real ECU, Windows)</span>
   </header>
   <div class="tagline">Tài liệu nội bộ — không nhúng vào GUI. Dùng khi mang tool sang máy Windows khác để test flash ECU thật.</div>
@@ -289,8 +289,8 @@ pip install python-can</pre>
   <h2 class="section-title" id="c-canoe">C. Nếu máy có cài CANoe/CANalyzer song song</h2>
 
   <ul class="plain">
-    <li>CANoe và FFlash có thể cùng đăng ký dùng chung 1 channel vật lý (driver Vector hỗ trợ nhiều app/channel).</li>
-    <li>Nên <strong>dừng measurement (hoặc đóng hẳn) CANoe</strong> trong lúc dùng FFlash, tránh 2 bên cùng gửi
+    <li>CANoe và SFlash có thể cùng đăng ký dùng chung 1 channel vật lý (driver Vector hỗ trợ nhiều app/channel).</li>
+    <li>Nên <strong>dừng measurement (hoặc đóng hẳn) CANoe</strong> trong lúc dùng SFlash, tránh 2 bên cùng gửi
     frame lên bus gây xung đột/nhiễu trace — đặc biệt nếu CANoe có node giả lập gửi UDS/TesterPresent trùng CAN ID.</li>
     <li>Nếu chỉ dùng CANoe để <strong>log CAN bus</strong> song song (không có node nào chủ động gửi UDS): về
     nguyên tắc chạy cùng lúc được, nhưng nhớ <strong>tắt TesterPresent tự động của CANoe</strong> trên đúng CAN
@@ -300,7 +300,7 @@ pip install python-can</pre>
 
   <div class="ok">
     <strong class="label">App tự cảnh báo:</strong> trước khi flash vào hardware thật (không áp dụng cho Virtual
-    ECU Simulator), FFlash tự kiểm tra 2 tín hiệu — tiến trình <code>CANoe.exe</code>/<code>CANalyzer.exe</code>/
+    ECU Simulator), SFlash tự kiểm tra 2 tín hiệu — tiến trình <code>CANoe.exe</code>/<code>CANalyzer.exe</code>/
     <code>CANape.exe</code> đang chạy (qua <code>tasklist</code>), và channel đang chọn có báo
     <code>is_on_bus</code> (đã có app khác giữ) hay không. Trong GUI hiện hộp thoại Yes/No (mặc định
     <strong>No</strong>); trong CLI chỉ in cảnh báo ra <code>stderr</code> rồi tiếp tục chạy (không chặn script).
@@ -525,7 +525,7 @@ UINT32 GenerateKeyEx(UINT32 seed);</pre>
     <li>Đã cắm VN1640A/VN1630 qua USB</li>
     <li>Vector Hardware Config: đã thêm app <code>FlashTool</code> và gán đúng channel vật lý, đã Save
     (bỏ qua được nếu dùng cách chọn theo serial number, mục B)</li>
-    <li>Nếu có CANoe: đã đóng/dừng measurement trước khi chạy FFlash</li>
+    <li>Nếu có CANoe: đã đóng/dừng measurement trước khi chạy SFlash</li>
     <li><code>python -m unittest discover -s tests -p "test_*.py" -v</code> → <strong>OK</strong>, không lỗi</li>
     <li><code>python cli.py list-hardware</code> → thấy đúng channel mong đợi</li>
     <li><code>python cli.py flash firmware.s3 --sequence suzuki --dry-run</code> → sequence đúng</li>
@@ -535,7 +535,7 @@ UINT32 GenerateKeyEx(UINT32 seed);</pre>
   </ul>
 
   <footer>
-    FFlash v1.1 — tài liệu nội bộ, không phải file end-user guide (xem <code>docs/user_guide.html</code> cho
+    SFlash v1.1 — tài liệu nội bộ, không phải file end-user guide (xem <code>docs/user_guide.html</code> cho
     hướng dẫn cơ bản dành cho người dùng cuối). Tham khảo đầy đủ trong <code>README.md</code> và
     <code>docs/walkthrough.md</code>.
   </footer>

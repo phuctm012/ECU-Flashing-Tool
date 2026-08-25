@@ -43,7 +43,7 @@ def get_app():
     QSettings.setPath(
         QSettings.IniFormat,
         QSettings.UserScope,
-        tempfile.mkdtemp(prefix="fflash_test_settings_"),
+        tempfile.mkdtemp(prefix="sflash_test_settings_"),
     )
 
     existing = QApplication.instance()
