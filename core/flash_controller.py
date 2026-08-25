@@ -684,6 +684,16 @@ class FlashWorker(QObject):
             reset_type=reset_type
         )
 
+        delay = step.params.get(
+            "post_reset_delay", 0
+        )
+        if delay > 0:
+            self.trace_message.emit(
+                f"Waiting {delay}s for ECU to "
+                f"reboot..."
+            )
+            time.sleep(delay)
+
         self.information_message.emit(
             "ECU reset completed"
         )

@@ -383,7 +383,10 @@ SUZUKI_SLP1_FLASH_SEQUENCE = [
         name="Reset ECU",
         step_type=FlashStep.TYPE_RESET,
         description="Reset ECU",
-        params={"reset_type": "hard"}
+        params={
+            "reset_type": "hard",
+            "post_reset_delay": 2,
+        }
     ),
 
     FlashStep(
