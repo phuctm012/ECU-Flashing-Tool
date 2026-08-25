@@ -684,10 +684,15 @@ class FlashWorker(QObject):
             reset_type=reset_type
         )
 
+        # Only real hardware needs reboot time — the Virtual
+        # ECU Simulator handles ECUReset synchronously
+        # in-process, so waiting here would just be dead time on
+        # every simulated flash (and every test that exercises
+        # the Suzuki sequence's Reset ECU step).
         delay = step.params.get(
             "post_reset_delay", 0
         )
-        if delay > 0:
+        if delay > 0 and not self._use_virtual:
             self.trace_message.emit(
                 f"Waiting {delay}s for ECU to "
                 f"reboot..."

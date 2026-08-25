@@ -221,8 +221,17 @@ class TestSuzukiSequenceFlash(unittest.TestCase):
         worker.trace_row.connect(rows.append)
         _run_worker(worker)
 
+        # Excludes TesterPresent (SID 3E) — with
+        # keepalive_functional=True, the background keepalive
+        # thread (2s interval) can legitimately land a stray
+        # functional TesterPresent frame during the Reset ECU
+        # step's post_reset_delay (also 2s, see
+        # SUZUKI_SLP1_FLASH_SEQUENCE), which isn't one of the
+        # 4 deliberate functional steps this test verifies.
         functional_rows = [
-            r for r in rows if r.get("req_target") == "FuncGroup-0x700"
+            r for r in rows
+            if r.get("req_target") == "FuncGroup-0x700"
+            and not (r.get("req_data") or "").startswith("3E")
         ]
         physical_rows = [
             r for r in rows if r.get("req_target") == "0x77B"

@@ -392,8 +392,12 @@ python -m unittest discover -s tests -p "test_*.py" -v
   dùng được với ECU giả lập hoặc ECU dùng seed 4 byte + thuật toán dummy).</p>
   <p>Nếu ECU yêu cầu thuật toán riêng: chọn file DLL ở mục <strong>Security Access DLL</strong> (Browse... trong
   GUI), hoặc <code>--security-dll &lt;path&gt;</code> trong CLI.</p>
-  <p>Tool tự detect signature DLL theo thứ tự: <code>GenerateKeyExOpt</code> → <code>GenerateKeyEx</code> (chuẩn
-  ODX/ASAM, hỗ trợ seed bất kỳ độ dài) → fallback <code>UINT32→UINT32</code> legacy.</p>
+  <p>Tool tự detect: nếu DLL export đúng tên <code>GenerateKeyExOpt</code> thì dùng signature ODX/ASAM (hỗ trợ
+  seed bất kỳ độ dài); nếu không, fallback về gọi <code>GenerateKeyEx</code> (hoặc tên hàm truyền qua tham số
+  riêng nếu có) theo signature legacy <code>UINT32→UINT32</code> — chỉ tên <code>GenerateKeyExOpt</code> mới
+  được coi là signature mới, vì không có cách nào phân biệt 2 signature chỉ dựa vào tên hàm export, và một DLL
+  legacy đã build theo tài liệu cũ của project có thể export đúng tên <code>GenerateKeyEx</code> với signature
+  1 tham số — đoán nhầm sẽ crash app (sai calling convention).</p>
   <pre><span class="comment">// Signature chuẩn ODX/ASAM (ưu tiên — hỗ trợ seed mọi độ dài)</span>
 int GenerateKeyExOpt(
     const unsigned char* iSeedArray, unsigned int iSeedArraySize,

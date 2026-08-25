@@ -378,28 +378,40 @@ class UdsClient:
     def load_security_dll(
         self,
         dll_path,
-        function_name="GenerateKeyExOpt",
+        function_name="GenerateKeyEx",
     ):
         """
         Load an external DLL for security key
         calculation.
 
-        Tries ``function_name`` first with the
-        standard ODX/ASAM signature (byte-buffer
-        seed of any length):
+        Only the exact export name
+        ``"GenerateKeyExOpt"`` is ever tried with the
+        new ODX/ASAM byte-buffer signature (seed of
+        any length):
             GenerateKeyExOpt(
                 iSeedArray, iSeedLen,
                 iSecurityLevel, iVariant,
                 oKeyArray,  iMaxKeyLen,
                 oKeyLen) -> int
 
-        Falls back to "GenerateKeyEx" with the
-        same signature, then to a legacy
-        UINT32 -> UINT32 wrapper.
+        ``function_name`` (default "GenerateKeyEx") is
+        always treated as the legacy
+        UINT32 -> UINT32 wrapper, never probed with the
+        byte-buffer signature — a real DLL built to this
+        project's previously documented contract may
+        already export a plain 1-argument function under
+        that exact name (or any custom name a caller
+        passes here), and there is no reliable way to
+        tell the two calling conventions apart from the
+        exported symbol alone. Guessing wrong crashes the
+        process (mismatched C calling convention), so
+        only the unambiguous new name opts into the new
+        behavior.
 
         Args:
             dll_path: Path to the DLL file.
-            function_name: Entry point to try first.
+            function_name: Legacy entry point to use if
+                "GenerateKeyExOpt" isn't exported.
         """
 
         import ctypes
@@ -411,31 +423,20 @@ class UdsClient:
                 f"Failed to load security DLL: {e}"
             )
 
-        buf_func = None
-        for name in dict.fromkeys(
-            [function_name, "GenerateKeyExOpt",
-             "GenerateKeyEx"]
-        ):
-            fn = getattr(dll, name, None)
-            if fn is None:
-                continue
-            try:
-                fn.argtypes = [
-                    ctypes.POINTER(ctypes.c_uint8),
-                    ctypes.c_uint32,
-                    ctypes.c_uint32,
-                    ctypes.c_char_p,
-                    ctypes.POINTER(ctypes.c_uint8),
-                    ctypes.c_uint32,
-                    ctypes.POINTER(ctypes.c_uint32),
-                ]
-                fn.restype = ctypes.c_int32
-                buf_func = fn
-                break
-            except Exception:
-                continue
+        opt_func = getattr(dll, "GenerateKeyExOpt", None)
 
-        if buf_func is not None:
+        if opt_func is not None:
+            opt_func.argtypes = [
+                ctypes.POINTER(ctypes.c_uint8),
+                ctypes.c_uint32,
+                ctypes.c_uint32,
+                ctypes.c_char_p,
+                ctypes.POINTER(ctypes.c_uint8),
+                ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint32),
+            ]
+            opt_func.restype = ctypes.c_int32
+
             def _dll_key_func(seed_bytes, level=1):
                 n = len(seed_bytes)
                 seed_arr = (ctypes.c_uint8 * n)(
@@ -444,7 +445,7 @@ class UdsClient:
                 max_key = max(n, 128)
                 key_arr = (ctypes.c_uint8 * max_key)()
                 key_len = ctypes.c_uint32(0)
-                rc = buf_func(
+                rc = opt_func(
                     seed_arr, n, level,
                     b"", key_arr, max_key,
                     ctypes.byref(key_len),

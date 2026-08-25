@@ -9,7 +9,11 @@
 # ==================================================
 
 import os
+import shutil
+import struct
+import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(
@@ -275,6 +279,66 @@ class TestNrcRetryLogic(unittest.TestCase):
             client.read_data_by_identifier(0xF189)
 
 
+def _compile_shared_lib(c_source, out_dir):
+    """
+    Compiles a tiny C source into a real, loadable shared
+    library (.dylib/.so) using the system compiler, for tests
+    that need to exercise ctypes' actual C calling convention
+    against a real DLL export — mocking _security_dll_func
+    directly (as TestVariableLengthSeed does) can't catch a bug
+    in load_security_dll()'s own signature-detection logic,
+    only a real ctypes.CDLL() call across a real ABI boundary
+    can. Returns the compiled library path, or None if no C
+    compiler is available (test should skip in that case).
+    """
+
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if cc is None:
+        return None
+
+    ext = ".dylib" if sys.platform == "darwin" else ".so"
+    src_path = os.path.join(out_dir, "fixture.c")
+    lib_path = os.path.join(out_dir, "fixture" + ext)
+
+    with open(src_path, "w") as f:
+        f.write(c_source)
+
+    flag = "-dynamiclib" if sys.platform == "darwin" else "-shared"
+    result = subprocess.run(
+        [cc, flag, "-fPIC", "-o", lib_path, src_path],
+        capture_output=True,
+    )
+    if result.returncode != 0 or not os.path.exists(lib_path):
+        return None
+
+    return lib_path
+
+
+_LEGACY_DLL_SOURCE = """
+#include <stdint.h>
+uint32_t GenerateKeyEx(uint32_t seed) {
+    return seed ^ 0xDEADBEEFu;
+}
+"""
+
+_BYTE_BUFFER_DLL_SOURCE = """
+#include <stdint.h>
+int GenerateKeyExOpt(
+    const uint8_t *seed, uint32_t seed_len,
+    uint32_t level, const char *variant,
+    uint8_t *key, uint32_t max_key_len,
+    uint32_t *out_key_len)
+{
+    uint32_t i;
+    for (i = 0; i < seed_len && i < max_key_len; i++) {
+        key[i] = seed[i] ^ 0xAA;
+    }
+    *out_key_len = i;
+    return 0;
+}
+"""
+
+
 class TestSecurityDllLoader(unittest.TestCase):
 
     def test_missing_dll_raises_uds_error(self):
@@ -283,6 +347,61 @@ class TestSecurityDllLoader(unittest.TestCase):
 
         with self.assertRaises(UdsError):
             client.load_security_dll("/nonexistent/path/to.dll")
+
+    def test_legacy_generate_key_ex_export_not_treated_as_buffer(self):
+        # Regression guard: a real DLL built to this project's
+        # previously documented contract (plain
+        # "UINT32 GenerateKeyEx(UINT32 seed)") exports a
+        # function literally named GenerateKeyEx. Only the
+        # distinct name "GenerateKeyExOpt" may opt into the new
+        # byte-buffer calling convention — treating a
+        # legacy-named export as byte-buffer calls it with the
+        # wrong number/type of arguments (mismatched C calling
+        # convention), which crashes the process, not just
+        # returns a wrong answer.
+        with tempfile.TemporaryDirectory() as tmp:
+            lib_path = _compile_shared_lib(
+                _LEGACY_DLL_SOURCE, tmp
+            )
+            if lib_path is None:
+                self.skipTest("no C compiler available")
+
+            can = _ScriptedCanInterface([])
+            client = UdsClient(can)
+            client.load_security_dll(lib_path)
+
+            self.assertFalse(client._security_dll_is_bytes)
+
+            seed = 0x12345678
+            seed_bytes = struct.pack(">I", seed)
+            key_bytes = client._compute_security_key(
+                seed_bytes, level=1, key_function=None
+            )
+            expected = struct.pack(
+                ">I", seed ^ 0xDEADBEEF
+            )
+            self.assertEqual(key_bytes, expected)
+
+    def test_generate_key_ex_opt_export_uses_buffer_signature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lib_path = _compile_shared_lib(
+                _BYTE_BUFFER_DLL_SOURCE, tmp
+            )
+            if lib_path is None:
+                self.skipTest("no C compiler available")
+
+            can = _ScriptedCanInterface([])
+            client = UdsClient(can)
+            client.load_security_dll(lib_path)
+
+            self.assertTrue(client._security_dll_is_bytes)
+
+            seed_bytes = bytes(range(0x10, 0x18))  # 8 bytes
+            key_bytes = client._compute_security_key(
+                seed_bytes, level=1, key_function=None
+            )
+            expected = bytes(b ^ 0xAA for b in seed_bytes)
+            self.assertEqual(key_bytes, expected)
 
 
 class TestVariableLengthSeed(unittest.TestCase):
