@@ -1365,3 +1365,283 @@ User hỏi Q&A về kích thước/tốc độ mở app khi build `.exe` — gi�
 ### Đã kiểm tra
 
 - Không build thử `.exe` thật được (Windows-only, môi trường dev là macOS — giới hạn nhất quán từ Phase 4.26). Đã soát kỹ cú pháp batch bằng tay: biến `set` bên trong khối `if (...)` đọc lại đúng ở dòng lệnh sau đó (không cần `setlocal enabledelayedexpansion` vì không đọc/ghi cùng 1 khối lệnh), dấu ngoặc đơn trong `echo` bên trong khối `if/else` đã escape đúng bằng `^(`/`^)`.
+
+## Phase 4.57: Review & Merge Nhánh `claude/claude-directory-structure-67l2ih`
+
+User yêu cầu review 1 nhánh remote do 1 session Claude Code khác chuẩn bị sẵn (thêm `.claude/agents/`, `.claude/skills/`, `.claude/settings.json`, `.gitignore`) — merge vào `main` nếu hợp lý, sửa nếu không. Đây là lần đầu quy trình "review nhánh remote → sửa nếu cần → merge" được dùng trong project này.
+
+### Thay đổi
+
+- **Review nội dung**: 3 agent (`thread-checker.md`, `uds-analyst.md`, `ui-reviewer.md`) và 4 skill (`regenerate-ui`, `steward`, `stress-test`, `test`) đối chiếu khá sát với các quy tắc đã có sẵn trong `CLAUDE.md` (threading model, UDS byte order, widget naming) — nhìn chung hợp lý, không xung đột.
+- **Bug tìm thấy trong `.claude/skills/stress-test/SKILL.md`'s headless script** (bản gốc trên nhánh): (1) `from config.settings import DEFAULT_HEX_FILE` — hằng số này không tồn tại, khiến script crash `ImportError` ngay từ đầu, chưa kịp test gì; (2) `if hasattr(w, 'toggle_dark_mode')` — luôn `False` vì hàm thật tên là `action_toggle_dark_mode(checked)`, khiến bước toggle dark mode âm thầm không chạy dù không báo lỗi gì.
+- **Sửa lại script** trước khi merge: thay bằng flow thật — flash xong tới cuối qua Virtual ECU, start + abort 1 flash thứ 2 giữa chừng, toggle dark mode qua đúng tên hàm, resize, mở/đóng dialog Test Connection — khớp đúng với protocol đã ghi trong `CLAUDE.md`'s Rules (mục stress test trước khi push toàn phiên).
+- **`.gitignore`**: thêm dòng `.claude/settings.local.json` — không xung đột với `.gitignore` hiện có trên `main` (file này đã tồn tại độc lập với đúng dòng đó thiếu).
+
+### Đã kiểm tra
+
+- Chạy trực tiếp script đã sửa bằng `python -c "..."` (không qua `unittest`) — xác nhận chạy hết, in `Stress test PASSED`, exit code 0.
+- Chạy lại script GỐC (chưa sửa) để xác nhận nó thật sự crash ở dòng `ImportError` — chứng minh bug có thật trước khi merge, không phải suy đoán.
+- `git merge` fast-forward vào `main`, chạy full test suite sau merge — pass sạch.
+
+## Phase 4.58: Review & Merge Nhánh `claude/gifted-franklin-x8m6nn` (Fix CAN/UDS Cho Hardware Thật)
+
+Nhánh thứ 2, thay đổi khá nhiều ở lớp CAN/UDS — cùng quy trình review → sửa nếu cần → merge.
+
+### Thay đổi 1: Nội dung nhánh (giữ nguyên, hợp lý)
+
+- **`communication/vector_can.py`**: `detect_vector_channels()` trả thêm `hw_channel`/`serial`; `VectorCanInterface.connect()` truyền `serial` cho `can.Bus(serial=...)` để chọn thẳng kênh vật lý, bỏ qua bước tra theo `app_name`/`xlGetApplConfig` (nguyên nhân phổ biến gây lỗi `"Channel N of application 'FlashTool' is not assigned to any interface"`) — có fallback nếu `python-can` không hỗ trợ tham số `serial`.
+- **`send_isotp()`/`receive_isotp()`**: lọc frame nhận theo đúng `self._rx_id` — trước đây có thể nhận nhầm response từ ECU khác (đặc biệt sau bước functional/broadcast của Suzuki sequence).
+- **`core/test_connection.py`/`cli.py`**: bỏ Programming Session + Security Access khỏi `test-connection` (đúng tinh thần "an toàn, chỉ đọc" mà tool tự nhận), đọc DID cụ thể thay vì gọi `read_ecu_identification()` chung chung; hiện label hardware thật thay vì `"Vector channel N"`.
+
+### Thay đổi 2: Bug tìm thấy — hardware-selection persistence bị hỏng âm thầm
+
+Nhánh đổi `comboBoxHardware.currentData()` từ `int` (channel index) sang **dict đầy đủ** (để hỗ trợ chọn theo serial) nhưng không cập nhật 2 nơi vẫn coi nó là `int`:
+
+- **`gui/settings_profile.py`**: `save_profile()`/`load_profile()` lưu/đọc `hardware/channel` như 1 giá trị nguyên — với dict, `QSettings.value(..., type=int)` âm thầm ép về `0` khi đọc lại (không raise lỗi), khiến kênh hardware thật đã lưu **không bao giờ được khôi phục đúng** sau khi mở lại app — luôn rơi về Virtual ECU Simulator.
+- **`gui/project_file.py`**: tương tự, `_build_project_data()`/`_apply_project_data()` so sánh dict với int khi khôi phục từ file `.ffproj`.
+
+Sửa: lưu/so khớp theo cặp `(hw_channel, serial)` thay vì so trực tiếp với dict/int, đúng thứ tự (trước đây khôi phục `comboBoxCompressionMethod` gây lỗi tương tự ở Phase 4.68 — cùng 1 lớp bug "restore combo → trigger save → ghi đè giá trị anh em chưa kịp restore").
+
+**Test suite ban đầu fail 5 case** khi chạy trên nhánh gốc (2 lỗi `AttributeError` từ `int` không có `.get()`, 3 lỗi do assertion cũ còn kỳ vọng bước Security Access đã bị bỏ) — tất cả do nhánh không tự chạy lại test suite trước khi đưa cho review.
+
+### Đã kiểm tra
+
+- Sửa cả 5 test fail, thêm 2 test mới (`test_real_hardware_channel_persists_across_restart`, `test_save_and_open_project_round_trip_real_hardware`) mô phỏng đúng luồng thật (mock `detect_vector_channels()` trả về 1 channel có `serial`, chọn nó, lưu, mở lại, xác nhận khôi phục đúng).
+- Full test suite pass sau merge; `tests/test_flash_threading.py` chạy riêng cũng pass.
+
+## Phase 4.59: Cập Nhật Docs Kết Nối Hardware Thật (Theo Phase 4.58)
+
+`README.md`, `CLAUDE.md`, `docs/user_guide_ecu_flash_debug.html` vẫn mô tả hành vi `test-connection` cũ (Session Control + Security Access) và coi bước cấu hình Vector Hardware Config là bắt buộc tuyệt đối — cả 2 đều lỗi thời sau Phase 4.58.
+
+### Thay đổi
+
+- Sửa mô tả `test-connection`: chỉ đọc DID, không đụng Security Access — nên `test-connection` **không còn** dùng để xác nhận trước Security DLL/thuật toán đúng hay sai, chỉ lộ ra khi chạy `flash` thật (cập nhật cả 2 dòng troubleshooting liên quan: NRC 0x35 giờ chỉ xảy ra ở Flash thật; dòng "channel sai" thêm hướng xử lý bằng `--serial`).
+- Làm rõ bước cấu hình Vector Hardware Config **chỉ bắt buộc khi không dùng cách chọn theo serial number** (python-can < 4.x hoặc không tự phát hiện được serial) — thêm 1 khối note riêng giải thích cơ chế `GenerateKeyExOpt`... à nhầm, giải thích cơ chế chọn theo serial trong `user_guide_ecu_flash_debug.html` mục B.
+
+### Đã kiểm tra
+
+- Doc-only, không đổi code — verify bằng đọc lại toàn bộ đoạn sửa, không chạy test.
+
+## Phase 4.60: Fix Dark Mode Cho `QPlainTextEdit` (Test Connection Dialog)
+
+User gửi screenshot: dialog Test Connection ở dark mode chữ gần như vô hình (chữ tối trên nền tối).
+
+### Thay đổi
+
+- **`gui/test_connection_dialog.py`**'s `logText` là `QPlainTextEdit` — 1 class Qt **khác** `QTextEdit` (cả 2 đều kế thừa `QAbstractScrollArea`, không kế thừa lẫn nhau), nên rule `QTextEdit { ... }` đã thêm ở Phase 4.42 (fix `informationText`) chưa bao giờ áp dụng cho nó. Thêm `QPlainTextEdit` vào chung selector với `QTextEdit` ở cả `resources/style.qss` và `resources/style_dark.qss`.
+
+### Đã kiểm tra
+
+- Thêm `test_both_themes_style_plain_text_edit` (mirror test `QTextEdit` đã có) vào `tests/test_style.py`.
+- Render thật headless (`QT_QPA_PLATFORM=offscreen`, chạy 1 flash thật qua Virtual ECU rồi mở dialog Test Connection ở dark mode) — chụp screenshot xác nhận chữ đọc được rõ ràng.
+
+## Phase 4.61: Rule Mới — Brainstorm Trước Khi Implement Feature Mới
+
+User yêu cầu thêm 1 rule: trước khi implement 1 tính năng mới do user yêu cầu (không phải bug fix, không phải thứ đã thống nhất trước đó), phải brainstorm nhanh xem có phù hợp với app không. Phù hợp rõ ràng → implement luôn cùng lượt trả lời, không cần hỏi lại. Không rõ/đáng ngờ (lấn phạm vi, trùng tính năng sẵn có, không thuộc về 1 tool flash ECU) → dừng lại nêu băn khoăn, chờ quyết định.
+
+### Thay đổi
+
+- **`CLAUDE.md`**: thêm rule vào mục Rules.
+- Lưu memory tương ứng (`fflash-brainstorm-fit-before-feature.md`) — ghi vào `CLAUDE.md` không tự động thoả yêu cầu lưu memory theo quy định hệ thống, phải lưu riêng.
+
+### Đã kiểm tra
+
+- Doc-only, không đổi code.
+
+## Phase 4.62: Datablocks Right-Click Menu + Nút Test Connection (Communication Page)
+
+Hai yêu cầu liên tiếp trong cùng phiên:
+
+### Thay đổi 1: Datablocks table — chuột phải Add/Disable/Remove
+
+- **`gui/configure_tab.py`**: `tableWidgetDatablocks.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)` + `customContextMenuRequested` → `_show_datablocks_context_menu()`. Tách `_build_datablocks_context_menu(pos)` (dựng menu, không `exec()`) khỏi `_show_datablocks_context_menu(pos)` (gọi `.exec()`, blocking) — để test dựng menu và kiểm tra action mà không mở modal event loop thật.
+  - **Add Datablock**: luôn hiện, giống hệt bấm hàng placeholder.
+  - **Disable Datablock**: chỉ hiện khi chuột phải đúng 1 hàng datablock thật — untick checkbox cột 0 (tái dùng đúng cơ chế `get_checked_datablocks()` đã loại datablock unchecked khỏi flash).
+  - **Remove Datablock**: xoá đồng thời row bảng + entry `_loaded_datablocks` tại **cùng index** — giữ đúng bất biến "row i ↔ datablock i" mà `get_checked_datablocks()`/Save Project/Export Issue đều dựa vào. Cập nhật lại docstring cũ của `get_checked_datablocks()` (từng ghi "không có remove-row").
+- **`_clear_details_table()`** (mới): xoá trắng cột Value của bảng Details khi datablock cuối cùng bị Remove.
+
+### Thay đổi 2: Nút Test Connection trên Communication page
+
+- **`gui/main_window.ui`**: thêm `buttonTestConnectionHardware` vào `horizontalLayout_hardware`, đặt **trước** `buttonRefreshHardware` (trái/phải đúng theo yêu cầu).
+- **`gui/menu_bar.py`**: tách `open_test_connection_dialog()` ra khỏi `action_test_connection()` — dùng chung giữa menu Tools → Test Connection... và nút mới, tránh lặp logic cảnh báo CAN conflict. Trả về `TestConnectionDialog` sau khi đóng.
+- **`gui/test_connection_dialog.py`**: thêm thuộc tính `self.passed` (`True`/`False`/`None`), set trong `_on_finished()`.
+- **`gui/configure_tab.py`**: `test_connection_button_clicked()` gọi `open_test_connection_dialog()`, tô màu nút xanh/đỏ theo `dialog.passed` bằng đúng bộ màu status có sẵn (`_status_colors('done'/'error')` từ `FlashTabMixin`). Màu reset về mặc định khi đổi hardware hoặc bấm Refresh — tránh hiểu nhầm màu cũ vẫn áp dụng cho hardware chưa test.
+
+### Đã kiểm tra
+
+- +8 test mới cho context menu (`TestDatablocksContextMenu`), +8 test mới cho nút Test Connection (`TestConnectionButton`).
+- Full test suite + `tests/test_flash_threading.py` pass; verify hình ảnh cả 2 tính năng ở light/dark mode qua screenshot headless thật.
+
+## Phase 4.63: Review & Merge Nhánh `claude/ecu-flash-security-error-ug0dm5` (Security Access Cho ECU Thật)
+
+Nhánh thứ 3, thay đổi khá nhiều ở Security Access — user yêu cầu stress test trước khi merge.
+
+### Thay đổi 1: Nội dung nhánh (giữ nguyên, hợp lý)
+
+- **`communication/uds_client.py`**: `security_access()` trước đây luôn cắt seed về đúng 4 byte (`seed_response[2:6]`) — lỗi thật với ECU thật gửi seed dài hơn 4 byte (NRC `0x13` Incorrect Message Length). Giờ dùng full `seed_response[2:]`, thuật toán dummy xử lý theo chunk 4-byte cho seed bất kỳ độ dài.
+- **`core/flash_sequence.py`**: thêm `post_reset_delay: 2` (giây) vào bước Reset ECU của Suzuki sequence — ECU thật cần thời gian reboot trước khi nhận request tiếp theo.
+
+### Thay đổi 2: Bug tìm thấy — signature Security DLL bị đoán sai, có thể crash
+
+`load_security_dll()` (bản gốc trên nhánh) thử gọi **bất kỳ** export nào trùng tên `function_name`/`"GenerateKeyExOpt"`/`"GenerateKeyEx"` theo signature buffer mới (7 tham số) trước, chỉ fallback về signature cũ (`UINT32 → UINT32`, 1 tham số) nếu không tìm thấy tên nào cả. Vấn đề: **`"GenerateKeyEx"` chính là tên hàm mà tài liệu cũ của project từng hướng dẫn user build DLL theo signature 1 tham số** — 1 DLL thật đã build theo đúng hướng dẫn cũ sẽ bị gọi nhầm với 7 tham số, gây lỗi calling convention (crash tiến trình, không phải chỉ trả sai key). Không có cách nào phân biệt 2 signature chỉ dựa vào tên hàm export.
+
+Sửa: chỉ tên **duy nhất** `"GenerateKeyExOpt"` (tên mới, không có ý nghĩa lịch sử nào) mới được coi là signature buffer mới; `function_name` (mặc định trả lại `"GenerateKeyEx"` như cũ) luôn coi là signature cũ.
+
+### Thay đổi 3: Bug tìm thấy — `post_reset_delay` làm chậm test suite + gây 1 test cũ fail
+
+`post_reset_delay=2` chạy **vô điều kiện**, kể cả với Virtual ECU Simulator (không cần thời gian reboot) — khiến mọi test Suzuki-sequence tốn thêm 2s thật, tổng thời gian test suite tăng từ ~31s lên ~57s. Tệ hơn: 2s này trùng khớp chính xác với chu kỳ TesterPresent keepalive (cũng 2s), khiến `test_trace_rows_have_correct_functional_and_physical_targets` (assert đúng 4 functional row) bắt được **thêm 1 row TesterPresent lọt vào giữa lúc chờ** — fail xác định (không flaky, luôn đúng 5 thay vì 4 trên máy này). Sửa: bỏ qua delay khi `use_virtual=True`; test được sửa lại lọc bỏ frame TesterPresent (SID `3E`) khi đếm functional row, để không phụ thuộc timing keepalive nữa dù delay có bật lại sau này.
+
+### Đã kiểm tra
+
+- Viết test compile 1 shared library C thật lúc chạy test (`cc -dynamiclib`/`-shared`, skip nếu máy không có compiler) để test đúng ranh giới ABI thật của `ctypes` — mock trực tiếp `_security_dll_func` không bắt được bug detect-signature vì nó nằm ngay trong logic detect, không phải logic gọi hàm. Xác nhận test **fail đúng theo cách đã mô tả** khi chạy lại trên code gốc (chưa sửa) trước khi merge.
+- Full test suite (251 test) quay lại ~33s sau khi sửa delay; `tests/test_flash_threading.py` pass; headless end-to-end dùng đúng Suzuki sequence (không phải sequence generic) để exercise cả `post_reset_delay` lẫn seed dài — pass sạch.
+
+## Phase 4.64: Verify Flash Thật So Với Trace vFlash (Tool Gốc Vector)
+
+User cung cấp 3 file thật: firmware `.s3` dùng để flash 1 ECU thật, log trace của **vFlash** (tool đóng gói của Vector, coi như reference "biết đúng") cho cùng lần flash, và log của FFlash cho **cùng file `.s3`, cùng ECU**. Yêu cầu kiểm tra toàn bộ: parse `.s3`, sequence, và quá trình flash của FFlash đã đúng chưa. Đây là lần đầu có dữ liệu thật để đối chiếu trực tiếp FFlash với 1 tool thương mại đã biết hoạt động đúng trên đúng ECU đó (khác với Phase 4.6 vốn chỉ có 1 trace, dùng để dựng sequence chứ không phải để verify tool sau khi đã có sequence).
+
+### Không đổi code — chỉ verify
+
+- **Parse `.s3` độc lập**: viết script Python riêng (không dùng lại `parsers/srec_parser.py`) đọc thẳng từng S2-record, tự tính CRC32 + tổng size + địa chỉ đầu/cuối — so với con số FFlash tự log ra (`Checksum=0xF30E53FA`, `6315904 bytes`, `0x001AA000`). Khớp tuyệt đối, đồng thời xác nhận file liên tục, không gap địa chỉ nào (mọi S2-record cách nhau đúng 32 byte).
+- **So sequence từng bước với vFlash**: đối chiếu toàn bộ request/response 2 trace theo đúng thứ tự — Extended Session, Disable DTC, Disable Comm (cả 3 functional), Programming Session, Security Access (seed/key 16 byte), 2 lần Write DID (`0xF198`/`0xF199`, **khớp byte-for-byte** cả nội dung), Erase Memory, RequestDownload (**khớp byte-for-byte** `dataFormatIdentifier`/địa chỉ/size), 1544 block TransferData (**khớp cả số block lẫn kích thước block cuối — 407 byte, counter `08`**), TransferExit, Verify Memory, Reset, Confirm Default Session. Không có NRC (`0x7F`) ở bất kỳ đâu trong cả 2 trace.
+- **Kết luận**: FFlash flash đúng file, đúng sequence — không có gì cần sửa. Điểm khác biệt duy nhất là tốc độ: FFlash tổng 324.3s so với vFlash ~291.2s, chênh lệch nằm hoàn toàn ở giai đoạn TransferData (~21ms/block chậm hơn) — dẫn tới Phase 4.65/4.67 phía dưới.
+
+## Phase 4.65: Tối Ưu Format Hex String Trong Trace Callback
+
+Tiếp nối Phase 4.64 — user hỏi có cách nào tăng tốc flash không. Phân tích code tìm ra 2 nguyên nhân cụ thể: (1) format hex string lãng phí trong trace callback, (2) `send_isotp()`/`receive_isotp()` hardcode khung ISO-TP kiểu CAN cổ điển (7 byte/frame) kể cả khi chọn CAN FD — lý do chính khiến cần ~585 frame CAN vật lý/block. User chọn sửa mục (1) trước (an toàn, không rủi ro); mục (2) cần user xác nhận ECU thật có hỗ trợ CAN FD không và cần test lại trên hardware thật nên chưa làm.
+
+### Thay đổi
+
+- **`core/flash_controller.py`** (`_on_uds_trace()`, 3 chỗ) và **`communication/can_interface.py`** (`CanMessage.hex_string()`): thay `" ".join(f"{b:02X}" for b in data)` bằng `data.hex(" ").upper()` — cùng output (chuỗi hex viết hoa, cách nhau bởi space), nhanh hơn ~80 lần theo benchmark thực tế (0.64ms → 0.008ms cho 1 block ~4096 byte). Với 1544 block/lần flash, tiết kiệm được khoảng 1s — chỉ là 1 phần nhỏ trong khoảng chênh 32s đã đo ở Phase 4.64, phần lớn còn lại nằm ở tầng gửi frame CAN (chưa sửa, xem ghi chú CAN FD ở trên).
+
+### Đã kiểm tra
+
+- Full test suite pass (không đổi hành vi/output, chỉ đổi cách build chuỗi).
+
+## Phase 4.66: Đổi Thứ Tự Mặc Định File Filter (S-Record Trước Hex)
+
+User yêu cầu đổi filter mặc định khi mở dialog "Add Datablock" — S-Record lên đầu, Hex xuống sau.
+
+### Thay đổi
+
+- **`config/settings.py`**: đổi thứ tự 2 mục đầu trong `FILE_FILTER` (dùng chung cho `QFileDialog.getOpenFileNames()` ở `gui/configure_tab.py::add_new_datablock()`) — Qt luôn lấy mục **đầu tiên** trong chuỗi `;;`-separated làm filter mặc định, nên chỉ cần đổi thứ tự chuỗi, không cần đổi logic gì khác.
+
+### Đã kiểm tra
+
+- Full test suite pass (không có test nào gắn với thứ tự filter).
+
+## Phase 4.67: Cập Nhật Flashing Progress Bar — Weight Theo Byte Download
+
+Tiếp nối Phase 4.64/4.65 — user nhận thấy phần lớn thời gian flash nằm ở bước Download (SID `0x34`/`0x36`), hỏi có thể cho progress bar chỉ cập nhật trong lúc Download không.
+
+### Thay đổi
+
+- **`core/flash_controller.py`**'s `run()`: trước đây chia progress đều theo **số bước** (`(bước hiện tại + 1) / tổng số bước`) — khiến bar chạy nhanh qua các bước đầu rồi đứng im hàng phút trong lúc Download (chỉ là 1/~13 bước), sau đó nhảy vọt lên 100%. Đổi sang **weight theo byte**: mỗi bước `TYPE_DOWNLOAD` có weight = số byte thật sự cần truyền, mọi bước khác weight = 1 — nên firmware càng lớn, Download càng chiếm phần lớn thanh bar, khớp đúng tỉ lệ thời gian thật (không hardcode tỉ lệ riêng theo ECU nào).
+- **`_execute_download()`**'s `on_progress` callback: nội suy mượt **trong đúng khoảng (slot)** mà bước Download đó được cấp trên thanh 0-100, cập nhật theo từng block TransferData thay vì chỉ 1 lần khi cả bước xong — nhờ đó ETA/Speed ở `statsLabel` (vốn tính từ giá trị progress) cũng chính xác hơn hẳn trong lúc Download, thay vì đứng im suốt giai đoạn đó.
+
+### Đã kiểm tra
+
+- +3 test mới (`TestProgressWeighting`): progress vẫn đơn điệu tăng và về đúng 100%; Download thật sự emit nhiều giá trị trung gian (nhiều hơn số bước); các bước nhanh/ít byte giữ progress gần 0% cho tới khi Download thật sự bắt đầu.
+- Full test suite + `tests/test_flash_threading.py` pass; verify thêm bằng 1 lần flash thật qua GUI (QThread thật) thấy progress tăng mượt (1→2→4→...→100) thay vì vài bước nhảy lớn.
+
+## Phase 4.68: Bỏ Signature Và Delta Download Khỏi Bảng Details
+
+User gửi screenshot bảng Details (Configure → Data), yêu cầu bỏ 2 dòng Signature và Delta Download — hiện tại chưa dùng tới.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: xoá `<item row="2">` (Signature) và `<item row="7">` (Delta Download) khỏi `tableWidgetDetails`, đánh lại index các row còn lại liên tục (0-5), giảm `<row>` từ 8 xuống 6.
+- **`gui/configure_tab.py`**'s `_update_details_table()`: cập nhật lại index cột Value khớp với row mới (Compression Method: 3→2, Encryption Method: 4→3, Start Address: 5→4, Memory Size: 6→5).
+- User hỏi thêm: hiện tại Compression/Encryption Method **có** thật sự được implement không — trả lời: chưa, cả 2 dòng chỉ hardcode `"None"`, tham số `compression`/`encrypting` của `request_download()` tồn tại sẵn trong `communication/uds_client.py` (theo chuẩn UDS) nhưng luôn gọi với giá trị mặc định `0x00` ở mọi nơi trong `core/flash_controller.py` — dẫn thẳng tới Phase 4.69.
+
+### Đã kiểm tra
+
+- Full test suite pass; verify hình ảnh bằng screenshot thật (bảng Details chỉ còn File/Checksum/Compression Method/Encryption Method/Start Address/Memory Size).
+
+## Phase 4.69: Thêm Compression/Encryption Method (`dataFormatIdentifier` Của RequestDownload)
+
+Nối tiếp câu hỏi ở Phase 4.68 — user yêu cầu implement thật: nếu user đổi tham số này, `dataFormatIdentifier` của SID `0x34` phải đổi theo. **Không** yêu cầu (và không implement) nén/mã hoá dữ liệu firmware thật — chỉ đổi byte khai báo định dạng gửi cho ECU, đúng yêu cầu gốc.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: thêm 2 `QComboBox` (`comboBoxCompressionMethod`/`comboBoxEncryptionMethod`, 16 mục `0 - None` → `F`) vào trang **Configure → Miscellaneous** (cạnh Security Access DLL — ban đầu định đặt ở trang Communication nhưng đọc nhầm ranh giới `<widget>` trong `.ui`, phải sửa lại comment/docstring cho đúng sau khi phát hiện qua ảnh chụp thử).
+- **`gui/configure_tab.py`**: `get_data_format_config()` đọc 2 combo (index chính là giá trị nibble 0-15); `_update_details_table()` hiện đúng giá trị đã chọn thay vì hardcode `"None"`.
+- **Chuỗi truyền tham số**: `get_data_format_config()` → `FlashWorker(download_compression=, download_encrypting=)` (mới) → `_execute_download()` → `UdsClient.download_firmware()` (thêm 2 tham số mới, trước đây **không hề nhận** compression/encrypting dù `request_download()` bên dưới đã có sẵn) → `request_download()`.
+- **CLI**: thêm `--compression`/`--encryption` (dùng chung `_parse_hex_int`) vào `_add_can_args()`, nối vào `cmd_flash()`.
+- **Persist**: cả `gui/settings_profile.py` (QSettings) lẫn `gui/project_file.py` (`.ffproj`) đều lưu/khôi phục, đúng pattern các setting khác trên cùng trang.
+
+### Bug tìm thấy — thứ tự restore combo làm mất setting anh em
+
+Wiring ban đầu: `comboBoxCompressionMethod`/`comboBoxEncryptionMethod`'s `currentIndexChanged` → `_on_data_format_changed()` (trong `gui/configure_tab.py`) gọi `save_profile()` trực tiếp. Vấn đề: `setup_configure_tab()` (nơi wiring này chạy) thực thi **trước** `setup_settings_profile()`'s `load_profile()` trong `MainWindow.__init__()` — nên khi `load_profile()` gọi `comboBoxCompressionMethod.setCurrentIndex(index)` để khôi phục, nó lập tức trigger 1 lần `save_profile()` **trước khi** `comboBoxEncryptionMethod` kịp được khôi phục — ghi đè `dataFormat/encrypting` về giá trị mặc định (0) ngay trong lúc đang load. Test phát hiện: giá trị `encrypting` không bao giờ sống sót qua 1 lần "restart" giả lập trong test, dù `compression` thì luôn đúng.
+
+Sửa: bỏ lời gọi `save_profile()` khỏi `_on_data_format_changed()` (chỉ còn cập nhật bảng Details), chuyển việc wiring `currentIndexChanged → save_profile()` sang `gui/settings_profile.py`'s `setup_settings_profile()` — **sau** khi `load_profile()` đã chạy xong, đúng pattern có sẵn cho `comboBoxHardware`/`comboBoxRadarSide`/`comboBoxFlashSequence`.
+
+### Đã kiểm tra
+
+- +8 test mới trải khắp `tests/test_uds_client.py` (byte `dataFormatIdentifier` thật trên "dây"), `tests/test_flash_controller.py` (tham số tới đúng `FlashWorker`), `tests/test_gui_smoke.py` (`TestDataFormatConfig` 4 test + persist QSettings/`.ffproj`), `tests/test_cli.py` (`--compression`/`--encryption`).
+- Full test suite + `tests/test_flash_threading.py` pass; verify hình ảnh light/dark mode sau khi sửa lại đúng trang (Miscellaneous).
+
+## Phase 4.70: Thêm Stress Test (Custom Actions) — Công Cụ Chỉ Dùng Để Test
+
+User muốn stress test flash trên ECU thật: nhập số lần flash (mặc định 1), tool tự flash liên tục đúng số lần đó, vẫn lấy log bình thường để debug. **User nhấn mạnh: chỉ nhằm mục đích test, sẽ bị xoá trong tương lai** — nên toàn bộ logic được gói gọn trong 1 file riêng để dễ xoá sau này, không đụng vào kiến trúc chung.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: thêm section "Stress Test (testing only — will be removed later)" vào trang Custom Actions — `spinBoxStressTestCount` (min 1, max 9999, mặc định 1), `buttonStressTestStart`, `labelStressTestStatus`.
+- **`gui/stress_test.py`** (mới, `StressTestMixin`): bấm Start → hộp thoại xác nhận (vì là hành động lặp lại trên hardware thật) → lặp gọi lại đúng `flash_button_clicked()` (cùng entry point với nút Flash thường) N lần. Chu kỳ tiếp theo **chỉ** được bắt đầu từ tín hiệu `thread.finished` của chu kỳ hiện tại (sau khi `_cleanup_thread()` đã chạy xong và đưa `self.thread`/`self.worker` về `None`) — không bao giờ đụng `self.thread`/`self.worker` từ `flash_finished`/`flash_aborted` trực tiếp, đúng nguyên tắc threading đã ghi trong `CLAUDE.md`. Nút đổi thành "Stop Stress Test" khi đang chạy — bấm Stop gọi thẳng `self.worker.request_abort()` (không qua `flash_button_clicked()`, tránh trường hợp bấm đúng lúc giữa 2 chu kỳ vô tình start nhầm 1 lần flash mới) và chặn chu kỳ tiếp theo bắt đầu.
+- Toàn bộ log (Trace/Information/Export Report/Export Issue) giữ nguyên không đổi — mỗi chu kỳ chỉ là 1 lần gọi `flash_button_clicked()` bình thường.
+- **Bug dark-mode tìm thấy khi verify hình ảnh**: `spinBoxStressTestCount` là `QSpinBox` **đầu tiên** trong app — chưa có rule `QSpinBox` ở cả 2 file `.qss` (chỉ có `QLineEdit, QComboBox`), nền sáng lạc quẻ trên dark mode, cùng lớp bug với Phase 4.60. Thêm `QSpinBox` vào chung selector.
+
+### Đã kiểm tra
+
+- +3 test QThread thật (`TestStressTest` trong `tests/test_flash_threading.py`): chạy đủ N=3 chu kỳ và tự kết thúc đúng (pass_count=3, nút/spinbox trở lại trạng thái ban đầu); từ chối hộp thoại xác nhận thì không chạy gì; bấm Stop giữa chừng (dùng payload lớn để có thời gian bấm) dừng đúng, không treo/crash. Cả 3 pass ngay lần chạy đầu.
+- +1 test dark-mode cho `QSpinBox` (`tests/test_style.py`).
+- Full test suite (266 test) + `tests/test_flash_threading.py` pass; headless end-to-end thật qua đúng nút bấm (`buttonStressTestStart.click()`, mock hộp thoại xác nhận) — 3 chu kỳ hoàn tất, pass sạch.
+
+## Phase 4.71: Backfill `docs/walkthrough.md` (Phase 4.57-4.70) + Rule Bắt Buộc Cập Nhật
+
+User nhận ra các phiên gần đây không còn được log vào file này nữa (từ sau Phase 4.56) — hỏi thẳng, xác nhận đúng vậy, rồi yêu cầu backfill lại toàn bộ + thêm vào rule bắt buộc.
+
+### Thay đổi
+
+- Viết lại Phase 4.57-4.70 (nội dung phía trên) — dựng lại chính xác nhất có thể từ lịch sử commit (`git log --reverse 079da68..HEAD`) và nội dung đã trao đổi trong phiên, dù không còn nguyên văn từng lượt hội thoại (1 phần đã bị nén/compact trước khi backfill). Số lượng test cụ thể trong từng phase là **số test mới thêm** ở đúng phase đó (biết chắc chắn, vì tự viết) chứ không phải tổng số test cộng dồn tại đúng thời điểm đó (khó tái dựng chính xác tuyệt đối sau khi việc đã xảy ra).
+- **`CLAUDE.md`**: thêm rule — mỗi khi có thay đổi code/tính năng đáng kể trong phiên, phải cập nhật `docs/walkthrough.md` cùng lúc (không dồn lại cuối phiên hay bỏ qua).
+
+### Đã kiểm tra
+
+- Doc-only, không đổi code.
+
+## Phase 4.72: Đổi Tên App Thành SFlash
+
+User cho biết trong team đã tồn tại sẵn 1 tool tên "FFlash" khác — yêu cầu đổi tên toàn bộ tool trong project thành **SFlash**, bao gồm cả doc liên quan. Cùng dạng đổi tên đã làm ở Phase 4.25 (`VectorFlash Tool` → `FFlash`) — áp dụng đúng quy ước đã có từ phase đó: **không** retroactively sửa lại tên cũ trong các phase log lịch sử phía trên (Phase 1-4.71 vẫn giữ nguyên "FFlash" như đúng tên tại thời điểm viết), chỉ đổi cho code/doc hiện hành.
+
+### Thay đổi
+
+- **`config/settings.py`**: `APP_NAME = "FFlash"` → `"SFlash"` — cascade tự động tới mọi chỗ dùng `f"{APP_NAME}..."`: window title, About dialog (`gui/menu_bar.py`), Flash Report/Issue Export header (`gui/report_export.py`/`gui/issue_export.py`), `cli.py`'s `--version`/description, và org/app identity của `QSettings` (`gui/settings_profile.py`, `gui/style.py`).
+- **Chuỗi cứng phải sửa tay** (không tự cascade theo `APP_NAME`): comment header `main.py`/`cli.py`/`build.bat`; `set APP_NAME=FFlash` trong `build.bat` (biến riêng của batch script, không liên quan `config/settings.py`); tiêu đề `README.md`/`CLAUDE.md`; `gui/main_window.ui`'s `actionAbout` text (`<string>About FFlash</string>`, phải sửa `.ui` rồi regenerate `ui_main_window.py`, không hand-edit); `gui/project_file.py`'s `PROJECT_FILE_FILTER` (chuỗi filter hiển thị trong dialog Save/Open Project); `gui/issue_export.py`'s prefix tên file mặc định `"fflash_issue_"` → `"sflash_issue_"`; `docs/user_guide.html`/`docs/user_guide_ecu_flash_debug.html` (title, `<h1>`, footer, vài đoạn nhắc tên tool trong nội dung); `tests/qt_test_utils.py`/`tests/test_style.py`'s tempdir prefix (`fflash_test_settings_` → `sflash_test_settings_`, chỉ để đặt tên thư mục scratch, không ảnh hưởng gì tới app).
+- **Cố ý KHÔNG đổi (lúc đầu)**: (1) `communication/vector_can.py`'s `app_name` mặc định `"FlashTool"` — đây là tên đăng ký riêng với Vector XL Driver/Vector Hardware Config (mục B trong README), hoàn toàn khác với tên hiển thị của app, đổi sẽ buộc user phải cấu hình lại Vector Hardware Config trên máy thật, **vẫn giữ nguyên**, không nằm trong yêu cầu; (2) đuôi file `.ffproj` — ban đầu cố tình để nguyên vì lo ngại làm mất khả năng mở lại file project đã lưu trước đó, nhưng user yêu cầu đổi luôn ngay sau đó (xem "Thay đổi 2" dưới) nên đã đổi; (3) URL GitHub repo trong `README.md` — việc đổi tên repo hosted là hành động khác, không nằm trong yêu cầu "đổi tên tool"; (4) 17 chỗ nhắc "FFlash" trong chính `docs/walkthrough.md` — giữ nguyên theo đúng quy ước đã lập ở Phase 4.25.
+
+### Hệ quả cần lưu ý (không tự động xử lý)
+
+Đổi `APP_NAME` cũng đổi luôn đường dẫn `QSettings` (`org=tranph9`, `app` đổi từ `FFlash` → `SFlash`) — user đang có sẵn 1 bộ setting đã lưu (Hardware, Radar Side, Security DLL, Flash Sequence, Compression/Encryption Method, Recent Files) sẽ **không tự động migrate** sang app name mới, app sẽ khởi động với toàn bộ giá trị mặc định lần đầu. Đây là hệ quả tự nhiên của việc đổi tên, không phải bug — không viết thêm logic migrate vì không được yêu cầu.
+
+### Đã kiểm tra (Thay đổi 1)
+
+- `grep -rliE "fflash" .` (loại trừ `log/`, `.git/`) chỉ còn đúng `docs/walkthrough.md` (cố ý giữ) — không sót chỗ nào khác.
+- Full test suite (266 test) pass — xác nhận không có test nào hardcode literal `"FFlash"` (toàn bộ đều import `APP_NAME` từ `config/settings.py`).
+- Verify trực tiếp: `APP_NAME` = `"SFlash"`, window title = `"SFlash v1.1"`, `actionAbout.text()` = `"About SFlash"`.
+
+### Thay đổi 2 (follow-up ngay sau đó): Đổi luôn đuôi file `.ffproj` → `.sfproj`
+
+User bấm ngay vào dòng `PROJECT_FILE_FILTER = "SFlash Project (*.ffproj);;All Files (*)"` (đúng chỗ đã cố tình để nguyên ở Thay đổi 1) và yêu cầu đổi nốt cho đồng bộ — ghi đè quyết định "cố ý không đổi" ban đầu, không còn cân nhắc backward-compat với file `.ffproj` cũ nữa (không được yêu cầu, cũng không tự thêm logic đọc song song cả 2 đuôi).
+
+- **`gui/project_file.py`**: `PROJECT_FILE_FILTER`, đoạn tự thêm đuôi trong `save_project_as()`, và comment header — toàn bộ `.ffproj` → `.sfproj`.
+- **`README.md`** (4 chỗ), **`docs/gui_todo.md`** (1 chỗ — doc còn sống, phản ánh trạng thái hiện tại chứ không phải log lịch sử nên cập nhật thẳng): đổi theo.
+- **`tests/test_gui_smoke.py`**: 8 chỗ dùng `.ffproj` làm tên file test đổi thành `.sfproj`, đổi tên luôn `test_save_project_appends_ffproj_extension` → `test_save_project_appends_sfproj_extension` cho khớp.
+- **`docs/walkthrough.md`**: 8 chỗ nhắc `.ffproj` trong các phase log lịch sử phía trên (mô tả tính năng Save/Load Project lúc mới làm) — giữ nguyên, cùng lý do với tên "FFlash" ở Thay đổi 1.
+
+### Đã kiểm tra (Thay đổi 2)
+
+- `grep -rln "ffproj" .` (loại trừ `log/`) chỉ còn đúng `docs/walkthrough.md` (cố ý giữ).
+- Full test suite (266 test) pass.
+- Verify chức năng thật: `PROJECT_FILE_FILTER` = `"SFlash Project (*.sfproj);;All Files (*)"`; gọi `save_project_as()` thật (mock `QFileDialog`) với tên không có đuôi — file thật sự ghi ra ổ đĩa có tên `....sfproj`, không phải `.ffproj`.
