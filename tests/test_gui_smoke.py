@@ -279,13 +279,18 @@ class TestCanConfig(unittest.TestCase):
 
 class TestDataFormatConfig(unittest.TestCase):
     """
-    Covers the Miscellaneous page's Compression/Encryption
-    method selectors (ConfigureTabMixin.get_data_format_config()
-    and comboBoxCompressionMethod/comboBoxEncryptionMethod) —
-    these only change RequestDownload's dataFormatIdentifier
-    byte, not any real data transform (see
+    Covers the Compression Method/Encryption Method fields
+    (ConfigureTabMixin.get_data_format_config() and
+    lineEditCompressionMethod/lineEditEncryptionMethod) — these
+    only change RequestDownload's dataFormatIdentifier byte, not
+    any real data transform (see
     core/flash_controller.py/communication/uds_client.py for
-    where the value actually reaches the wire).
+    where the value actually reaches the wire). Single-hex-digit
+    text fields (not a dropdown), embedded directly into
+    tableWidgetDetails' rows 2/3 (Value column) via
+    setCellWidget(), built in Python since Designer's .ui format
+    can't express a widget embedded in a specific table cell —
+    see ConfigureTabMixin._setup_data_format_inputs().
     """
 
     def setUp(self):
@@ -298,9 +303,9 @@ class TestDataFormatConfig(unittest.TestCase):
             config, {"compression": 0, "encrypting": 0}
         )
 
-    def test_combo_index_is_the_nibble_value(self):
-        self.window.ui.comboBoxCompressionMethod.setCurrentIndex(3)
-        self.window.ui.comboBoxEncryptionMethod.setCurrentIndex(10)  # 'A'
+    def test_field_text_is_the_nibble_value(self):
+        self.window.ui.lineEditCompressionMethod.setText("3")
+        self.window.ui.lineEditEncryptionMethod.setText("A")
 
         config = self.window.get_data_format_config()
 
@@ -308,24 +313,232 @@ class TestDataFormatConfig(unittest.TestCase):
             config, {"compression": 3, "encrypting": 10}
         )
 
-    def test_details_table_reflects_non_default_value(self):
-        self.window._load_firmware_file(SAMPLE_HEX)
-        self.window.ui.comboBoxCompressionMethod.setCurrentIndex(3)
-
+    def test_fields_are_embedded_in_details_table_rows(self):
         details = self.window.ui.tableWidgetDetails
-        self.assertEqual(details.item(2, 1).text(), "0x3")
 
-    def test_details_table_shows_none_at_default(self):
+        self.assertIs(
+            details.cellWidget(2, 1),
+            self.window.ui.lineEditCompressionMethod,
+        )
+        self.assertIs(
+            details.cellWidget(3, 1),
+            self.window.ui.lineEditEncryptionMethod,
+        )
+        self.assertEqual(
+            details.item(2, 0).text(), "Compression Method"
+        )
+        self.assertEqual(
+            details.item(3, 0).text(), "Encryption Method"
+        )
+
+    def test_details_table_shows_zero_at_default(self):
+        details = self.window.ui.tableWidgetDetails
+        self.assertEqual(details.cellWidget(2, 1).text(), "0")
+        self.assertEqual(details.cellWidget(3, 1).text(), "0")
+
+    def test_lowercase_input_is_auto_uppercased(self):
+        field = self.window.ui.lineEditEncryptionMethod
+        field.setText("")
+        field.textEdited.emit("b")
+
+        self.assertEqual(field.text(), "B")
+        self.assertEqual(
+            self.window.get_data_format_config()["encrypting"], 11
+        )
+
+    def test_validator_rejects_out_of_range_characters(self):
+        field = self.window.ui.lineEditCompressionMethod
+        validator = field.validator()
+
+        self.assertIsNotNone(validator)
+        for char in ("G", "g", "Z", "-", " "):
+            state, _, _ = validator.validate(char, 0)
+            self.assertNotEqual(
+                state, validator.State.Acceptable, char
+            )
+        for char in "0123456789ABCDEFabcdef":
+            state, _, _ = validator.validate(char, 0)
+            self.assertEqual(
+                state, validator.State.Acceptable, char
+            )
+
+    def test_field_max_length_is_one(self):
+        self.assertEqual(
+            self.window.ui.lineEditCompressionMethod.maxLength(), 1
+        )
+        self.assertEqual(
+            self.window.ui.lineEditEncryptionMethod.maxLength(), 1
+        )
+
+    def test_loading_firmware_does_not_disturb_data_format_selection(self):
+        # Compression/Encryption are a persistent global setting,
+        # not a per-datablock property — loading a file must not
+        # reset whatever the user already picked.
+        self.window.ui.lineEditCompressionMethod.setText("3")
+
         self.window._load_firmware_file(SAMPLE_HEX)
-        # _load_firmware_file() alone doesn't populate Details
-        # (only add_new_datablock() does) — mirror that step.
         self.window._update_details_table(
             self.window._loaded_datablocks[-1]
         )
 
-        details = self.window.ui.tableWidgetDetails
-        self.assertEqual(details.item(2, 1).text(), "None")
-        self.assertEqual(details.item(3, 1).text(), "None")
+        self.assertEqual(
+            self.window.ui.lineEditCompressionMethod.text(), "3"
+        )
+        self.assertEqual(
+            self.window.ui.tableWidgetDetails.cellWidget(
+                2, 1
+            ).text(),
+            "3",
+        )
+
+    def test_removing_last_datablock_does_not_clear_data_format_selection(self):
+        self.window.ui.lineEditEncryptionMethod.setText("7")
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+        self.window._remove_datablock_row(0)
+
+        self.assertEqual(
+            self.window.ui.lineEditEncryptionMethod.text(), "7"
+        )
+
+
+class TestFingerprintConfig(unittest.TestCase):
+    """
+    Covers the Tester Serial Number field (Configure ->
+    Miscellaneous -> Fingerprint, lineEditTesterSerialNumber /
+    ConfigureTabMixin.get_tester_serial_number()) — the DID
+    0xF198 WriteDataByIdentifier payload sent by the Suzuki SLP1
+    sequence's "Write Tester Info" step (core/flash_sequence.py).
+    Declared directly in main_window.ui (unlike Compression/
+    Encryption Method, this isn't embedded in a table cell, so
+    there's no Designer limitation forcing Python construction).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_defaults_to_documented_value(self):
+        self.assertEqual(
+            self.window.ui.lineEditTesterSerialNumber.text(),
+            "00112233445566778899",
+        )
+        self.assertEqual(
+            self.window.get_tester_serial_number(),
+            bytes.fromhex("00112233445566778899"),
+        )
+
+    def test_field_text_is_the_payload(self):
+        self.window.ui.lineEditTesterSerialNumber.setText(
+            "AABBCCDDEE0011223344"
+        )
+        self.assertEqual(
+            self.window.get_tester_serial_number(),
+            bytes.fromhex("AABBCCDDEE0011223344"),
+        )
+
+    def test_lowercase_input_is_auto_uppercased(self):
+        field = self.window.ui.lineEditTesterSerialNumber
+        field.setText("")
+        field.textEdited.emit("ab")
+
+        self.assertEqual(field.text(), "AB")
+
+    def test_validator_rejects_non_hex_characters(self):
+        field = self.window.ui.lineEditTesterSerialNumber
+        validator = field.validator()
+
+        self.assertIsNotNone(validator)
+        for char in ("G", "Z", "-", " "):
+            state, _, _ = validator.validate(char, 0)
+            self.assertNotEqual(
+                state, validator.State.Acceptable, char
+            )
+        for char in "0123456789ABCDEFabcdef":
+            state, _, _ = validator.validate(char, 0)
+            self.assertEqual(
+                state, validator.State.Acceptable, char
+            )
+
+    def test_field_max_length_is_twenty(self):
+        self.assertEqual(
+            self.window.ui.lineEditTesterSerialNumber.maxLength(),
+            20,
+        )
+
+    def test_odd_length_falls_back_to_default(self):
+        # Mid-edit state (e.g. user just deleted the last
+        # character) — must never raise or send a malformed
+        # payload; falls back to the documented default instead.
+        self.window.ui.lineEditTesterSerialNumber.setText("00112")
+        self.assertEqual(
+            self.window.get_tester_serial_number(),
+            bytes.fromhex("00112233445566778899"),
+        )
+
+    def test_empty_field_falls_back_to_default(self):
+        self.window.ui.lineEditTesterSerialNumber.setText("")
+        self.assertEqual(
+            self.window.get_tester_serial_number(),
+            bytes.fromhex("00112233445566778899"),
+        )
+
+
+class TestHardwareComboDetectionError(unittest.TestCase):
+    """
+    Covers populate_hardware_combo() logging the real reason to
+    the Information tab when Vector hardware detection fails for
+    an actual environment reason (not just "nothing plugged
+    in") — added after a real deployment where the same .exe
+    worked on one bench PC and silently found nothing on
+    another, with no console available (--windowed build) to see
+    why.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_detection_error_is_logged(self):
+        with unittest.mock.patch(
+            "communication.vector_can.detect_vector_channels_with_error",
+            return_value=([], "Vector XL Driver Library error: boom"),
+        ):
+            self.window.populate_hardware_combo()
+
+        self.assertIn(
+            "Vector XL Driver Library error: boom",
+            self.window.ui.informationText.toPlainText(),
+        )
+
+    def test_no_hardware_plugged_in_logs_nothing(self):
+        self.window.ui.informationText.clear()
+        with unittest.mock.patch(
+            "communication.vector_can.detect_vector_channels_with_error",
+            return_value=([], None),
+        ):
+            self.window.populate_hardware_combo()
+
+        self.assertEqual(
+            self.window.ui.informationText.toPlainText(), ""
+        )
+
+    def test_successful_detection_logs_nothing(self):
+        self.window.ui.informationText.clear()
+        channel = {
+            "label": "VN1640A - Channel 1", "channel": 0,
+            "hw_channel": 0, "serial": None, "is_on_bus": False,
+        }
+        with unittest.mock.patch(
+            "communication.vector_can.detect_vector_channels_with_error",
+            return_value=([channel], None),
+        ):
+            self.window.populate_hardware_combo()
+
+        self.assertEqual(
+            self.window.ui.informationText.toPlainText(), ""
+        )
+        self.assertEqual(self.window.ui.comboBoxHardware.count(), 2)
 
 
 class TestCanConflictWarning(unittest.TestCase):
@@ -808,13 +1021,30 @@ class TestSettingsProfile(unittest.TestCase):
 
     def test_data_format_selection_persists_across_restart(self):
         window1 = MainWindow()
-        window1.ui.comboBoxCompressionMethod.setCurrentIndex(3)
-        window1.ui.comboBoxEncryptionMethod.setCurrentIndex(10)
+        window1.ui.lineEditCompressionMethod.setText("3")
+        window1.ui.lineEditEncryptionMethod.setText("A")
+        # save_profile() is wired to textEdited (real user input),
+        # which setText() alone doesn't fire — save explicitly,
+        # same effect as the user actually typing the digit.
+        window1.save_profile()
 
         window2 = MainWindow()
         self.assertEqual(
             window2.get_data_format_config(),
             {"compression": 3, "encrypting": 10},
+        )
+
+    def test_tester_serial_number_persists_across_restart(self):
+        window1 = MainWindow()
+        window1.ui.lineEditTesterSerialNumber.setText(
+            "AABBCCDDEE0011223344"
+        )
+        window1.save_profile()
+
+        window2 = MainWindow()
+        self.assertEqual(
+            window2.get_tester_serial_number(),
+            bytes.fromhex("AABBCCDDEE0011223344"),
         )
 
     def test_security_dll_path_persists_if_file_still_exists(self):
@@ -876,8 +1106,8 @@ class TestSettingsProfile(unittest.TestCase):
             "serial": 5551234, "is_on_bus": False,
         }
         with unittest.mock.patch(
-            "communication.vector_can.detect_vector_channels",
-            return_value=[channel_entry],
+            "communication.vector_can.detect_vector_channels_with_error",
+            return_value=([channel_entry], None),
         ):
             window1 = MainWindow()
             window1.ui.comboBoxHardware.setCurrentIndex(1)
@@ -1404,6 +1634,19 @@ class TestMenuBar(unittest.TestCase):
         mock_about.assert_called_once()
         self.assertIn(APP_NAME, mock_about.call_args[0][1])
 
+    def test_about_action_opts_out_of_macos_auto_relocation(self):
+        # On macOS, Qt's native menu bar silently moves any
+        # action whose text contains "about" out of Help and
+        # into the system application menu (TextHeuristicRole,
+        # the default) — invisible in this offscreen test env,
+        # but very much not in Help for a real macOS user. Must
+        # stay NoRole so "About SFlash" stays in Help everywhere.
+        from PySide6.QtGui import QAction
+        self.assertEqual(
+            self.window.ui.actionAbout.menuRole(),
+            QAction.MenuRole.NoRole,
+        )
+
     def test_open_guideline_opens_existing_file(self):
         with unittest.mock.patch(
             "gui.menu_bar.QDesktopServices.openUrl"
@@ -1799,8 +2042,11 @@ class TestProjectFile(unittest.TestCase):
     def test_save_and_open_project_round_trip(self):
         self.window._load_firmware_file(SAMPLE_HEX)
         self.window.ui.comboBoxRadarSide.setCurrentIndex(1)
-        self.window.ui.comboBoxCompressionMethod.setCurrentIndex(3)
-        self.window.ui.comboBoxEncryptionMethod.setCurrentIndex(10)
+        self.window.ui.lineEditCompressionMethod.setText("3")
+        self.window.ui.lineEditEncryptionMethod.setText("A")
+        self.window.ui.lineEditTesterSerialNumber.setText(
+            "AABBCCDDEE0011223344"
+        )
 
         path = self._project_path("roundtrip.sfproj")
         with unittest.mock.patch(
@@ -1829,6 +2075,10 @@ class TestProjectFile(unittest.TestCase):
             window2.get_data_format_config(),
             {"compression": 3, "encrypting": 10},
         )
+        self.assertEqual(
+            window2.get_tester_serial_number(),
+            bytes.fromhex("AABBCCDDEE0011223344"),
+        )
 
     def test_save_and_open_project_round_trip_real_hardware(self):
         # comboBoxHardware's userData is the full channel dict
@@ -1842,8 +2092,8 @@ class TestProjectFile(unittest.TestCase):
         }
         path = self._project_path("real_hw.sfproj")
         with unittest.mock.patch(
-            "communication.vector_can.detect_vector_channels",
-            return_value=[channel_entry],
+            "communication.vector_can.detect_vector_channels_with_error",
+            return_value=([channel_entry], None),
         ):
             # Fresh window, built while the mock is active, so
             # its combo actually has the real-channel entry —

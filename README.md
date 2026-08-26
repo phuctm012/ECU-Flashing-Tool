@@ -191,14 +191,22 @@ Nếu bỏ qua bước này, kết nối từ tool sẽ báo lỗi kiểu *"no c
 
 1. Tab **Configure → Communication** → bấm **"Refresh"** cạnh combo Hardware để quét lại thiết bị đang cắm, rồi chọn kênh tương ứng vừa xuất hiện. Combo mặc định chỉ có **"Virtual ECU Simulator"** — kênh thật chỉ hiện ra khi có hardware Vector thật sự được nhận diện *và* đã đăng ký ở bước B (không còn danh sách kênh giả cố định như trước).
 2. Nếu ECU yêu cầu thuật toán bảo mật riêng của OEM: tab **Configure → Miscellaneous** → chọn file DLL ở mục **"Security Access DLL"** (Browse...).
-3. Nếu ECU yêu cầu khai báo compression/encryption method trong RequestDownload: cùng tab **Miscellaneous**, mục **"Data Format (RequestDownload)"** — 2 combo **Compression**/**Encryption** (giá trị 0-F, mặc định 0 = None) chỉ set nibble tương ứng trong byte `dataFormatIdentifier` gửi cho ECU, **không** tự nén/mã hóa dữ liệu firmware — file nạp vào phải đã ở đúng định dạng đó từ trước nếu chọn giá trị khác 0.
-4. Nạp file firmware và nhấn **Flash** như trên. Khuyến nghị chạy `test-connection` trước (xem mục [Command Line Interface](#command-line-interface-clipy)) để xác nhận đấu dây/channel/security đúng trước khi flash thật.
+3. Nếu ECU yêu cầu khai báo compression/encryption method trong RequestDownload: tab **Configure → Data**, bảng **Details** — 2 dòng **Compression Method**/**Encryption Method** giờ gõ trực tiếp được từ bàn phím (1 ký tự hex 0-F, mặc định 0 = None, chữ thường tự động chuyển thành chữ hoa) thay vì chỉ hiển thị, chỉ set nibble tương ứng trong byte `dataFormatIdentifier` gửi cho ECU, **không** tự nén/mã hóa dữ liệu firmware — file nạp vào phải đã ở đúng định dạng đó từ trước nếu chọn giá trị khác 0. Đây là 1 lựa chọn chung cho cả phiên flash, không đổi theo từng datablock nạp vào.
+4. Tester Serial Number ghi vào ECU khi flash (chỉ sequence **Suzuki**, bước "Write Tester Info", DID `0xF198`): tab **Configure → Miscellaneous** → mục **"Fingerprint"** → gõ hex trực tiếp vào **"Tester Serial Number"** (tối đa 20 ký tự hex = 10 byte, mặc định `00112233445566778899`, chữ thường tự động chuyển thành chữ hoa). Sequence **Generic** không dùng field này.
+5. Nạp file firmware và nhấn **Flash** như trên. Khuyến nghị chạy `test-connection` trước (xem mục [Command Line Interface](#command-line-interface-clipy)) để xác nhận đấu dây/channel/security đúng trước khi flash thật.
 
 ### Lưu ý về đánh số channel (`--channel N`)
 
 **GUI**: combo Hardware tự phát hiện serial number của thiết bị Vector và dùng nó để chọn đúng channel vật lý — **không cần** cấu hình bước B (Vector Hardware Config) nếu python-can hỗ trợ tham số `serial` (phiên bản 4.x trở lên). Nếu python-can không hỗ trợ `serial`, app tự động fallback về dùng `app_name`/`xlGetApplConfig` — khi đó bước B là bắt buộc.
 
 **CLI**: `--channel N` mặc định là application channel index (cần bước B). Để bypass hoàn toàn, dùng `--channel <hw_channel> --serial <serial_number>` — xem `list-hardware` để lấy giá trị đúng.
+
+### Không detect được hardware Vector (combo Hardware trống)
+
+Nếu combo Hardware chỉ có "Virtual ECU Simulator" dù đã cắm hardware Vector thật — bấm **"Refresh"** rồi xem tab **Information**: nếu có lỗi thật (khác "chưa cắm gì"), dòng log sẽ hiện lý do cụ thể ngay trong GUI (không cần mở terminal). 2 nguyên nhân hay gặp nhất, đặc biệt nếu cùng 1 bản `.exe` chạy được ở máy này nhưng không được ở máy khác:
+
+1. **Vector XL Driver Library chưa cài trên máy đang gặp lỗi** (mục A ở trên) — driver này cài riêng theo từng máy, không đi kèm trong file `.exe`.
+2. **Bản `.exe` build ra không có `python-can`** — mặc định `requirements_build.txt` comment sẵn dòng `python-can`; nếu build mà không bỏ comment trước, `.exe` chạy tốt với Virtual ECU Simulator nhưng sẽ **không bao giờ** detect được hardware thật dù máy nào — cần build lại (xem mục "Build file .exe" bên dưới). Trường hợp này thì lỗi xảy ra **giống nhau ở mọi máy**, khác với trường hợp 1 (chỉ lỗi ở máy thiếu driver).
 
 ---
 
@@ -235,7 +243,7 @@ python cli.py flash --help
 python cli.py test-connection --help
 ```
 
-Các cờ chính của `flash`/`test-connection` (dùng chung): `--hardware {virtual,vector}`, `--channel`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `--compression`/`--encryption` (nibble `dataFormatIdentifier` của RequestDownload, 0-15, mặc định 0 — chỉ khai báo định dạng cho ECU, không tự nén/mã hóa file), `-q`/`--quiet`, `-v`/`--verbose`. Riêng `flash` có thêm `--base-address` (cho file `.bin`) và `--dry-run`. Mã thoát (exit code): `0` = thành công, `1` = abort/lỗi, `2` = lỗi tham số/parse file, `130` = bị ngắt (Ctrl+C) — thuận tiện để dùng trong script CI/automation.
+Các cờ chính của `flash`/`test-connection` (dùng chung): `--hardware {virtual,vector}`, `--channel`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `--compression`/`--encryption` (nibble `dataFormatIdentifier` của RequestDownload, 0-15, mặc định 0 — chỉ khai báo định dạng cho ECU, không tự nén/mã hóa file), `--tester-serial <hex>` (payload WriteDataByIdentifier DID `0xF198`, chuỗi hex chẵn số ký tự, mặc định `00112233445566778899` — chỉ dùng cho sequence `suzuki`), `-q`/`--quiet`, `-v`/`--verbose`. Riêng `flash` có thêm `--base-address` (cho file `.bin`) và `--dry-run`. Mã thoát (exit code): `0` = thành công, `1` = abort/lỗi, `2` = lỗi tham số/parse file, `130` = bị ngắt (Ctrl+C) — thuận tiện để dùng trong script CI/automation.
 
 **Lưu ý**: `--hardware vector` (Vector VN1640A/VN1630 thật) chỉ dùng được trên **Windows** vì driver Vector XL Driver Library chỉ có bản Windows. `--hardware virtual` (mặc định) chạy y hệt trên mọi hệ điều hành.
 

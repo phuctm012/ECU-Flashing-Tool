@@ -19,10 +19,8 @@ file để biết bối cảnh/lịch sử theo từng đợt trước khi đán
 
 ### 2. Bảng Details — 4 dòng luôn hardcode, không phản ánh file thật
 
-- **Trạng thái**: ⬜ Chưa xử lý
-- **Vị trí**: [gui/configure_tab.py:300-336](../gui/configure_tab.py#L300-L336) (`_update_details_table()`)
-- **Vấn đề**: "Signature" (rỗng), "Compression" ("None"), "Encryption" ("None"), "Delta download" ("Disabled") — set y hệt cho mọi file, không có logic phân tích thật đứng sau.
-- **Hướng xử lý**: implement phân tích thật (nếu các tính năng này thực sự cần), hoặc xóa các dòng này khỏi bảng Details để tránh gây hiểu lầm.
+- **Trạng thái**: ✅ Đã xử lý (2026-08-26) — "Signature"/"Delta download" xoá khỏi bảng (chưa cần dùng); "Compression"/"Encryption" đổi thành `QLineEdit` nhập tay (1 ký tự hex 0-F), nhúng trực tiếp vào bảng Details qua `setCellWidget()`, giá trị gõ vào set thật nibble tương ứng trong byte `dataFormatIdentifier` của RequestDownload (SID `0x34`) — không còn hardcode "None" cố định. Xem Phase 4.69/4.73/4.74 trong `docs/walkthrough.md`.
+- **Vị trí**: `gui/configure_tab.py` (`_update_details_table()`, `_setup_data_format_inputs()`, `get_data_format_config()`)
 
 ### 3. Bảng "Custom Configuration" (tab Custom Actions) — decoration, sửa được nhưng vô nghĩa
 

@@ -1645,3 +1645,123 @@ User bấm ngay vào dòng `PROJECT_FILE_FILTER = "SFlash Project (*.ffproj);;Al
 - `grep -rln "ffproj" .` (loại trừ `log/`) chỉ còn đúng `docs/walkthrough.md` (cố ý giữ).
 - Full test suite (266 test) pass.
 - Verify chức năng thật: `PROJECT_FILE_FILTER` = `"SFlash Project (*.sfproj);;All Files (*)"`; gọi `save_project_as()` thật (mock `QFileDialog`) với tên không có đuôi — file thật sự ghi ra ổ đĩa có tên `....sfproj`, không phải `.ffproj`.
+
+## Phase 4.73: Chuyển Compression/Encryption Method Vào Đúng Bảng Details
+
+User xem lại kết quả Phase 4.69 (screenshot), chỉ ra hiểu nhầm: ý muốn ban đầu là dùng lại 2 dòng **Compression Method**/**Encryption Method** vốn đã có sẵn trong bảng Details (tab Data) — biến chúng thành dropdown chọn được trực tiếp — chứ không phải tạo hẳn 1 section "Data Format" riêng ở trang Miscellaneous như đã làm.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: xoá hẳn section "Data Format (RequestDownload)" (label + `horizontalLayout_dataFormat` + `comboBoxCompressionMethod`/`comboBoxEncryptionMethod`) vừa thêm ở Phase 4.69 khỏi trang Miscellaneous — regenerate lại `ui_main_window.py`.
+- **`gui/configure_tab.py`**: `setup_data_format_selector()`/`_on_data_format_changed()` (đọc từ .ui) thay bằng `_setup_data_format_combos()` — dựng 2 `QComboBox` **bằng Python**, gắn trực tiếp vào ô Value của bảng `tableWidgetDetails` (row 2 = Compression Method, row 3 = Encryption Method) qua `setCellWidget()`. Đây đúng là trường hợp CLAUDE.md's rule "GUI ở `.ui` trước" tự cho phép ngoại lệ: Designer's table-widget item chỉ là text/checkbox tĩnh, không thể biểu diễn 1 widget nhúng trong 1 ô cụ thể — bắt buộc phải dựng runtime.
+  - Vẫn gắn 2 combo này vào `self.ui.comboBoxCompressionMethod`/`comboBoxEncryptionMethod` (đúng tên objectName như thể khai báo trong `.ui`) — nên toàn bộ code đọc/ghi sẵn có (`get_data_format_config()`, `gui/settings_profile.py`, `gui/project_file.py`, test) chạy đúng không cần sửa gì thêm, chỉ cần đổi đúng 1 chỗ dựng widget.
+  - `_update_details_table()` không còn `setItem()` cho row 2/3 nữa (combo đã tự hiển thị trạng thái của chính nó); `_clear_details_table()` bỏ qua row 2/3 khi blank cột Value lúc xoá hết datablock — đây là setting chung cho cả phiên flash, không phải thuộc tính riêng của từng file nạp vào, nên không được xoá/ghi đè theo file.
+
+### Đã kiểm tra
+
+- Sửa 2 test cũ còn assert `details.item(2, 1).text()` (không còn đúng vì ô giờ là widget, không phải item) thành đọc `details.cellWidget(2, 1).currentText()`; thêm 3 test mới: combo đúng là chính object gắn ở `self.ui.comboBoxCompressionMethod`/`comboBoxEncryptionMethod` và đúng vị trí row 2/3, nạp firmware không làm mất lựa chọn đã chọn, xoá hết datablock cũng không làm mất lựa chọn.
+- Full test suite (268 test) + `tests/test_flash_threading.py` pass.
+- Verify hình ảnh light/dark mode: 2 dropdown hiện đúng ngay trong bảng Details, không còn section riêng ở Miscellaneous.
+- Verify end-to-end thật qua QThread: chọn Compression=4, Encryption=9 trực tiếp trên combo trong bảng Details, flash qua Virtual ECU, đọc trace thật — byte `dataFormatIdentifier` đúng `0x49` (= `4<<4 | 9`).
+
+## Phase 4.74: Compression/Encryption Method — Đổi Từ Combo Box Sang Nhập Bàn Phím Trực Tiếp
+
+User xem lại kết quả Phase 4.73 (screenshot dropdown 0-F đang mở), thấy combo box không cần thiết — muốn nhập trực tiếp từ bàn phím, giới hạn ký tự 0-F, tự động chuyển chữ thường thành chữ hoa khi gõ.
+
+### Thay đổi
+
+- **`gui/configure_tab.py`**: `_setup_data_format_combos()` (2 `QComboBox`) đổi thành `_setup_data_format_inputs()` — dựng 2 `QLineEdit`, vẫn nhúng vào ô Value của `tableWidgetDetails` (row 2/3) qua `setCellWidget()` như Phase 4.73, chỉ đổi loại widget. Mỗi field: `setMaxLength(1)` + `QRegularExpressionValidator(QRegularExpression("[0-9A-Fa-f]"))` giới hạn đúng 1 ký tự hex; `textEdited` (chỉ bắn khi user gõ thật, không bắn khi `setText()` chương trình gọi) nối vào `_on_data_format_text_edited()` — nếu ký tự vừa gõ khác dạng viết hoa của chính nó thì `setText()` lại bằng bản viết hoa, tự động uppercase mà không đệ quy/xung đột với `load_profile()`/`_apply_project_data()` set giá trị lúc khởi động.
+  - Vẫn gắn vào `self.ui.lineEditCompressionMethod`/`lineEditEncryptionMethod` (đổi tên objectName cho đúng loại widget mới) — mọi nơi đọc/ghi (`get_data_format_config()`, `gui/settings_profile.py`, `gui/project_file.py`) sửa theo, đọc bằng `.text().strip()` + `int(text, 16)` thay vì `.currentText()`/`.currentIndex()`.
+  - `get_data_format_config()`: field rỗng (chưa từng gõ gì, dù thực tế không xảy ra vì mặc định luôn `setText("0")`) fallback về 0, không raise.
+
+### Đã kiểm tra
+
+- Viết lại `TestDataFormatConfig` (9 test): giá trị mặc định "0"/"0", field đúng là chính widget nhúng ở row 2/3, đọc đúng giá trị đã gõ, tự động uppercase khi gõ chữ thường, validator từ chối ký tự ngoài 0-9A-Fa-f, `maxLength() == 1`, nạp firmware/xoá datablock không làm mất giá trị đã nhập. Sửa `TestSettingsProfile`/`TestProjectFile` 2 test còn gọi `setCurrentIndex()` sang `setText()`.
+- Full test suite (271 test) + `tests/test_flash_threading.py` (9 test) pass.
+- Verify hình ảnh light/dark mode: 2 ô nhập hiện đúng trong bảng Details, style dark mode nhất quán với các ô khác (không có widget bị bỏ sót style — QLineEdit đã có rule dark mode sẵn từ trước, không phải widget mới như `QSpinBox` ở Phase 4.70).
+- Verify end-to-end thật qua QThread: gõ "B" vào Compression, "9" vào Encryption bằng `setText()` (mô phỏng đúng giá trị hiển thị/nội bộ thật của field — lưu ý ban đầu thử mô phỏng "gõ" bằng cách gọi thẳng `lineEdit.textEdited.emit(...)`, sai: `emit()` chỉ bắn signal cho slot đã nối, không tự cập nhật `.text()` nội bộ của widget như 1 phím gõ thật hoặc `setText()` thật sự làm — với ký tự đã viết hoa sẵn như "9", `_on_data_format_text_edited()` không gọi `setText()` nên field vẫn giữ giá trị cũ, dẫn đến kết quả sai giả — không phải bug ở code thật, chỉ là cách script verify mô phỏng input sai), flash qua Virtual ECU, đọc trace thật — byte `dataFormatIdentifier` đúng `0xB9` (= `B<<4 | 9`).
+
+### Phase 4.74.1: Compression/Encryption Method — Bỏ Viền Cố Định, Chỉ Hiện Khi Focus
+
+User gửi screenshot so sánh: 2 field Compression/Encryption Method (đang có viền xám cố định bao quanh, giống 1 ô input độc lập) với hàng **Start Address** ngay bên dưới (chỉ hiện viền xanh khi click vào để sửa, native `QTableWidgetItem` edit-in-place của Qt) — hỏi có "edit theo dạng như bên dưới" được không, và làm rõ thêm không cần quay lại dạng combo box (Phase 4.73 đã bỏ combo rồi, ý ở đây thuần về style viền).
+
+- **Nguyên nhân**: `QLineEdit, QComboBox, QSpinBox { border: 1px solid ...; }` trong `resources/style.qss`/`style_dark.qss` áp dụng chung cho mọi `QLineEdit`, kể cả 2 field nhúng trong bảng Details — nên chúng luôn hiện viền, khác hẳn các hàng còn lại (File/Checksum/Start Address/Memory Size) vốn là `QTableWidgetItem` phẳng, chỉ hiện viền native lúc đang thật sự edit.
+- **Thay đổi**: thêm rule riêng theo objectName trong cả 2 file QSS — `QLineEdit#lineEditCompressionMethod, QLineEdit#lineEditEncryptionMethod { border: 1px solid transparent; background: transparent; }` (viền/nền trong suốt lúc bình thường, hoà vào bảng) và `:focus { border: 1px solid <accent>; background: <nền input>; }` (chỉ hiện viền màu accent — `#4a7fd6` light / `#5b8fd9` dark — khi đang gõ), theo đúng convention objectName-selector đã dùng sẵn cho `QPushButton#flashButton`. Không đổi logic Python nào (validator, auto-uppercase, get_data_format_config() giữ nguyên).
+- **Đã kiểm tra**: viết script test riêng ban đầu quên gọi `load_stylesheet()` trước khi tạo `MainWindow()` trực tiếp (khác `main.py`, nơi luôn tự áp stylesheet lúc khởi động) — 2 ảnh "light" đầu tiên vô tình chụp app **chưa áp bất kỳ stylesheet nào** (viền native Qt/OS mặc định, không phản ánh sửa đổi thật), và ảnh "dark" lại vô tình đọc theo trạng thái dark mode đã lưu từ QSettings của lần chạy trước chứ không do gọi tường minh — sửa script gọi `app.setStyleSheet(load_stylesheet(dark=False/True))` tường minh, không phụ thuộc state đã lưu, rồi chụp lại đúng cả 2 theme × cả 2 trạng thái (focus/không) — xác nhận đúng: phẳng lúc không gõ, viền accent lúc đang gõ, đúng như Start Address. Full test suite (271 test) pass lại sau khi sửa QSS (chỉ đổi CSS, không đổi code Python nên không cần chạy lại `test_flash_threading.py` riêng).
+
+### Phase 4.74.2: Compression/Encryption Method — Căn Trái + Phát Hiện Bug Ghi Đè Settings Thật Của User
+
+User gửi tiếp screenshot: field Compression đang hiện "B" (không phải mặc định "0" như code), và yêu cầu căn lề trái thay vì giữa (giống các hàng còn lại trong bảng Details).
+
+- **Căn lề trái**: `_setup_data_format_inputs()` đổi `setAlignment(Qt.AlignCenter)` → `Qt.AlignLeft | Qt.AlignVCenter` cho cả 2 field — khớp cách `QTableWidgetItem` mặc định căn trái (File/Checksum/Start Address/Memory Size).
+- **Bug phát hiện qua đó**: field Compression hiện "B" không phải do lỗi code — do chính các script verify thủ công ở Phase 4.74 (chạy trực tiếp `MainWindow()` qua `python -c` để chụp ảnh/kiểm tra byte `dataFormatIdentifier` thật) **không redirect `QSettings` sang path tạm** như `tests/qt_test_utils.py`'s `get_app()` luôn làm cho test suite — nên `MainWindow()` trong các script đó đọc/ghi thẳng vào file settings thật của user (`~/.config/tranph9/SFlash.ini`). Trong script verify gốc (đã fix ở đầu phiên làm việc này), lúc còn dùng `textEdited.emit('b')`, chuỗi 2 slot nối vào cùng signal `textEdited` chạy tuần tự: `_on_data_format_text_edited('b')` gọi `setText('B')` trước, rồi `save_profile()` (nối sau, trong `settings_profile.py`) đọc `.text()` đã là `'B'` → ghi thật `dataFormat/compression=11` vào file ini thật của user, dù chỉ là thao tác verify không phải hành động của user.
+- **Sửa**: reset `~/.config/tranph9/SFlash.ini`'s `[dataFormat]` về lại `compression=0`/`encrypting=0` (chỉ sửa đúng 2 dòng này, không đụng `darkMode`/`recentFiles`/... vốn là trạng thái thật của user).
+- **Bài học cho các script verify thủ công sau này (không phải qua `tests/`)**: luôn gọi `QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tempfile.mkdtemp(...))` **trước** khi tạo `MainWindow()` trực tiếp, y hệt `tests/qt_test_utils.py`'s `get_app()` — nếu không, mọi `setText()`/`textEdited.emit()` mô phỏng trong script có thể ghi thật vào profile của user.
+- **Đã kiểm tra**: script verify lại (lần này có `QSettings.setPath()` cách ly) xác nhận mặc định đúng là `'0'`/`'0'`; ảnh chụp light + dark xác nhận căn trái đúng. Full test suite (271 test) pass.
+
+### Phase 4.75: Thêm Fingerprint — Tester Serial Number (DID 0xF198)
+
+User gửi screenshot 1 tool khác (dạng "Fingerprint" section, field "Tester Serial Number or Repair Shop Code") — yêu cầu thêm tương tự vào tab **Configure → Miscellaneous**: field "Tester Serial Number" (bỏ phần "or Repair Shop Code"), là giá trị ghi vào DID `0xF198`, user chỉnh được, mặc định `00112233445566778899`. Brainstorm fit trước khi làm (theo rule CLAUDE.md): DID `0xF198` (TesterSerialNumberDataIdentifier) là 1 tham số UDS thật, hiện đang hardcode trong `SUZUKI_SLP1_FLASH_SEQUENCE`'s bước "Write Tester Info" (`core/flash_sequence.py`) — khớp hoàn toàn kiến trúc/tiền lệ đã có (Security DLL path, Compression/Encryption Method đều là tham số UDS cấu hình được từ Miscellaneous/Data tab) → làm luôn, không cần hỏi lại.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: thêm section "Fingerprint" vào `pageMisc`, ngay sau Security Access DLL — label section-header `labelFingerprint` (đúng convention `sectionHeader` + style bold có sẵn) + `horizontalLayout_testerSerialNumber` chứa `labelTesterSerialNumber` ("Tester Serial Number:") và `lineEditTesterSerialNumber` (text mặc định `00112233445566778899`). Khai báo thẳng trong `.ui` (không như Compression/Encryption Method) vì đây là field tĩnh, Designer biểu diễn được bình thường — không rơi vào ngoại lệ "logic-driven content". Regenerate `ui_main_window.py`.
+- **`gui/configure_tab.py`**: `setup_fingerprint_selector()` (gọi từ `setup_communication_logic()`, sau `setup_security_dll_selector()`) gắn `QRegularExpressionValidator("[0-9A-Fa-f]{0,20}")` + `setMaxLength(20)` (20 ký tự hex = 10 byte, đúng độ dài cố định của DID này trên ECU thật theo trace đã reverse-engineer — sai độ dài rất có thể bị ECU NRC) và nối `textEdited` vào **cùng 1 handler** với Compression/Encryption Method — đổi tên `_on_data_format_text_edited()` → `_on_hex_input_text_edited()` (tổng quát hơn, dùng chung cho cả 3 field hex trên tab Configure, thay vì viết lại y hệt cho field mới). `get_tester_serial_number()` đọc field, trả về `bytes` — text rỗng/số ký tự lẻ/không phải hex hợp lệ (trường hợp field bị nạp giá trị hỏng từ `.sfproj`/QSettings hand-edit, bỏ qua được validator tương tác) đều fallback về default thay vì raise.
+- **`core/flash_sequence.py`**: `build_suzuki_slp1_flash_sequence()` thêm tham số `tester_serial_number=None` — nếu có, thay `data` của bước "Write Tester Info" bằng giá trị này. **Quan trọng**: không mutate `step.params` tại chỗ — `SUZUKI_SLP1_FLASH_SEQUENCE` là list `FlashStep` dùng chung ở module-level, mutate trực tiếp sẽ làm giá trị override của 1 lần flash rò rỉ sang mọi lần flash sau đó trong cùng process (kể cả lần không hề set field này) — thay vào đó tạo `FlashStep` mới thay thế đúng vị trí trong list trả về, giữ nguyên object gốc trong template. (Sequence Generic không có bước tương đương DID 0xF198 nên không bị ảnh hưởng.)
+- **`gui/flash_tab.py`**: khi `use_suzuki_sequence`, đọc `get_tester_serial_number()` và truyền vào `build_suzuki_slp1_flash_sequence(datablocks, tester_serial_number=...)`.
+- **`gui/settings_profile.py`/`gui/project_file.py`**: persist field dạng chuỗi hex thô (`fingerprint/testerSerialNumber` trong QSettings, `tester_serial_number` trong `.sfproj`) — khi restore, chỉ nhận nếu đúng 20 ký tự hex hợp lệ, sai thì giữ nguyên default có sẵn trong `.ui` thay vì hiện field trống/hỏng.
+- **`cli.py`**: thêm `--tester-serial <hex>` (helper `_parse_hex_bytes()`, cùng convention lỗi với `_parse_hex_int()` sẵn có cho `--compression`/`--encryption`), truyền vào `_build_steps()` khi `--sequence suzuki`. Cờ này cũng xuất hiện ở `test-connection` (dùng chung `_add_can_args()` với `flash`) nhưng không dùng tới ở đó — giống hệt cách `--compression`/`--encryption` đã tồn tại từ trước.
+- **`README.md`**: thêm mục D.4 (Fingerprint/Tester Serial Number) và cập nhật dòng liệt kê cờ CLI để bao gồm `--tester-serial`.
+
+### Đã kiểm tra
+
+- Test mới: `tests/test_flash_sequence.py` (3 test — override áp dụng đúng, mặc định đúng khi không override, và **regression test xác nhận override không rò rỉ vào module-level template** ở lần build tiếp theo); `tests/test_gui_smoke.py` — `TestFingerprintConfig` (7 test: mặc định, đọc giá trị đã gõ, tự uppercase, validator từ chối ký tự không phải hex, `maxLength() == 20`, fallback về default khi số ký tự lẻ/rỗng), cộng 1 test persist qua restart (`TestSettingsProfile`) và cập nhật `test_save_and_open_project_round_trip` (`TestProjectFile`) để bao gồm field mới.
+- Full test suite: 282 test (271 cũ + 11 mới) pass; `tests/test_flash_threading.py` (9 test) pass.
+- Verify end-to-end thật qua QThread: gõ Tester Serial Number = `AABBCCDDEE0011223344`, flash qua Suzuki sequence + Virtual ECU, đọc trace thật — frame `WriteDataByIdentifier` gửi đúng `2E F1 98 AA BB CC DD EE 00 11 22 33 44` (SID `0x2E` + DID `0xF198` + đúng 10 byte đã gõ).
+- Verify hình ảnh light/dark mode: section "Fingerprint" hiện đúng dưới Security Access DLL trên trang Miscellaneous, đúng như screenshot user gửi tham khảo.
+
+### Phase 4.76: Diagnostic Thật Khi Không Detect Được Hardware Vector
+
+User báo build ra `.exe`, đưa lên bench test với hardware Vector (cắm được cùng loại hardware mà CANoe dùng) — chạy được trên 1 máy, máy còn lại thì không detect được channel nào. Vì cùng 1 file `.exe` chạy được ở máy A, loại trừ được nguyên nhân "python-can không được đóng gói vào exe" (nếu vậy sẽ fail y hệt ở cả 2 máy) — thu hẹp lại đúng về khác biệt môi trường máy B (khả năng cao nhất: Vector XL Driver Library chưa cài trên máy B). Vấn đề gốc rễ khiến việc chẩn đoán khó: `detect_vector_channels()` (`communication/vector_can.py`) cố tình nuốt **mọi** exception và trả về `[]` — đúng và cần thiết cho use case bình thường (chưa cắm gì / chưa cài python-can là trạng thái hợp lệ, không phải lỗi), nhưng đồng nghĩa 1 lỗi môi trường thật (driver hỏng/thiếu) trông y hệt "chưa cắm gì", và bản build `--windowed` của PyInstaller không có console để xem exception thật.
+
+### Thay đổi
+
+- **`communication/vector_can.py`**: tách phần thực thi chung ra `_detect_vector_channels_impl()` (trả về `(channels, error)`), rồi 2 hàm public dùng chung: `detect_vector_channels()` giữ nguyên hành vi/API cũ (chỉ trả list, nuốt lỗi) cho các caller không quan tâm lý do (`populate_hardware_combo()`'s userData building, `detect_can_conflict_warning()`); `detect_vector_channels_with_error()` (mới) trả thêm `error` — `None` nếu thật sự thành công (kể cả khi list rỗng vì không có gì cắm), hoặc chuỗi mô tả exception thật (phân biệt được "python-can chưa cài" vs "XL Driver Library lỗi/thiếu trên máy này").
+- **`gui/configure_tab.py`**: `populate_hardware_combo()` đổi sang gọi `detect_vector_channels_with_error()` — khi `error` khác `None`, log ra tab Information (`log_information()`) để user thấy được lý do thật ngay trong GUI, không cần console (bản `.exe` build `--windowed` không có console để xem stderr).
+- **`cli.py`**: `cmd_list_hardware()` cũng đổi sang hàm mới, in `error` ra khi có, tách rõ 3 trường hợp thay vì 2: có hardware / không có hardware nhưng không lỗi gì / không có hardware VÀ có lý do cụ thể.
+
+### Đã kiểm tra
+
+- Test mới: `tests/test_vector_can.py` — `TestDetectVectorChannelsWithError` (4 test: thành công không lỗi, import `can` thất bại báo đúng "python-can", `get_channel_configs()` raise báo đúng message gốc, không cắm gì thì `error=None`); `tests/test_gui_smoke.py` — `TestHardwareComboDetectionError` (3 test: lỗi thật được log, không cắm gì thì không log gì, detect thành công thì không log gì); `tests/test_cli.py` — thêm test `list-hardware` in đúng error khi mock lỗi.
+- Sửa 2 test cũ bị regress do đổi hàm gọi trong `populate_hardware_combo()`: `test_real_hardware_channel_persists_across_restart` và `test_save_and_open_project_round_trip_real_hardware` (`tests/test_gui_smoke.py`) đang mock `detect_vector_channels` (hàm cũ, không còn được `populate_hardware_combo()` gọi nữa) — sửa sang mock `detect_vector_channels_with_error`.
+- Full test suite: 290 test (282 cũ + 8 mới) pass; `tests/test_flash_threading.py` (9 test) pass.
+- Verify thật: click nút Refresh với `detect_vector_channels_with_error()` mock trả về lỗi XL Driver Library giả lập — xác nhận dòng lỗi thật xuất hiện đúng trong tab Information (`"No real Vector hardware detected: Vector XL Driver Library error: ..."`), thay vì combo chỉ lặng lẽ trống như trước.
+
+### Phase 4.76.1: Tổng Hợp Lỗi Connect Hardware Vào `docs/user_guide.html`
+
+User hỏi thêm chi tiết (exception cụ thể là gì khi chưa cài `python-can` — trả lời trực tiếp: `ModuleNotFoundError: No module named 'can'`, message đầy đủ `"python-can's Vector backend unavailable: No module named 'can'"`), rồi yêu cầu tổng hợp toàn bộ lỗi hay gặp khi connect hardware đưa vào `docs/user_guide.html` (file guide dạng HTML độc lập, tiếng Anh — khác `README.md`/`docs/walkthrough.md` là tiếng Việt).
+
+### Thay đổi
+
+- **`docs/user_guide.html`**: thêm section mới "Troubleshooting: Real Hardware Connection Errors" (sau "Safety Notes", trước footer) — 5 mục, mỗi mục 1 `<div class="error-item">` (message thật trong `<code>` + giải thích/hướng xử lý), lấy đúng nguyên văn từ code chứ không tự bịa: 2 message detection từ Phase 4.76 (`python-can's Vector backend unavailable: ...` / `Vector XL Driver Library error: ...`), 2 message connect từ `communication/vector_can.py`'s `CanConnectionError` (`"python-can not installed..."` và `"Failed to connect to Vector hardware: Channel N of application 'FlashTool' is not assigned to any interface"` — đúng nguyên văn đã ghi nhận trong CLAUDE.md từ 1 lần gặp thật trên hardware thật), cộng dòng cảnh báo CAN bus conflict (`detect_can_conflict_warning()`). Thêm CSS `.error-item` (viền đỏ nhạt bên trái, nền hồng nhạt) khớp style hiện có của file (`.note`/`.safety-list`).
+
+### Đã kiểm tra
+
+- Validate HTML: viết script nhỏ dùng `html.parser.HTMLParser` kiểm tra cân bằng thẻ mở/đóng trên toàn file (kể cả 4 dòng ảnh base64 rất dài đã có sẵn) — 0 lỗi, 0 thẻ còn treo.
+- Không đổi code Python nào trong turn này (chỉ sửa file `.html` tĩnh) nên không cần chạy lại test suite.
+
+### Phase 4.77: Fix "About" Biến Mất Khỏi Menu Help Trên macOS
+
+User hỏi thêm About vào Help — kiểm tra thì thấy đã có sẵn (`actionAbout`, `action_about()` trong `gui/menu_bar.py`, hiện đúng tên/version/tác giả khi trigger thủ công). User gửi screenshot menu Help thật trên macOS: chỉ thấy "Open Guideline"/"Export Issue...", **không có "About SFlash"** — dù code chạy đúng.
+
+Nguyên nhân: trên macOS, Qt's native menu bar tự động áp `QAction::MenuRole` theo heuristic đọc text của action — action nào có chữ "about" trong text sẽ tự bị chuyển từ menu gốc (Help) sang **menu ứng dụng hệ thống** (menu ngoài cùng bên trái, cạnh logo Apple). App chạy chưa đóng gói thành `.app` bundle thật (chạy thẳng `python main.py`) nên macOS hiện tên menu đó là **"python"** thay vì "SFlash" — user tìm trong Help không thấy, và cũng không nghĩ tới việc phải mở menu "python" để tìm About.
+
+### Thay đổi
+
+- **`gui/menu_bar.py`**: `setup_menu_bar()` gọi `self.ui.actionAbout.setMenuRole(QAction.MenuRole.NoRole)` trước khi nối `triggered` — tắt hẳn heuristic tự động của Qt, giữ "About SFlash" luôn nằm trong menu Help trên mọi platform (macOS/Windows/Linux) thay vì bị macOS tự di chuyển đi chỗ khác.
+- Không đụng đến `actionExit` ("Exit") — macOS tự chuyển action Quit/Exit vào menu ứng dụng là hành vi macOS chuẩn, người dùng mong đợi (Cmd+Q), khác với About (bị "giấu" đi ngoài dự kiến).
+
+### Đã kiểm tra
+
+- Thêm test `test_about_action_opts_out_of_macos_auto_relocation` (`tests/test_gui_smoke.py`) — xác nhận `actionAbout.menuRole() == QAction.MenuRole.NoRole`. Lưu ý: môi trường test headless (`QT_QPA_PLATFORM=offscreen`) không dựng menu bar Cocoa thật nên không tái hiện được chính xác hành vi macOS ẩn action — test chỉ xác nhận đúng role đã set, không phải hành vi hiển thị thật trên macOS (đã được user tự xác nhận qua screenshot ban đầu).
+- Full test suite (291 test, 290 cũ + 1 mới) pass.
