@@ -591,7 +591,7 @@
               </layout>
              </item>
              <item>
-              <widget class="QLabel" name="labelDataFormat">
+              <widget class="QLabel" name="labelFingerprint">
                <property name="sectionHeader" stdset="0">
                 <bool>true</bool>
                </property>
@@ -599,64 +599,27 @@
                 <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
-                <string>Data Format (RequestDownload)</string>
+                <string>Fingerprint</string>
                </property>
               </widget>
              </item>
              <item>
-              <layout class="QHBoxLayout" name="horizontalLayout_dataFormat">
+              <layout class="QHBoxLayout" name="horizontalLayout_testerSerialNumber">
                <item>
-                <widget class="QLabel" name="labelCompressionMethod">
+                <widget class="QLabel" name="labelTesterSerialNumber">
                  <property name="text">
-                  <string>Compression:</string>
+                  <string>Tester Serial Number:</string>
                  </property>
                 </widget>
                </item>
                <item>
-                <widget class="QComboBox" name="comboBoxCompressionMethod">
-                 <item><property name="text"><string>0 - None</string></property></item>
-                 <item><property name="text"><string>1</string></property></item>
-                 <item><property name="text"><string>2</string></property></item>
-                 <item><property name="text"><string>3</string></property></item>
-                 <item><property name="text"><string>4</string></property></item>
-                 <item><property name="text"><string>5</string></property></item>
-                 <item><property name="text"><string>6</string></property></item>
-                 <item><property name="text"><string>7</string></property></item>
-                 <item><property name="text"><string>8</string></property></item>
-                 <item><property name="text"><string>9</string></property></item>
-                 <item><property name="text"><string>A</string></property></item>
-                 <item><property name="text"><string>B</string></property></item>
-                 <item><property name="text"><string>C</string></property></item>
-                 <item><property name="text"><string>D</string></property></item>
-                 <item><property name="text"><string>E</string></property></item>
-                 <item><property name="text"><string>F</string></property></item>
-                </widget>
-               </item>
-               <item>
-                <widget class="QLabel" name="labelEncryptionMethod">
+                <widget class="QLineEdit" name="lineEditTesterSerialNumber">
                  <property name="text">
-                  <string>Encryption:</string>
+                  <string>00112233445566778899</string>
                  </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QComboBox" name="comboBoxEncryptionMethod">
-                 <item><property name="text"><string>0 - None</string></property></item>
-                 <item><property name="text"><string>1</string></property></item>
-                 <item><property name="text"><string>2</string></property></item>
-                 <item><property name="text"><string>3</string></property></item>
-                 <item><property name="text"><string>4</string></property></item>
-                 <item><property name="text"><string>5</string></property></item>
-                 <item><property name="text"><string>6</string></property></item>
-                 <item><property name="text"><string>7</string></property></item>
-                 <item><property name="text"><string>8</string></property></item>
-                 <item><property name="text"><string>9</string></property></item>
-                 <item><property name="text"><string>A</string></property></item>
-                 <item><property name="text"><string>B</string></property></item>
-                 <item><property name="text"><string>C</string></property></item>
-                 <item><property name="text"><string>D</string></property></item>
-                 <item><property name="text"><string>E</string></property></item>
-                 <item><property name="text"><string>F</string></property></item>
+                 <property name="toolTip">
+                  <string>Hex bytes written to DID 0xF198 (Suzuki SLP1 sequence only)</string>
+                 </property>
                 </widget>
                </item>
               </layout>

@@ -401,17 +401,52 @@ SUZUKI_SLP1_FLASH_SEQUENCE = [
 ]
 
 
-def build_suzuki_slp1_flash_sequence(datablocks=None):
+def build_suzuki_slp1_flash_sequence(
+    datablocks=None, tester_serial_number=None
+):
     """
     Build the Suzuki SLP1 flash sequence (see
     SUZUKI_SLP1_FLASH_SEQUENCE), with Download steps
     inserted using the 5-byte memoryAddress field this
     ECU expects.
+
+    Args:
+        datablocks: as in build_flash_sequence().
+        tester_serial_number: optional bytes to use for the
+            "Write Tester Info" step's WriteDataByIdentifier
+            (DID 0xF198) payload, overriding the built-in
+            default (00 11 22 33 44 55 66 77 88 99). From
+            Configure -> Miscellaneous's Fingerprint field
+            (ConfigureTabMixin.get_tester_serial_number()).
+            A new FlashStep replaces the matching entry in the
+            returned list rather than mutating its params in
+            place — SUZUKI_SLP1_FLASH_SEQUENCE is a shared
+            module-level template reused by every call, so
+            mutating a step's params dict would leak into
+            every later flash in the same process, including
+            ones that never touch this override.
     """
 
-    return build_flash_sequence(
+    steps = build_flash_sequence(
         datablocks,
         sequence=SUZUKI_SLP1_FLASH_SEQUENCE,
         addr_length=5,
         size_length=4,
     )
+
+    if tester_serial_number is not None:
+        for i, step in enumerate(steps):
+            if step.name == "Write Tester Info":
+                steps[i] = FlashStep(
+                    name=step.name,
+                    step_type=step.step_type,
+                    description=step.description,
+                    params={
+                        **step.params,
+                        "data": tester_serial_number,
+                    },
+                    enabled=step.enabled,
+                )
+                break
+
+    return steps

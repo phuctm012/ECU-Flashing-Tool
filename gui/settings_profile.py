@@ -69,13 +69,18 @@ class SettingsProfileMixin:
                 lambda _: self.save_profile()
             )
 
-        if hasattr(self.ui, 'comboBoxCompressionMethod'):
-            self.ui.comboBoxCompressionMethod.currentIndexChanged.connect(
+        if hasattr(self.ui, 'lineEditCompressionMethod'):
+            self.ui.lineEditCompressionMethod.textEdited.connect(
                 lambda _: self.save_profile()
             )
 
-        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
-            self.ui.comboBoxEncryptionMethod.currentIndexChanged.connect(
+        if hasattr(self.ui, 'lineEditEncryptionMethod'):
+            self.ui.lineEditEncryptionMethod.textEdited.connect(
+                lambda _: self.save_profile()
+            )
+
+        if hasattr(self.ui, 'lineEditTesterSerialNumber'):
+            self.ui.lineEditTesterSerialNumber.textEdited.connect(
                 lambda _: self.save_profile()
             )
 
@@ -128,16 +133,24 @@ class SettingsProfileMixin:
             getattr(self, '_security_dll_path', '') or ''
         )
 
-        if hasattr(self.ui, 'comboBoxCompressionMethod'):
+        if hasattr(self.ui, 'lineEditCompressionMethod'):
+            text = self.ui.lineEditCompressionMethod.text().strip()
             s.setValue(
                 "dataFormat/compression",
-                self.ui.comboBoxCompressionMethod.currentIndex()
+                int(text, 16) if text else 0
             )
 
-        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
+        if hasattr(self.ui, 'lineEditEncryptionMethod'):
+            text = self.ui.lineEditEncryptionMethod.text().strip()
             s.setValue(
                 "dataFormat/encrypting",
-                self.ui.comboBoxEncryptionMethod.currentIndex()
+                int(text, 16) if text else 0
+            )
+
+        if hasattr(self.ui, 'lineEditTesterSerialNumber'):
+            s.setValue(
+                "fingerprint/testerSerialNumber",
+                self.ui.lineEditTesterSerialNumber.text().strip()
             )
 
         # Force an immediate flush to disk/registry rather than
@@ -203,18 +216,31 @@ class SettingsProfileMixin:
             # built-in-algorithm default rather than pointing
             # at a DLL that no longer exists.
 
-        if hasattr(self.ui, 'comboBoxCompressionMethod'):
-            index = s.value(
-                "dataFormat/compression", 0, type=int
-            )
-            combo = self.ui.comboBoxCompressionMethod
-            if 0 <= index < combo.count():
-                combo.setCurrentIndex(index)
+        if hasattr(self.ui, 'lineEditCompressionMethod'):
+            value = s.value("dataFormat/compression", 0, type=int)
+            if 0 <= value <= 15:
+                self.ui.lineEditCompressionMethod.setText(
+                    f"{value:X}"
+                )
 
-        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
-            index = s.value(
-                "dataFormat/encrypting", 0, type=int
+        if hasattr(self.ui, 'lineEditEncryptionMethod'):
+            value = s.value("dataFormat/encrypting", 0, type=int)
+            if 0 <= value <= 15:
+                self.ui.lineEditEncryptionMethod.setText(
+                    f"{value:X}"
+                )
+
+        if hasattr(self.ui, 'lineEditTesterSerialNumber'):
+            text = s.value(
+                "fingerprint/testerSerialNumber", "", type=str
             )
-            combo = self.ui.comboBoxEncryptionMethod
-            if 0 <= index < combo.count():
-                combo.setCurrentIndex(index)
+            # Only restore a valid, full-length hex string —
+            # anything else (missing key, corrupted .ini) just
+            # leaves the .ui-declared default in place rather
+            # than showing a blank/broken field.
+            if len(text) == 20 and all(
+                c in "0123456789ABCDEFabcdef" for c in text
+            ):
+                self.ui.lineEditTesterSerialNumber.setText(
+                    text.upper()
+                )

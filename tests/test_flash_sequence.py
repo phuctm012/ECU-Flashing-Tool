@@ -174,6 +174,44 @@ class TestSuzukiSlp1FlashSequence(unittest.TestCase):
         self.assertLess(erase_idx, download_idx)
         self.assertLess(download_idx, verify_idx)
 
+    def test_write_tester_info_defaults_without_override(self):
+        db = _make_datablock()
+        steps = build_suzuki_slp1_flash_sequence([db])
+        step = next(s for s in steps if s.name == "Write Tester Info")
+        self.assertEqual(
+            step.params["data"],
+            bytes.fromhex("00112233445566778899"),
+        )
+
+    def test_tester_serial_number_override_is_applied(self):
+        db = _make_datablock()
+        override = bytes.fromhex("AABBCCDDEE0011223344")
+        steps = build_suzuki_slp1_flash_sequence(
+            [db], tester_serial_number=override
+        )
+        step = next(s for s in steps if s.name == "Write Tester Info")
+        self.assertEqual(step.params["data"], override)
+
+    def test_tester_serial_number_override_does_not_leak_into_template(self):
+        # SUZUKI_SLP1_FLASH_SEQUENCE is a shared module-level
+        # list reused by every call — the override must replace
+        # the returned step with a new FlashStep rather than
+        # mutating its params dict in place, or one flash's
+        # override would silently apply to every later flash in
+        # the same process, including ones that never touch it.
+        db = _make_datablock()
+        override = bytes.fromhex("AABBCCDDEE0011223344")
+        build_suzuki_slp1_flash_sequence(
+            [db], tester_serial_number=override
+        )
+
+        steps = build_suzuki_slp1_flash_sequence([db])
+        step = next(s for s in steps if s.name == "Write Tester Info")
+        self.assertEqual(
+            step.params["data"],
+            bytes.fromhex("00112233445566778899"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

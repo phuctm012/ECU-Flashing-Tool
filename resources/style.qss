@@ -145,6 +145,23 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
     border-color: #4a7fd6;
 }
 
+/* Compression/Encryption Method (Configure > Data > Details
+   table) — embedded via setCellWidget() alongside plain
+   QTableWidgetItem rows like Start Address/Memory Size, so it
+   blends flat into the table by default instead of always
+   showing as a boxed input, matching those rows; a border only
+   appears while actually being edited. */
+QLineEdit#lineEditCompressionMethod, QLineEdit#lineEditEncryptionMethod {
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 3px;
+}
+QLineEdit#lineEditCompressionMethod:focus, QLineEdit#lineEditEncryptionMethod:focus {
+    border: 1px solid #4a7fd6;
+    border-radius: 5px;
+    background: #ffffff;
+}
+
 QTextEdit, QPlainTextEdit {
     background-color: #ffffff;
     color: #1a1a1a;

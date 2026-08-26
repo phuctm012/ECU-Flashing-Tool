@@ -16,9 +16,10 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QMessageBox,
     QMenu,
+    QLineEdit,
 )
-from PySide6.QtGui import QColor
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QRegularExpressionValidator
+from PySide6.QtCore import Qt, QRegularExpression
 
 from config.settings import (
     CAN_CONFIGS,
@@ -87,6 +88,15 @@ class ConfigureTabMixin:
                 2, QHeaderView.ResizeToContents
             )
             self.ui.tableWidgetDetails.setMinimumHeight(280)
+
+            # Compression Method / Encryption Method (rows 2/3)
+            # are live single-hex-digit text fields embedded
+            # directly in the Value cell — setCellWidget() is
+            # Python-only (Designer's .ui format has no way to
+            # express an embedded widget inside a specific table
+            # cell), so this is built here rather than in
+            # main_window.ui.
+            self._setup_data_format_inputs()
 
         # Clear and add placeholder
         self.ui.tableWidgetDatablocks.setRowCount(0)
@@ -466,27 +476,13 @@ class ConfigureTabMixin:
             )
         )
 
-        # Compression / Encryption — reflect the actual
-        # RequestDownload dataFormatIdentifier nibbles the user
-        # configured (Configure > Miscellaneous), not a
-        # hardcoded "None"; see get_data_format_config().
-        data_format = self.get_data_format_config()
-
-        table.setItem(
-            2, 1,
-            QTableWidgetItem(
-                "None" if data_format["compression"] == 0
-                else f"0x{data_format['compression']:X}"
-            )
-        )
-
-        table.setItem(
-            3, 1,
-            QTableWidgetItem(
-                "None" if data_format["encrypting"] == 0
-                else f"0x{data_format['encrypting']:X}"
-            )
-        )
+        # Compression Method / Encryption Method (rows 2/3) are
+        # NOT touched here — they're live QLineEdit widgets
+        # embedded via setCellWidget() (see
+        # _setup_data_format_inputs()), a persistent global
+        # RequestDownload setting rather than a per-datablock
+        # property, so they keep whatever the user typed
+        # instead of being re-rendered on every file load.
 
         # Start address (first segment)
         if datablock.segments:
@@ -512,13 +508,18 @@ class ConfigureTabMixin:
     def _clear_details_table(self):
         """Blanks the value column — used when the last
         remaining datablock is removed, so stale info from a
-        deleted datablock doesn't linger on screen."""
+        deleted datablock doesn't linger on screen. Skips rows
+        2/3 (Compression/Encryption Method) — those are a
+        persistent global setting via embedded QLineEdit
+        widgets, not per-datablock info to clear."""
 
         if not hasattr(self.ui, 'tableWidgetDetails'):
             return
 
         table = self.ui.tableWidgetDetails
         for row in range(table.rowCount()):
+            if row in (2, 3):
+                continue
             table.setItem(row, 1, QTableWidgetItem(""))
 
     # ==================================================
@@ -589,8 +590,8 @@ class ConfigureTabMixin:
         # Security Access DLL selector
         self.setup_security_dll_selector()
 
-        # Data Format (RequestDownload compression/encryption)
-        self.setup_data_format_selector()
+        # Fingerprint (DID 0xF198 Tester Serial Number)
+        self.setup_fingerprint_selector()
 
     # ==================================================
     # Hardware combobox (Virtual + real Vector channels)
@@ -606,6 +607,17 @@ class ConfigureTabMixin:
 
         Re-run via the Refresh button to pick up hardware
         plugged in after the app started.
+
+        If detection came back empty because something is
+        actually broken on this machine (not just "nothing
+        plugged in") — e.g. this particular build wasn't
+        packaged with python-can, or the Vector XL Driver
+        Library was never installed here — logs the real reason
+        to the Information tab. Added after a real deployment:
+        same .exe worked on one bench PC and came back empty on
+        another with hardware plugged in on both, with no way to
+        tell why without a console (a --windowed PyInstaller
+        build has none).
         """
 
         if not hasattr(self.ui, 'comboBoxHardware'):
@@ -625,13 +637,22 @@ class ConfigureTabMixin:
             "Virtual ECU Simulator (No Hardware)", userData=None
         )
 
-        from communication.vector_can import detect_vector_channels
+        from communication.vector_can import (
+            detect_vector_channels_with_error,
+        )
 
-        for ch in detect_vector_channels():
+        channels, error = detect_vector_channels_with_error()
+
+        for ch in channels:
             combo.addItem(ch["label"], userData=ch)
 
         combo.setCurrentIndex(0)
         combo.blockSignals(False)
+
+        if error and hasattr(self, 'log_information'):
+            self.log_information(
+                f"No real Vector hardware detected: {error}"
+            )
 
     # ==================================================
     # Test Connection button (Communication page)
@@ -785,80 +806,174 @@ class ConfigureTabMixin:
             self.save_profile()
 
     # ==================================================
+    # Fingerprint (WriteDataByIdentifier DID 0xF198)
+    # ==================================================
+
+    def setup_fingerprint_selector(self):
+        """
+        Validates/wires lineEditTesterSerialNumber (Miscellaneous
+        page, defined in main_window.ui) — the DID 0xF198
+        (WriteDataByIdentifier) payload sent by the Suzuki SLP1
+        sequence's "Write Tester Info" step (see
+        core/flash_sequence.py's SUZUKI_SLP1_FLASH_SEQUENCE and
+        build_suzuki_slp1_flash_sequence()'s tester_serial_number
+        param). The Generic sequence has no equivalent step, so
+        this field is ignored when it's selected.
+
+        A QRegularExpressionValidator restricts input to a hex
+        string up to 20 characters (10 bytes, matching this
+        ECU's fixed DID length — a wrong length would very
+        likely get NRC'd by a real ECU); lowercase is
+        auto-uppercased as the user types, same as Compression/
+        Encryption Method's fields (_on_hex_input_text_edited(),
+        shared across all three).
+        """
+
+        if not hasattr(self.ui, 'lineEditTesterSerialNumber'):
+            return
+
+        self.ui.lineEditTesterSerialNumber.setMaxLength(20)
+        self.ui.lineEditTesterSerialNumber.setValidator(
+            QRegularExpressionValidator(
+                QRegularExpression("[0-9A-Fa-f]{0,20}")
+            )
+        )
+        self.ui.lineEditTesterSerialNumber.textEdited.connect(
+            self._on_hex_input_text_edited
+        )
+
+    def get_tester_serial_number(self):
+        """
+        Returns the DID 0xF198 payload as bytes, from the
+        current field text — read by gui/flash_tab.py before
+        building the Suzuki SLP1 sequence. Falls back to the
+        documented default (00 11 22 33 44 55 66 77 88 99) if
+        the field is missing, empty, an odd number of hex
+        characters, or (loaded from a hand-edited .sfproj/
+        settings file, bypassing the interactive validator)
+        not valid hex at all — rather than sending a malformed
+        WriteDataByIdentifier to the ECU.
+        """
+
+        default = bytes.fromhex("00112233445566778899")
+
+        if not hasattr(self.ui, 'lineEditTesterSerialNumber'):
+            return default
+
+        text = self.ui.lineEditTesterSerialNumber.text().strip()
+
+        if not text or len(text) % 2 != 0:
+            return default
+
+        try:
+            return bytes.fromhex(text)
+        except ValueError:
+            return default
+
+    # ==================================================
     # Data Format (RequestDownload dataFormatIdentifier)
     # ==================================================
 
-    def setup_data_format_selector(self):
+    def _setup_data_format_inputs(self):
         """
-        comboBoxCompressionMethod/comboBoxEncryptionMethod
-        (defined in main_window.ui) let the user set the
-        compressionMethod/encryptingMethod nibbles of
-        RequestDownload's dataFormatIdentifier byte (ISO
-        14229-1) — combo index IS the nibble value (0 = None,
-        1-F = manufacturer-specific), read by
-        get_data_format_config(). This only changes what the
-        tool tells the ECU the data format is; it does not
-        actually compress/encrypt the firmware bytes being
-        sent — the caller is responsible for the loaded file
-        already being in that format if a non-zero value is
-        used.
-        """
+        Builds lineEditCompressionMethod/lineEditEncryptionMethod
+        in Python and embeds them directly into
+        tableWidgetDetails' Value column (rows 2/3 — Compression
+        Method/Encryption Method) via setCellWidget(). Not
+        expressible in main_window.ui: Designer's table-widget
+        rows are static text/checkbox only, not arbitrary
+        embedded widgets, so this is exactly the kind of
+        logic-driven content CLAUDE.md's ".ui first" rule
+        carves out for Python-side construction.
 
-        if hasattr(self.ui, 'comboBoxCompressionMethod'):
-            self.ui.comboBoxCompressionMethod.currentIndexChanged.connect(
-                self._on_data_format_changed
-            )
+        A single hex digit (0-F) typed directly rather than a
+        dropdown — the field IS the RequestDownload
+        dataFormatIdentifier nibble value (0 = None, 1-F =
+        manufacturer-specific), read by
+        get_data_format_config(). A QRegularExpressionValidator
+        restricts input to exactly one hex character; lowercase
+        is auto-uppercased as the user types
+        (_on_hex_input_text_edited()). This only changes what
+        the tool tells the ECU the data format is — it does not
+        actually compress/encrypt the firmware bytes being sent;
+        the caller is responsible for the loaded file already
+        being in that format if a non-zero value is used.
 
-        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
-            self.ui.comboBoxEncryptionMethod.currentIndexChanged.connect(
-                self._on_data_format_changed
-            )
-
-    def _on_data_format_changed(self, _index):
-        """
-        Only refreshes the Details table — does NOT call
-        save_profile() itself. Unlike browse_security_dll()
-        (a button click, always well after startup),
-        currentIndexChanged also fires when
-        settings_profile.py's load_profile() restores a saved
-        index at startup; if that restore triggered a save
-        here, compression's restore would fire a save that
-        captures encrypting's value before ITS restore has run
-        yet, clobbering the just-loaded setting with a stale
-        default. gui/settings_profile.py wires these combos'
-        save-on-change itself, the same way it already does for
-        comboBoxHardware/comboBoxRadarSide/comboBoxFlashSequence
-        — connected only after its own load_profile() call, so
-        the ordering hazard doesn't apply there.
+        Attached as self.ui.lineEditCompressionMethod/
+        lineEditEncryptionMethod (the objectName a .ui
+        declaration would have given them) so every other
+        caller — get_data_format_config(),
+        gui/settings_profile.py, gui/project_file.py, tests —
+        can find them the same way as any other named widget.
+        Persistence (save/load) is wired separately in
+        gui/settings_profile.py, after its own load_profile()
+        call — see that file's comments for why the ordering
+        matters.
         """
 
-        if self._loaded_datablocks:
-            self._update_details_table(
-                self._loaded_datablocks[-1]
-            )
+        table = self.ui.tableWidgetDetails
+        validator = QRegularExpressionValidator(
+            QRegularExpression("[0-9A-Fa-f]")
+        )
+
+        compression_input = QLineEdit("0")
+        compression_input.setObjectName("lineEditCompressionMethod")
+        compression_input.setMaxLength(1)
+        compression_input.setValidator(validator)
+        compression_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        compression_input.textEdited.connect(
+            self._on_hex_input_text_edited
+        )
+        table.setCellWidget(2, 1, compression_input)
+        self.ui.lineEditCompressionMethod = compression_input
+
+        encryption_input = QLineEdit("0")
+        encryption_input.setObjectName("lineEditEncryptionMethod")
+        encryption_input.setMaxLength(1)
+        encryption_input.setValidator(validator)
+        encryption_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        encryption_input.textEdited.connect(
+            self._on_hex_input_text_edited
+        )
+        table.setCellWidget(3, 1, encryption_input)
+        self.ui.lineEditEncryptionMethod = encryption_input
+
+    def _on_hex_input_text_edited(self, text):
+        """
+        Auto-uppercase lowercase hex digits as the user types.
+        Shared by every hex-typed field on the Configure tab —
+        Compression/Encryption Method and Tester Serial Number.
+        Connected to textEdited (fires only on user input, not
+        setText() calls) so this can't recurse into itself or
+        fight with load_profile()/_apply_project_data() setting
+        the field programmatically.
+        """
+
+        if text != text.upper():
+            self.sender().setText(text.upper())
 
     def get_data_format_config(self):
         """
         Returns {"compression": int, "encrypting": int} (each
-        0-15) from the current combo selections — read by
+        0-15) from the current field text — read by
         FlashWorker/cli.py to build RequestDownload's
         dataFormatIdentifier byte. Defaults to
         {"compression": 0, "encrypting": 0} (None/None) if the
-        combos aren't present.
+        fields aren't present or are empty.
         """
 
         compression = 0
         encrypting = 0
 
-        if hasattr(self.ui, 'comboBoxCompressionMethod'):
-            compression = max(
-                0, self.ui.comboBoxCompressionMethod.currentIndex()
-            )
+        if hasattr(self.ui, 'lineEditCompressionMethod'):
+            text = self.ui.lineEditCompressionMethod.text().strip()
+            if text:
+                compression = int(text, 16)
 
-        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
-            encrypting = max(
-                0, self.ui.comboBoxEncryptionMethod.currentIndex()
-            )
+        if hasattr(self.ui, 'lineEditEncryptionMethod'):
+            text = self.ui.lineEditEncryptionMethod.text().strip()
+            if text:
+                encrypting = int(text, 16)
 
         return {
             "compression": compression,

@@ -254,8 +254,14 @@ class FlashTabMixin:
                 )
 
             if use_suzuki_sequence:
+                tester_serial_number = (
+                    self.get_tester_serial_number()
+                    if hasattr(self, 'get_tester_serial_number')
+                    else None
+                )
                 steps = build_suzuki_slp1_flash_sequence(
-                    datablocks
+                    datablocks,
+                    tester_serial_number=tester_serial_number,
                 )
             else:
                 steps = build_flash_sequence(datablocks)

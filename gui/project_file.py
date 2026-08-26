@@ -105,6 +105,27 @@ class ProjectFileMixin:
                 ),
             }
 
+        # Compression/Encryption Method are single-hex-digit
+        # text fields embedded in tableWidgetDetails (see
+        # ConfigureTabMixin._setup_data_format_inputs()), not
+        # combos — parse the typed digit the same way
+        # gui/settings_profile.py's save_profile() does.
+        compression_method = 0
+        if hasattr(self.ui, 'lineEditCompressionMethod'):
+            text = self.ui.lineEditCompressionMethod.text().strip()
+            compression_method = int(text, 16) if text else 0
+
+        encryption_method = 0
+        if hasattr(self.ui, 'lineEditEncryptionMethod'):
+            text = self.ui.lineEditEncryptionMethod.text().strip()
+            encryption_method = int(text, 16) if text else 0
+
+        tester_serial_number = ""
+        if hasattr(self.ui, 'lineEditTesterSerialNumber'):
+            tester_serial_number = (
+                self.ui.lineEditTesterSerialNumber.text().strip()
+            )
+
         return {
             "format_version": PROJECT_FORMAT_VERSION,
             "firmware_files": firmware_files,
@@ -124,16 +145,9 @@ class ProjectFileMixin:
                 self.ui.comboBoxFlashSequence.currentIndex()
                 if hasattr(self.ui, 'comboBoxFlashSequence') else 0
             ),
-            "compression_method": (
-                self.ui.comboBoxCompressionMethod.currentIndex()
-                if hasattr(self.ui, 'comboBoxCompressionMethod')
-                else 0
-            ),
-            "encryption_method": (
-                self.ui.comboBoxEncryptionMethod.currentIndex()
-                if hasattr(self.ui, 'comboBoxEncryptionMethod')
-                else 0
-            ),
+            "compression_method": compression_method,
+            "encryption_method": encryption_method,
+            "tester_serial_number": tester_serial_number,
         }
 
     # ==================================================
@@ -241,14 +255,29 @@ class ProjectFileMixin:
             if 0 <= index < combo.count():
                 combo.setCurrentIndex(index)
 
-        if hasattr(self.ui, 'comboBoxCompressionMethod'):
-            index = data.get("compression_method", 0)
-            combo = self.ui.comboBoxCompressionMethod
-            if 0 <= index < combo.count():
-                combo.setCurrentIndex(index)
+        if hasattr(self.ui, 'lineEditCompressionMethod'):
+            value = data.get("compression_method", 0)
+            if 0 <= value <= 15:
+                self.ui.lineEditCompressionMethod.setText(
+                    f"{value:X}"
+                )
 
-        if hasattr(self.ui, 'comboBoxEncryptionMethod'):
-            index = data.get("encryption_method", 0)
-            combo = self.ui.comboBoxEncryptionMethod
-            if 0 <= index < combo.count():
-                combo.setCurrentIndex(index)
+        if hasattr(self.ui, 'lineEditEncryptionMethod'):
+            value = data.get("encryption_method", 0)
+            if 0 <= value <= 15:
+                self.ui.lineEditEncryptionMethod.setText(
+                    f"{value:X}"
+                )
+
+        if hasattr(self.ui, 'lineEditTesterSerialNumber'):
+            text = data.get("tester_serial_number", "")
+            # Same validity check as settings_profile.py's
+            # load_profile() — a corrupted/hand-edited .sfproj
+            # shouldn't blank the field, just leave the .ui
+            # default in place.
+            if len(text) == 20 and all(
+                c in "0123456789ABCDEFabcdef" for c in text
+            ):
+                self.ui.lineEditTesterSerialNumber.setText(
+                    text.upper()
+                )
