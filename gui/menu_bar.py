@@ -158,6 +158,18 @@ class MenuBarMixin:
             )
 
         if hasattr(self.ui, 'actionAbout'):
+            # On macOS, Qt's native menu bar auto-relocates any
+            # action whose text contains "about" out of its own
+            # menu and into the system application menu (shown
+            # as "python" here, since running unpackaged via
+            # `python main.py` has no proper .app bundle/name) —
+            # so "About SFlash" would silently vanish from Help
+            # and reappear somewhere a user wouldn't think to
+            # look. NoRole opts out, keeping it in Help on every
+            # platform.
+            self.ui.actionAbout.setMenuRole(
+                QAction.MenuRole.NoRole
+            )
             self.ui.actionAbout.triggered.connect(
                 self.action_about
             )

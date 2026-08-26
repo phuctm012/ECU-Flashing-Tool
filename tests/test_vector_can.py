@@ -22,6 +22,7 @@ sys.path.insert(
 
 from communication.vector_can import (
     detect_vector_channels,
+    detect_vector_channels_with_error,
     detect_running_vector_tools,
 )
 
@@ -88,6 +89,69 @@ class TestDetectVectorChannelsIsOnBus(unittest.TestCase):
         # python-can / Vector driver not installed in this
         # dev/test env — must not raise, and must return [].
         self.assertEqual(detect_vector_channels(), [])
+
+
+class TestDetectVectorChannelsWithError(unittest.TestCase):
+    """
+    Covers detect_vector_channels_with_error() — added after a
+    real deployment where the same .exe detected hardware on one
+    bench PC but not another, with no way to tell why (a
+    --windowed PyInstaller build has no console). Distinguishes
+    "nothing plugged in" (error=None) from "something is
+    actually broken on this machine" (error=<reason>), unlike
+    detect_vector_channels() which collapses both to [].
+    """
+
+    def test_success_with_channels_has_no_error(self):
+        fake_canlib = MagicMock()
+        cfg = MagicMock()
+        cfg.channel_index = 0
+        cfg.hw_name = "VN1640A"
+        cfg.hw_channel = 0
+        cfg.is_on_bus = False
+        fake_canlib.get_channel_configs.return_value = [cfg]
+        with _patched_canlib(fake_canlib):
+            channels, error = detect_vector_channels_with_error()
+        self.assertEqual(len(channels), 1)
+        self.assertIsNone(error)
+
+    def test_import_failure_reports_python_can_missing(self):
+        # No python-can / vector extra installed at all — the
+        # `from can.interfaces.vector import canlib` import
+        # itself fails. Simulated here the same way it happens
+        # in this dev/test env: sys.modules has no "can" entry.
+        with patch.dict(sys.modules):
+            for mod in list(sys.modules):
+                if mod == "can" or mod.startswith("can."):
+                    del sys.modules[mod]
+            channels, error = detect_vector_channels_with_error()
+        self.assertEqual(channels, [])
+        self.assertIsNotNone(error)
+        self.assertIn("python-can", error)
+
+    def test_driver_exception_reports_underlying_message(self):
+        # python-can is installed, but the XL Driver Library
+        # call itself fails (e.g. driver not installed on this
+        # machine) — the real exception text must reach the
+        # caller, not just an empty list.
+        fake_canlib = MagicMock()
+        fake_canlib.get_channel_configs.side_effect = OSError(
+            "XL Driver Library not found"
+        )
+        with _patched_canlib(fake_canlib):
+            channels, error = detect_vector_channels_with_error()
+        self.assertEqual(channels, [])
+        self.assertIn("XL Driver Library not found", error)
+
+    def test_no_hardware_plugged_in_has_no_error(self):
+        # Driver present and working, just nothing connected —
+        # an empty channel list here is not a failure.
+        fake_canlib = MagicMock()
+        fake_canlib.get_channel_configs.return_value = []
+        with _patched_canlib(fake_canlib):
+            channels, error = detect_vector_channels_with_error()
+        self.assertEqual(channels, [])
+        self.assertIsNone(error)
 
 
 class TestDetectRunningVectorTools(unittest.TestCase):

@@ -89,6 +89,22 @@ class TestCliListHardware(unittest.TestCase):
         self.assertIn("vector", out)
         self.assertIn("0x77B", out)  # Radar Side S0
 
+    def test_detection_error_is_printed(self):
+        # Same .exe worked on one bench PC, not another — this
+        # is the diagnostic that's supposed to explain why on a
+        # machine with Python/cli.py available (the GUI's
+        # Refresh button covers the .exe-only case — see
+        # gui/configure_tab.py's populate_hardware_combo()).
+        import unittest.mock
+
+        with unittest.mock.patch(
+            "cli.detect_vector_channels_with_error",
+            return_value=([], "Vector XL Driver Library error: boom"),
+        ):
+            code, out = _run_cli(["list-hardware"])
+        self.assertEqual(code, 0)
+        self.assertIn("Vector XL Driver Library error: boom", out)
+
 
 class TestCliFlashDryRun(unittest.TestCase):
 

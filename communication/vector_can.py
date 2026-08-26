@@ -29,35 +29,30 @@ from communication.can_interface import (
 _KNOWN_VECTOR_TOOL_NAMES = ("canoe", "canalyzer", "canape")
 
 
-def detect_vector_channels():
+def _detect_vector_channels_impl():
     """
-    Enumerate real Vector hardware channels currently present
-    on this machine (VN1640A/VN1630/...), via the XL Driver
-    Library through python-can.
+    Shared implementation behind detect_vector_channels() and
+    detect_vector_channels_with_error() — the only difference
+    between those two is whether the caller wants to know *why*
+    an empty result came back.
 
-    Returns an empty list — never raises — if python-can isn't
-    installed, the Vector XL Driver isn't installed, or no
-    Vector hardware is plugged in. All of these are normal,
-    expected states (most users run the Virtual ECU Simulator),
-    not errors.
-
-    Returns:
-        List of dicts: {"label": str, "channel": int,
-        "is_on_bus": bool}. "channel" is the value to pass
-        to VectorCanInterface.connect(channel=...) to open
-        that specific channel. "is_on_bus" is a best-effort
-        signal (straight from the driver, not verified
-        against real hardware in this codebase) that some
-        application — possibly this one, possibly CANoe/
-        CANalyzer/another XL API tool — already has an
-        active bus connection on that channel right now.
+    Returns (channels, error): error is None on success (which
+    may still mean an empty channels list — no hardware plugged
+    in is not a failure); otherwise a short string describing
+    what actually broke (python-can not installed vs. a real XL
+    Driver Library exception, e.g. driver not installed on this
+    machine), and channels is [].
     """
 
     try:
         from can.interfaces.vector import canlib
+    except Exception as e:
+        return [], f"python-can's Vector backend unavailable: {e}"
+
+    try:
         configs = canlib.get_channel_configs()
-    except Exception:
-        return []
+    except Exception as e:
+        return [], f"Vector XL Driver Library error: {e}"
 
     channels = []
 
@@ -87,7 +82,64 @@ def detect_vector_channels():
             "is_on_bus": bool(getattr(cfg, "is_on_bus", False)),
         })
 
+    return channels, None
+
+
+def detect_vector_channels():
+    """
+    Enumerate real Vector hardware channels currently present
+    on this machine (VN1640A/VN1630/...), via the XL Driver
+    Library through python-can.
+
+    Returns an empty list — never raises — if python-can isn't
+    installed, the Vector XL Driver isn't installed, or no
+    Vector hardware is plugged in. All of these are normal,
+    expected states (most users run the Virtual ECU Simulator),
+    not errors — callers that want to distinguish "nothing
+    plugged in" from "something is actually broken on this
+    machine" (e.g. the GUI's Refresh button, cli.py's
+    list-hardware) should use detect_vector_channels_with_error()
+    instead.
+
+    Returns:
+        List of dicts: {"label": str, "channel": int,
+        "is_on_bus": bool}. "channel" is the value to pass
+        to VectorCanInterface.connect(channel=...) to open
+        that specific channel. "is_on_bus" is a best-effort
+        signal (straight from the driver, not verified
+        against real hardware in this codebase) that some
+        application — possibly this one, possibly CANoe/
+        CANalyzer/another XL API tool — already has an
+        active bus connection on that channel right now.
+    """
+
+    channels, _error = _detect_vector_channels_impl()
     return channels
+
+
+def detect_vector_channels_with_error():
+    """
+    Same result as detect_vector_channels(), plus the reason an
+    empty result was empty — added after a real deployment hit
+    "works on one bench PC, not on another, same .exe, hardware
+    plugged in on both" with no way to tell why short of running
+    from a console. Most likely causes on a machine where it
+    doesn't detect anything: python-can wasn't bundled into this
+    particular build (requirements_build.txt ships with it
+    commented out by default), or the Vector XL Driver Library
+    itself was never installed on that machine (a separate,
+    non-pip, Windows-level install — see README section B) even
+    though the physical hardware is plugged in.
+
+    Returns:
+        (channels, error) — error is None if detection actually
+        succeeded (regardless of whether any channels came back;
+        an empty list with error=None just means no hardware is
+        plugged in right now), otherwise a short string with the
+        underlying exception message.
+    """
+
+    return _detect_vector_channels_impl()
 
 
 def detect_running_vector_tools():

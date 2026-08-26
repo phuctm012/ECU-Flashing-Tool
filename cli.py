@@ -47,6 +47,7 @@ from parsers.auto_parser import parse_firmware_file
 from parsers.hex_parser import HexParseError
 from communication.vector_can import (
     detect_vector_channels,
+    detect_vector_channels_with_error,
     detect_running_vector_tools,
 )
 from core.flash_sequence import (
@@ -68,6 +69,26 @@ def _parse_hex_int(value):
     except ValueError:
         raise argparse.ArgumentTypeError(
             f"invalid integer (hex or decimal): {value!r}"
+        )
+
+
+def _parse_hex_bytes(value):
+    """argparse type= helper: accepts a hex string like
+    '00112233445566778899' (even number of hex digits)."""
+
+    text = value.strip()
+
+    if len(text) % 2 != 0:
+        raise argparse.ArgumentTypeError(
+            f"hex string must have an even number of digits: "
+            f"{value!r}"
+        )
+
+    try:
+        return bytes.fromhex(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"invalid hex string: {value!r}"
         )
 
 
@@ -206,7 +227,7 @@ def cmd_list_hardware(args):
     print("  vector    Vector VN1640A/VN1630 (real hardware, Windows only)")
     print()
 
-    channels = detect_vector_channels()
+    channels, error = detect_vector_channels_with_error()
     if channels:
         print("Real Vector channels detected on this machine:")
         for ch in channels:
@@ -222,12 +243,17 @@ def cmd_list_hardware(args):
                     f"  - {ch['label']}"
                     f" (--channel {ch['channel']})"
                 )
+    elif error:
+        print(
+            "No real Vector hardware detected — --hardware vector "
+            "is unavailable until this is fixed:\n"
+            f"  {error}"
+        )
     else:
         print(
             "No real Vector hardware detected right now "
-            "(python-can/driver not installed, or nothing "
-            "plugged in) — --hardware vector is unavailable "
-            "until some is."
+            "(nothing plugged in) — --hardware vector is "
+            "unavailable until some is."
         )
     print()
     print("Radar sides (--radar-side), Suzuki Radar ECU physical CAN IDs:")
@@ -243,7 +269,9 @@ def cmd_list_hardware(args):
 def _build_steps(args, datablocks):
 
     if args.sequence == "suzuki":
-        return build_suzuki_slp1_flash_sequence(datablocks)
+        return build_suzuki_slp1_flash_sequence(
+            datablocks, tester_serial_number=args.tester_serial,
+        )
 
     return build_flash_sequence(datablocks)
 
@@ -587,6 +615,13 @@ def _add_can_args(parser):
         help="RequestDownload dataFormatIdentifier encryptingMethod "
              "nibble, 0-15 (default 0 = none). Same caveat as "
              "--compression — does not actually encrypt the file.",
+    )
+    parser.add_argument(
+        "--tester-serial", type=_parse_hex_bytes, default=None,
+        help="WriteDataByIdentifier DID 0xF198 (Tester Serial "
+             "Number) payload as a hex string, e.g. "
+             "00112233445566778899 (default). Only used by the "
+             "Suzuki sequence's 'Write Tester Info' step.",
     )
     parser.add_argument(
         "-q", "--quiet", action="store_true",

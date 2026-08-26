@@ -100,6 +100,19 @@
   }
   .safety-list li { margin-bottom: 8px; }
   .safety-list li:last-child { margin-bottom: 0; }
+  .error-item {
+    border: 1px solid var(--border);
+    border-left: 4px solid #c0392b;
+    border-radius: 6px;
+    padding: 12px 18px;
+    margin-bottom: 14px;
+    background: #fdf6f6;
+  }
+  .error-item:last-child { margin-bottom: 0; }
+  .error-item p { margin: 0 0 6px; font-size: 14.5px; }
+  .error-item p:last-child { margin-bottom: 0; }
+  .error-msg { font-size: 14px; }
+  .error-msg code { background: #ffffff; }
   code {
     background: #eef0f2;
     border-radius: 4px;
@@ -211,6 +224,53 @@
     <li>Do not power off / disconnect the CAN wiring while a flash is in progress — this can brick the
     ECU.</li>
   </ul>
+
+  <h2 class="section-title">Troubleshooting: Real Hardware Connection Errors</h2>
+  <p>These messages only apply when using real <strong>Vector VN1640A/VN1630</strong> hardware — the
+  <strong>Virtual ECU Simulator</strong> never produces them. They show up in the <strong>Information</strong>
+  tab (after clicking <strong>Refresh</strong>, <strong>Flash</strong>, or <strong>Tools → Test
+  Connection...</strong>) or in a failure dialog.</p>
+
+  <div class="error-item">
+    <p class="error-msg"><code>python-can's Vector backend unavailable: No module named 'can'</code></p>
+    <p>The <code>python-can</code> library isn't available. Running from a built <code>.exe</code>: it wasn't
+    bundled at build time — <code>python-can</code> must be uncommented in <code>requirements_build.txt</code>
+    <em>before</em> running <code>build.bat</code> (it cannot be added to an already-built <code>.exe</code>).
+    Running from source: <code>pip install python-can</code>.</p>
+  </div>
+
+  <div class="error-item">
+    <p class="error-msg"><code>Vector XL Driver Library error: ...</code></p>
+    <p>Python-can is available, but the Vector XL Driver Library itself — a separate, per-machine Windows
+    driver, not something that travels with the <code>.exe</code> — isn't installed (or failed to load) on
+    this specific machine. Install Vector Driver Setup / XL Driver Library, or open Vector Hardware Config to
+    confirm it's already installed. If the exact same build works on another PC, this is almost always the
+    difference between the two machines.</p>
+  </div>
+
+  <div class="error-item">
+    <p class="error-msg"><code>Connection failed: Failed to connect to Vector hardware: Channel N of
+    application 'FlashTool' is not assigned to any interface</code></p>
+    <p>Vector Hardware Config hasn't been set up for this app. Open <strong>Vector Hardware Config</strong> and
+    assign the physical channel to the application name <code>FlashTool</code> (see <code>README.md</code>,
+    section B). Only needed on <code>python-can</code> versions older than 4.x that don't support selecting
+    the channel by serial number — a newer <code>python-can</code> usually avoids this entirely.</p>
+  </div>
+
+  <div class="error-item">
+    <p class="error-msg"><code>Connection failed: Failed to connect to Vector hardware: ...</code></p>
+    <p>Any other failure while opening the CAN bus (wrong bitrate for the target ECU, hardware unplugged/
+    powered off, another application holding the channel exclusively, etc.) — the text after the colon is the
+    real error from the Vector driver/<code>python-can</code> itself.</p>
+  </div>
+
+  <div class="error-item">
+    <p class="error-msg">"A possible CAN bus conflict was detected before flashing" (Yes/No dialog, defaults
+    to No)</p>
+    <p>Not a hard error — a pre-flight warning shown before a real (non-Virtual) flash starts, if CANoe/
+    CANalyzer/CANape looks like it's running, or the selected channel already looks active on the bus. Close
+    the other tool (or stop its measurement) unless intentionally sharing the bus.</p>
+  </div>
 
   <footer>
     SFlash v1.1 — Author: tranph9 (TRAN Phuc). See <code>README.md</code> for full technical details, real
