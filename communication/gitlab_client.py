@@ -67,15 +67,25 @@ def _get_project(gl, gitlab_module, project):
         if getattr(e, "response_code", None) == 404:
             raise GitLabNotFoundError(f"Project '{project}' not found: {e}")
         raise GitLabConnectionError(f"Could not load project '{project}': {e}")
+    except Exception as e:
+        raise GitLabConnectionError(f"Could not load project '{project}': {e}")
 
 
 def _list_all(manager, **kwargs):
     """
-    python-gitlab renamed its "fetch every page" kwarg across major
-    versions (all=True in <3.0, get_all=True in >=3.0). Try the
-    current name first, fall back to the old one on TypeError — same
-    defensive-retry pattern VectorCanInterface.connect() already
-    uses for python-can's serial= kwarg (communication/vector_can.py).
+    Fetches every page of a manager.list() call. python-gitlab
+    renamed its "fetch every page" kwarg across major versions
+    (all=True in <3.0, get_all=True in >=3.0) — try the current name
+    first, fall back to the old one on TypeError, same defensive
+    retry VectorCanInterface.connect() already uses for python-can's
+    serial= kwarg (communication/vector_can.py). Only use this for
+    lists that are naturally small and unbounded (e.g. the files
+    attached to one package version) — for anything bounded by a
+    `limit`, call manager.list(per_page=limit) directly instead
+    (single-page mode, no all=/get_all=): get_all=True/all=True walks
+    every page of the *entire* history before any limit= truncation
+    in Python ever runs, defeating the bound and doing a potentially
+    huge amount of needless network I/O.
     """
 
     try:
@@ -96,7 +106,13 @@ def list_recent_jobs(url, project, token, job_name=None, limit=20):
     proj = _get_project(gl, gitlab_module, project)
 
     try:
-        jobs = _list_all(proj.jobs, per_page=limit)
+        # Deliberately NOT _list_all() — GitLab's jobs endpoint
+        # returns newest-first, so a single per_page=limit page
+        # already has everything this function needs; get_all=True
+        # would walk the project's entire job history before the
+        # len(results) >= limit break below ever gets a chance to
+        # matter.
+        jobs = proj.jobs.list(per_page=limit)
     except Exception as e:
         raise GitLabConnectionError(f"Could not list jobs: {e}")
 
@@ -141,6 +157,8 @@ def download_latest_artifact(url, project, token, ref, job_name):
                 f"No artifact found for ref '{ref}', job '{job_name}': {e}"
             )
         raise GitLabConnectionError(f"Download failed: {e}")
+    except Exception as e:
+        raise GitLabConnectionError(f"Download failed: {e}")
 
 
 def download_job_artifact(url, project, token, job_id):
@@ -158,4 +176,6 @@ def download_job_artifact(url, project, token, job_id):
     except gitlab_module.exceptions.GitlabGetError as e:
         if getattr(e, "response_code", None) == 404:
             raise GitLabNotFoundError(f"Job {job_id} or its artifact not found: {e}")
+        raise GitLabConnectionError(f"Download failed: {e}")
+    except Exception as e:
         raise GitLabConnectionError(f"Download failed: {e}")

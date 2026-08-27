@@ -124,6 +124,49 @@ class TestConnect(unittest.TestCase):
                     "https://gitlab.com", "group/missing-proj", "tok"
                 )
 
+    def test_project_fetch_network_error_raises_connectionerror(self):
+        # A non-GitlabGetError failure (e.g. a network drop) while
+        # fetching the project must still come out as a GitLabError
+        # subclass, not leak through untyped.
+        module, gl = _fake_gitlab_module()
+        gl.projects.get.side_effect = OSError("Connection reset by peer")
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.list_recent_jobs(
+                    "https://gitlab.com", "group/proj", "tok"
+                )
+
+
+class TestListAll(unittest.TestCase):
+    """
+    _list_all() itself — used for lists that are naturally small and
+    unbounded (e.g. the files attached to one package version, Task 2),
+    NOT for anything with a limit= — see its docstring.
+    """
+
+    def test_uses_get_all_by_default(self):
+        manager = MagicMock()
+        manager.list.return_value = ["a", "b"]
+
+        result = gitlab_client._list_all(manager, per_page=20)
+
+        self.assertEqual(result, ["a", "b"])
+        manager.list.assert_called_once_with(get_all=True, per_page=20)
+
+    def test_falls_back_to_all_kwarg_on_typeerror(self):
+        manager = MagicMock()
+
+        def fake_list(*args, **kwargs):
+            if "get_all" in kwargs:
+                raise TypeError("list() got an unexpected keyword argument 'get_all'")
+            return ["a"]
+
+        manager.list.side_effect = fake_list
+
+        result = gitlab_client._list_all(manager, per_page=20)
+
+        self.assertEqual(result, ["a"])
+
 
 class TestListRecentJobs(unittest.TestCase):
 
@@ -194,27 +237,42 @@ class TestListRecentJobs(unittest.TestCase):
 
         self.assertFalse(jobs[0]["has_artifacts"])
 
-    def test_pagination_kwarg_falls_back_across_versions(self):
-        # Simulates an older python-gitlab whose Manager.list()
-        # doesn't accept get_all= at all (raises TypeError) —
-        # list_recent_jobs must retry with all= instead of crashing.
+    def test_fetches_a_single_bounded_page_not_the_whole_history(self):
+        # list_recent_jobs must NOT use _list_all()/get_all=True —
+        # that walks every page of the project's entire job history
+        # before any limit= truncation runs, defeating the point of
+        # limit= for a feature meant to power a quick job picker.
+        # per_page=limit alone (no all=/get_all=) is a single bounded
+        # page, correct and identical across python-gitlab versions.
         module, gl = _fake_gitlab_module()
         proj = MagicMock()
         gl.projects.get.return_value = proj
+        proj.jobs.list.return_value = [
+            self._make_job(1, "build_firmware", "main", "success", 100),
+        ]
 
-        def fake_list(*args, **kwargs):
-            if "get_all" in kwargs:
-                raise TypeError("list() got an unexpected keyword argument 'get_all'")
-            return [self._make_job(1, "build_firmware", "main", "success", 100)]
+        with _patched_gitlab(module):
+            gitlab_client.list_recent_jobs(
+                "https://gitlab.com", "group/proj", "tok", limit=5
+            )
 
-        proj.jobs.list.side_effect = fake_list
+        proj.jobs.list.assert_called_once_with(per_page=5)
+
+    def test_truncates_to_limit_when_more_are_returned(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.jobs.list.return_value = [
+            self._make_job(i, "build_firmware", "main", "success", 100)
+            for i in range(10)
+        ]
 
         with _patched_gitlab(module):
             jobs = gitlab_client.list_recent_jobs(
-                "https://gitlab.com", "group/proj", "tok"
+                "https://gitlab.com", "group/proj", "tok", limit=3
             )
 
-        self.assertEqual(len(jobs), 1)
+        self.assertEqual(len(jobs), 3)
 
 
 class TestDownloadArtifacts(unittest.TestCase):
@@ -277,6 +335,31 @@ class TestDownloadArtifacts(unittest.TestCase):
             with self.assertRaises(GitLabNotFoundError):
                 gitlab_client.download_job_artifact(
                     "https://gitlab.com", "group/proj", "tok", job_id=999999,
+                )
+
+    def test_download_latest_artifact_network_error_raises_connectionerror(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.artifacts.side_effect = OSError("Connection reset by peer")
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.download_latest_artifact(
+                    "https://gitlab.com", "group/proj", "tok",
+                    ref="main", job_name="build_firmware",
+                )
+
+    def test_download_job_artifact_network_error_raises_connectionerror(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.jobs.get.side_effect = OSError("Connection reset by peer")
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.download_job_artifact(
+                    "https://gitlab.com", "group/proj", "tok", job_id=4821,
                 )
 
 
