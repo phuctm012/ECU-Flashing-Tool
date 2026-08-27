@@ -19,3 +19,10 @@ pyinstaller>=6.10
 # python-can không được đóng gói bên trong .exe. Không thể cài
 # thêm vào sau khi đã build (.exe là 1 file đóng gói sẵn).
 # python-can>=4.3
+
+# Tùy chọn — chỉ bỏ comment dòng dưới nếu muốn bản .exe build ra
+# hỗ trợ luôn tính năng "Load from GitLab". Nếu không cài lúc
+# build, file .exe vẫn chạy tốt, chỉ thiếu tùy chọn đó — vì
+# python-gitlab không được đóng gói bên trong .exe. Không thể cài
+# thêm vào sau khi đã build.
+# python-gitlab>=4.0

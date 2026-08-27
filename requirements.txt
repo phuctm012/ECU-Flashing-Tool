@@ -5,3 +5,9 @@ PySide6>=6.11
 # (VN1640A / VN1630). Không cần nếu chỉ dùng Virtual ECU Simulator.
 # Bỏ comment dòng dưới để cài, hoặc: pip install python-can
 python-can>=4.3
+
+# Tùy chọn — chỉ cần khi dùng tính năng "Load from GitLab"
+# (fetch firmware từ CI Artifact / Package Registry). Không cần
+# nếu chỉ nạp firmware từ file local.
+# Bỏ comment dòng dưới để cài, hoặc: pip install python-gitlab
+# python-gitlab>=4.0
