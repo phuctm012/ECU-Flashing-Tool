@@ -1046,7 +1046,7 @@
   </action>
   <action name="actionResizeMedium">
    <property name="text">
-    <string>Medium (1366 × 768)</string>
+    <string>Medium (1366 × 789)</string>
    </property>
   </action>
   <action name="actionResizeLarge">

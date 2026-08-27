@@ -702,7 +702,7 @@ class Ui_MainWindow(object):
         self.actionExportIssue.setText(QCoreApplication.translate("MainWindow", u"Export Issue...", None))
         self.actionDarkMode.setText(QCoreApplication.translate("MainWindow", u"Dark Mode", None))
         self.actionResizeDefault.setText(QCoreApplication.translate("MainWindow", u"Default (1100 \u00d7 850)", None))
-        self.actionResizeMedium.setText(QCoreApplication.translate("MainWindow", u"Medium (1366 \u00d7 768)", None))
+        self.actionResizeMedium.setText(QCoreApplication.translate("MainWindow", u"Medium (1366 \u00d7 789)", None))
         self.actionResizeLarge.setText(QCoreApplication.translate("MainWindow", u"Large (1920 \u00d7 1080)", None))
         self.actionMaximizeWindow.setText(QCoreApplication.translate("MainWindow", u"Maximize Window", None))
         self.actionFullScreen.setText(QCoreApplication.translate("MainWindow", u"Full Screen", None))

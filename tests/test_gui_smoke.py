@@ -1579,8 +1579,9 @@ class TestMenuBar(unittest.TestCase):
 
     def test_resize_medium_sets_exact_size(self):
         self.window.ui.actionResizeMedium.trigger()
+        # 789, not 768 -- buttonLoadFromGitLab added one more row to pageData's minimum height
         self.assertEqual(
-            self.window.size().toTuple(), (1366, 768)
+            self.window.size().toTuple(), (1366, 789)
         )
 
     def test_resize_large_sets_exact_size(self):
@@ -1616,7 +1617,7 @@ class TestMenuBar(unittest.TestCase):
 
         self.assertFalse(self.window.isFullScreen())
         self.assertEqual(
-            self.window.size().toTuple(), (1366, 768)
+            self.window.size().toTuple(), (1366, 789)
         )
 
     def test_export_report_action_calls_export_report(self):

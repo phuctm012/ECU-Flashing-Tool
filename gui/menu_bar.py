@@ -336,7 +336,7 @@ class MenuBarMixin:
 
     def action_resize_medium(self):
 
-        self._resize_window(1366, 768)
+        self._resize_window(1366, 789)
 
     def action_resize_large(self):
 
