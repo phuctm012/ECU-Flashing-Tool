@@ -152,9 +152,22 @@ reachable from two places:
 
 ## 4. Settings & persistence
 
-New QSettings keys (added to `gui/settings_profile.py`'s
-`save_profile()`/`load_profile()`, same pattern as every existing
-field there):
+**Correction from initial draft:** the Connection card's fields live
+on `GitLabFetchDialog` itself, not on `MainWindow` — unlike Security
+DLL path/Compression Method/etc., which are `self.ui.<widget>` on
+`MainWindow` and so naturally fit `gui/settings_profile.py`'s
+`MainWindow`-scoped `load_profile()`/`save_profile()` (called once at
+startup). The GitLab dialog only exists while open, so it cannot rely
+on that startup-time load. Instead, `GitLabFetchDialog` owns its
+**own** `QSettings(QSettings.IniFormat, QSettings.UserScope,
+APP_AUTHOR, APP_NAME)` instance (same constructor args as
+`SettingsProfileMixin.setup_settings_profile()`, so it reads/writes
+the same `SFlash.ini` file): load all 6 keys in `__init__`, save on
+every field's `textEdited` (same "save on every change" convention as
+`gui/settings_profile.py`). `gui/settings_profile.py` itself is not
+modified.
+
+New QSettings keys (all under the `gitlab/` group):
 
 | Key | Field | Notes |
 |---|---|---|
