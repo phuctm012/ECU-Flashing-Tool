@@ -1765,3 +1765,21 @@ Nguyên nhân: trên macOS, Qt's native menu bar tự động áp `QAction::Menu
 
 - Thêm test `test_about_action_opts_out_of_macos_auto_relocation` (`tests/test_gui_smoke.py`) — xác nhận `actionAbout.menuRole() == QAction.MenuRole.NoRole`. Lưu ý: môi trường test headless (`QT_QPA_PLATFORM=offscreen`) không dựng menu bar Cocoa thật nên không tái hiện được chính xác hành vi macOS ẩn action — test chỉ xác nhận đúng role đã set, không phải hành vi hiển thị thật trên macOS (đã được user tự xác nhận qua screenshot ban đầu).
 - Full test suite (291 test, 290 cũ + 1 mới) pass.
+
+## Phase 4.72 — Hardware detection luôn log kết quả vào Information tab
+
+User báo máy đã cắm Vector hardware (dùng kèm CANoe) nhưng comboBoxHardware chỉ hiện "Virtual ECU Simulator (No Hardware)", và Information tab không hiển thị bất kỳ thông tin nào về hardware detection — không biết nguyên nhân do python-can chưa cài, XL Driver Library thiếu, hay hardware không nhận.
+
+Nguyên nhân: `populate_hardware_combo()` trước đó chỉ log khi `error` khác `None` (thiếu python-can / XL Driver Library), nhưng im lặng hoàn toàn khi detection thành công với 0 channel (hardware không cắm) hoặc khi tìm thấy channel. CLI `list-hardware` đã phân biệt rõ 3 trường hợp từ Phase 4.46, nhưng GUI thì chưa.
+
+### Thay đổi
+
+- **`gui/configure_tab.py`**: `populate_hardware_combo()` giờ luôn log kết quả detection vào Information tab — cả 3 trường hợp:
+  - Tìm thấy channel: `"Hardware detection: N Vector channel(s) found — VN1640A - Channel 1, ..."`
+  - Không tìm thấy, có lỗi: `"Hardware detection: no Vector hardware — python-can's Vector backend unavailable: ..."` (giữ nguyên nội dung cũ, chỉ thêm prefix)
+  - Không tìm thấy, không lỗi: `"Hardware detection: no Vector hardware found (nothing plugged in, or driver not running)"`
+
+### Đã kiểm tra
+
+- Đọc lại code path: `populate_hardware_combo()` → `detect_vector_channels_with_error()` → `_detect_vector_channels_impl()`, xác nhận cả 3 nhánh đều được cover.
+- Test suite (các test không phụ thuộc PySide6, 81/89 test) pass — 8 test PySide6 skip do môi trường remote không có PySide6.

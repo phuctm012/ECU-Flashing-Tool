@@ -649,10 +649,24 @@ class ConfigureTabMixin:
         combo.setCurrentIndex(0)
         combo.blockSignals(False)
 
-        if error and hasattr(self, 'log_information'):
-            self.log_information(
-                f"No real Vector hardware detected: {error}"
-            )
+        if hasattr(self, 'log_information'):
+            if channels:
+                labels = ", ".join(ch["label"] for ch in channels)
+                self.log_information(
+                    f"Hardware detection: {len(channels)} Vector "
+                    f"channel(s) found — {labels}"
+                )
+            elif error:
+                self.log_information(
+                    f"Hardware detection: no Vector hardware "
+                    f"— {error}"
+                )
+            else:
+                self.log_information(
+                    "Hardware detection: no Vector hardware "
+                    "found (nothing plugged in, or driver not "
+                    "running)"
+                )
 
     # ==================================================
     # Test Connection button (Communication page)
