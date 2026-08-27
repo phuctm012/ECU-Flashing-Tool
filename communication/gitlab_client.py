@@ -179,3 +179,138 @@ def download_job_artifact(url, project, token, job_id):
         raise GitLabConnectionError(f"Download failed: {e}")
     except Exception as e:
         raise GitLabConnectionError(f"Download failed: {e}")
+
+
+def list_package_versions(url, project, token, package_name, limit=20):
+    """
+    Returns up to `limit` most recent versions of the given Generic
+    package name, newest first, as a list of dicts: package_id,
+    version, created_at. Raises GitLabNotFoundError if no version of
+    that package name exists in the project.
+    """
+
+    gl, gitlab_module = _connect(url, token)
+    proj = _get_project(gl, gitlab_module, project)
+
+    try:
+        # Deliberately NOT _list_all() — same reasoning as
+        # list_recent_jobs(): a single per_page=limit page (server-
+        # sorted newest-first via order_by/sort) is exactly what
+        # this function needs; get_all=True would walk every version
+        # of this package the project has ever published before the
+        # packages[:limit] slice below ever runs.
+        packages = proj.packages.list(
+            package_name=package_name,
+            order_by="created_at", sort="desc", per_page=limit,
+        )
+    except Exception as e:
+        raise GitLabConnectionError(f"Could not list packages: {e}")
+
+    if not packages:
+        raise GitLabNotFoundError(
+            f"No package named '{package_name}' found in this project"
+        )
+
+    return [
+        {
+            "package_id": pkg.id,
+            "version": pkg.version,
+            "created_at": pkg.created_at,
+        }
+        for pkg in packages[:limit]
+    ]
+
+
+def _download_generic_package_file(gl, project_id, package_name, version, file_name):
+    """
+    Generic packages have no dedicated high-level python-gitlab
+    download method as of this writing, so this hits GitLab's
+    documented REST endpoint directly via the library's low-level
+    (and version-stable) http_get(..., raw=True) escape hatch — the
+    same primitive python-gitlab uses internally for every one of
+    its own higher-level calls, so it doesn't drift across versions
+    the way object-model wrappers can.
+    """
+
+    path = (
+        f"/projects/{project_id}/packages/generic/"
+        f"{package_name}/{version}/{file_name}"
+    )
+    response = gl.http_get(path, raw=True)
+    return response.content
+
+
+def _download_one_file_for_version(gl, gitlab_module, proj, package_name, version, package_id):
+    """
+    Downloads the file attached to one specific package version.
+    Uses the first file if a version has more than one attached
+    (not expected for this project's firmware packages, but not
+    validated against — download_package_version()/
+    download_latest_package_file() both go through this).
+    """
+
+    try:
+        pkg = proj.packages.get(package_id)
+        files = _list_all(pkg.package_files)
+    except gitlab_module.exceptions.GitlabGetError as e:
+        raise GitLabNotFoundError(f"Package version not found: {e}")
+    except Exception as e:
+        raise GitLabConnectionError(f"Could not load package version: {e}")
+
+    if not files:
+        raise GitLabNotFoundError(
+            f"Version '{version}' of package '{package_name}' has no files"
+        )
+
+    file_name = files[0].file_name
+
+    try:
+        return _download_generic_package_file(
+            gl, proj.id, package_name, version, file_name
+        )
+    except gitlab_module.exceptions.GitlabHttpError as e:
+        if getattr(e, "response_code", None) == 404:
+            raise GitLabNotFoundError(f"File '{file_name}' not found: {e}")
+        raise GitLabConnectionError(f"Download failed: {e}")
+    except Exception as e:
+        raise GitLabConnectionError(f"Download failed: {e}")
+
+
+def download_latest_package_file(url, project, token, package_name):
+    """
+    Downloads the file attached to the newest version of the given
+    package. Returns raw bytes.
+    """
+
+    gl, gitlab_module = _connect(url, token)
+    proj = _get_project(gl, gitlab_module, project)
+
+    latest = list_package_versions(url, project, token, package_name, limit=1)[0]
+
+    return _download_one_file_for_version(
+        gl, gitlab_module, proj, package_name, latest["version"], latest["package_id"]
+    )
+
+
+def download_package_version(url, project, token, package_name, version):
+    """
+    Downloads the file attached to a specific package version (as
+    picked from list_package_versions()). Returns raw bytes. Raises
+    GitLabNotFoundError if that exact version string isn't among the
+    project's versions of this package.
+    """
+
+    gl, gitlab_module = _connect(url, token)
+    proj = _get_project(gl, gitlab_module, project)
+
+    versions = list_package_versions(url, project, token, package_name, limit=100)
+    match = next((v for v in versions if v["version"] == version), None)
+
+    if match is None:
+        raise GitLabNotFoundError(
+            f"Version '{version}' of package '{package_name}' not found"
+        )
+
+    return _download_one_file_for_version(
+        gl, gitlab_module, proj, package_name, version, match["package_id"]
+    )
