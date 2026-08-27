@@ -187,6 +187,20 @@ class TestConnect(unittest.TestCase):
                     "https://gitlab.com", "group/missing-proj", "tok"
                 )
 
+    def test_project_fetch_network_error_raises_connectionerror(self):
+        # A non-GitlabGetError failure (e.g. a network drop) while
+        # fetching the project must still come out as a GitLabError
+        # subclass, not leak through untyped — _get_project() needs
+        # a broad except Exception fallback alongside its narrower
+        # GitlabGetError handling, same as _connect()'s already has.
+        module, gl = _fake_gitlab_module()
+        gl.projects.get.side_effect = OSError("Connection reset by peer")
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.list_recent_jobs(
+                    "https://gitlab.com", "group/proj", "tok"
+                )
+
 
 class TestListRecentJobs(unittest.TestCase):
 
@@ -257,27 +271,76 @@ class TestListRecentJobs(unittest.TestCase):
 
         self.assertFalse(jobs[0]["has_artifacts"])
 
-    def test_pagination_kwarg_falls_back_across_versions(self):
-        # Simulates an older python-gitlab whose Manager.list()
-        # doesn't accept get_all= at all (raises TypeError) —
-        # list_recent_jobs must retry with all= instead of crashing.
+    def test_fetches_a_single_bounded_page_not_the_whole_history(self):
+        # list_recent_jobs must NOT use _list_all()/get_all=True —
+        # that walks every page of the project's entire job history
+        # before any limit= truncation runs, defeating the point of
+        # limit= for a feature meant to power a quick job picker.
+        # per_page=limit alone (no all=/get_all=) is a single bounded
+        # page, correct and identical across python-gitlab versions.
         module, gl = _fake_gitlab_module()
         proj = MagicMock()
         gl.projects.get.return_value = proj
+        proj.jobs.list.return_value = [
+            self._make_job(1, "build_firmware", "main", "success", 100),
+        ]
+
+        with _patched_gitlab(module):
+            gitlab_client.list_recent_jobs(
+                "https://gitlab.com", "group/proj", "tok", limit=5
+            )
+
+        proj.jobs.list.assert_called_once_with(per_page=5)
+
+    def test_truncates_to_limit_when_more_are_returned(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.jobs.list.return_value = [
+            self._make_job(i, "build_firmware", "main", "success", 100)
+            for i in range(10)
+        ]
+
+        with _patched_gitlab(module):
+            jobs = gitlab_client.list_recent_jobs(
+                "https://gitlab.com", "group/proj", "tok", limit=3
+            )
+
+        self.assertEqual(len(jobs), 3)
+
+
+class TestListAll(unittest.TestCase):
+    """
+    _list_all() itself — used for lists that are naturally small and
+    unbounded (e.g. the files attached to one package version, Task 2),
+    NOT for anything with a limit= — see its docstring.
+    """
+
+    def test_uses_get_all_by_default(self):
+        manager = MagicMock()
+        manager.list.return_value = ["a", "b"]
+
+        result = gitlab_client._list_all(manager, per_page=20)
+
+        self.assertEqual(result, ["a", "b"])
+        manager.list.assert_called_once_with(get_all=True, per_page=20)
+
+    def test_falls_back_to_all_kwarg_on_typeerror(self):
+        # Simulates an older python-gitlab whose Manager.list()
+        # doesn't accept get_all= at all (raises TypeError) —
+        # _list_all() must retry with all= instead of crashing.
+        manager = MagicMock()
 
         def fake_list(*args, **kwargs):
             if "get_all" in kwargs:
                 raise TypeError("list() got an unexpected keyword argument 'get_all'")
-            return [self._make_job(1, "build_firmware", "main", "success", 100)]
+            return ["a"]
 
-        proj.jobs.list.side_effect = fake_list
+        manager.list.side_effect = fake_list
 
-        with _patched_gitlab(module):
-            jobs = gitlab_client.list_recent_jobs(
-                "https://gitlab.com", "group/proj", "tok"
-            )
+        result = gitlab_client._list_all(manager, per_page=20)
 
-        self.assertEqual(len(jobs), 1)
+        self.assertEqual(result, ["a"])
 
 
 class TestDownloadArtifacts(unittest.TestCase):
@@ -340,6 +403,34 @@ class TestDownloadArtifacts(unittest.TestCase):
             with self.assertRaises(GitLabNotFoundError):
                 gitlab_client.download_job_artifact(
                     "https://gitlab.com", "group/proj", "tok", job_id=999999,
+                )
+
+    def test_download_latest_artifact_network_error_raises_connectionerror(self):
+        # Same reasoning as test_project_fetch_network_error_raises_
+        # connectionerror above — a non-GitlabGetError failure must
+        # still come out typed, not leak through untyped.
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.artifacts.side_effect = OSError("Connection reset by peer")
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.download_latest_artifact(
+                    "https://gitlab.com", "group/proj", "tok",
+                    ref="main", job_name="build_firmware",
+                )
+
+    def test_download_job_artifact_network_error_raises_connectionerror(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.jobs.get.side_effect = OSError("Connection reset by peer")
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.download_job_artifact(
+                    "https://gitlab.com", "group/proj", "tok", job_id=4821,
                 )
 
 
@@ -424,15 +515,25 @@ def _get_project(gl, gitlab_module, project):
         if getattr(e, "response_code", None) == 404:
             raise GitLabNotFoundError(f"Project '{project}' not found: {e}")
         raise GitLabConnectionError(f"Could not load project '{project}': {e}")
+    except Exception as e:
+        raise GitLabConnectionError(f"Could not load project '{project}': {e}")
 
 
 def _list_all(manager, **kwargs):
     """
-    python-gitlab renamed its "fetch every page" kwarg across major
-    versions (all=True in <3.0, get_all=True in >=3.0). Try the
-    current name first, fall back to the old one on TypeError — same
-    defensive-retry pattern VectorCanInterface.connect() already
-    uses for python-can's serial= kwarg (communication/vector_can.py).
+    Fetches every page of a manager.list() call. python-gitlab
+    renamed its "fetch every page" kwarg across major versions
+    (all=True in <3.0, get_all=True in >=3.0) — try the current name
+    first, fall back to the old one on TypeError, same defensive
+    retry VectorCanInterface.connect() already uses for python-can's
+    serial= kwarg (communication/vector_can.py). Only use this for
+    lists that are naturally small and unbounded (e.g. the files
+    attached to one package version) — for anything bounded by a
+    `limit`, call manager.list(per_page=limit) directly instead
+    (single-page mode, no all=/get_all=): get_all=True/all=True walks
+    every page of the *entire* history before any limit= truncation
+    in Python ever runs, defeating the bound and doing a potentially
+    huge amount of needless network I/O.
     """
 
     try:
@@ -453,7 +554,13 @@ def list_recent_jobs(url, project, token, job_name=None, limit=20):
     proj = _get_project(gl, gitlab_module, project)
 
     try:
-        jobs = _list_all(proj.jobs, per_page=limit)
+        # Deliberately NOT _list_all() — GitLab's jobs endpoint
+        # returns newest-first, so a single per_page=limit page
+        # already has everything this function needs; get_all=True
+        # would walk the project's entire job history before the
+        # len(results) >= limit break below ever gets a chance to
+        # matter.
+        jobs = proj.jobs.list(per_page=limit)
     except Exception as e:
         raise GitLabConnectionError(f"Could not list jobs: {e}")
 
@@ -498,6 +605,8 @@ def download_latest_artifact(url, project, token, ref, job_name):
                 f"No artifact found for ref '{ref}', job '{job_name}': {e}"
             )
         raise GitLabConnectionError(f"Download failed: {e}")
+    except Exception as e:
+        raise GitLabConnectionError(f"Download failed: {e}")
 
 
 def download_job_artifact(url, project, token, job_id):
@@ -516,12 +625,14 @@ def download_job_artifact(url, project, token, job_id):
         if getattr(e, "response_code", None) == 404:
             raise GitLabNotFoundError(f"Job {job_id} or its artifact not found: {e}")
         raise GitLabConnectionError(f"Download failed: {e}")
+    except Exception as e:
+        raise GitLabConnectionError(f"Download failed: {e}")
 ```
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `python -m unittest tests.test_gitlab_client -v`
-Expected: all `TestExceptionHierarchy`, `TestConnect`, `TestListRecentJobs`, `TestDownloadArtifacts` tests PASS.
+Expected: all `TestExceptionHierarchy`, `TestConnect`, `TestListRecentJobs`, `TestListAll`, `TestDownloadArtifacts` tests PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -588,6 +699,28 @@ class TestListPackageVersions(unittest.TestCase):
                     "https://gitlab.com", "group/proj", "tok",
                     package_name="no-such-package",
                 )
+
+    def test_fetches_a_single_bounded_page_not_the_whole_history(self):
+        # Same reasoning as TestListRecentJobs's equivalent test —
+        # list_package_versions must NOT use _list_all()/get_all=True,
+        # which would walk every version this package has ever had.
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.packages.list.return_value = [
+            self._make_package(1, "1.4.2"),
+        ]
+
+        with _patched_gitlab(module):
+            gitlab_client.list_package_versions(
+                "https://gitlab.com", "group/proj", "tok",
+                package_name="suzuki-slp1-radar-firmware", limit=5,
+            )
+
+        proj.packages.list.assert_called_once_with(
+            package_name="suzuki-slp1-radar-firmware",
+            order_by="created_at", sort="desc", per_page=5,
+        )
 
 
 class TestDownloadPackageFile(unittest.TestCase):
@@ -680,6 +813,25 @@ class TestDownloadPackageFile(unittest.TestCase):
                     "https://gitlab.com", "group/proj", "tok",
                     package_name="suzuki-slp1-radar-firmware", version="9.9.9",
                 )
+
+    def test_network_error_fetching_package_version_raises_connectionerror(self):
+        # Same reasoning as Task 1's download-function network-error
+        # tests — a non-GitlabGetError failure must still come out
+        # typed, not leak through untyped.
+        module, gl = _fake_gitlab_module()
+        proj = self._setup_project(
+            gl,
+            versions=[{"package_id": 1, "version": "1.4.1", "created_at": "2026-08-20T09:00:00Z"}],
+            files_by_package_id={1: "x.zip"},
+        )
+        proj.packages.get.side_effect = OSError("Connection reset by peer")
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.download_package_version(
+                    "https://gitlab.com", "group/proj", "tok",
+                    package_name="suzuki-slp1-radar-firmware", version="1.4.1",
+                )
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -704,8 +856,14 @@ def list_package_versions(url, project, token, package_name, limit=20):
     proj = _get_project(gl, gitlab_module, project)
 
     try:
-        packages = _list_all(
-            proj.packages, package_name=package_name,
+        # Deliberately NOT _list_all() — same reasoning as
+        # list_recent_jobs(): a single per_page=limit page (server-
+        # sorted newest-first via order_by/sort) is exactly what
+        # this function needs; get_all=True would walk every version
+        # of this package the project has ever published before the
+        # packages[:limit] slice below ever runs.
+        packages = proj.packages.list(
+            package_name=package_name,
             order_by="created_at", sort="desc", per_page=limit,
         )
     except Exception as e:
@@ -759,6 +917,8 @@ def _download_one_file_for_version(gl, gitlab_module, proj, package_name, versio
         files = _list_all(pkg.package_files)
     except gitlab_module.exceptions.GitlabGetError as e:
         raise GitLabNotFoundError(f"Package version not found: {e}")
+    except Exception as e:
+        raise GitLabConnectionError(f"Could not load package version: {e}")
 
     if not files:
         raise GitLabNotFoundError(
@@ -774,6 +934,8 @@ def _download_one_file_for_version(gl, gitlab_module, proj, package_name, versio
     except gitlab_module.exceptions.GitlabHttpError as e:
         if getattr(e, "response_code", None) == 404:
             raise GitLabNotFoundError(f"File '{file_name}' not found: {e}")
+        raise GitLabConnectionError(f"Download failed: {e}")
+    except Exception as e:
         raise GitLabConnectionError(f"Download failed: {e}")
 
 
@@ -820,7 +982,7 @@ def download_package_version(url, project, token, package_name, version):
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `python -m unittest tests.test_gitlab_client -v`
-Expected: all tests PASS (this file now has ~20 tests total across both tasks).
+Expected: all tests PASS (this file now has ~27 tests total across both tasks).
 
 - [ ] **Step 5: Commit**
 
