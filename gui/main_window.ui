@@ -305,6 +305,13 @@
               </widget>
              </item>
              <item>
+              <widget class="QPushButton" name="buttonLoadFromGitLab">
+               <property name="text">
+                <string>Load from GitLab...</string>
+               </property>
+              </widget>
+             </item>
+             <item>
               <spacer name="verticalSpacer">
                <property name="orientation">
                 <enum>Qt::Vertical</enum>
@@ -893,6 +900,7 @@
      <string>File</string>
     </property>
     <addaction name="actionLoadFirmware"/>
+    <addaction name="actionLoadFromGitLab"/>
     <widget class="QMenu" name="menuRecentFiles">
      <property name="title">
       <string>Recent Files</string>
@@ -961,6 +969,11 @@
   <action name="actionLoadFirmware">
    <property name="text">
     <string>Load Firmware...</string>
+   </property>
+  </action>
+  <action name="actionLoadFromGitLab">
+   <property name="text">
+    <string>Load from GitLab...</string>
    </property>
   </action>
   <action name="actionSaveProjectAs">

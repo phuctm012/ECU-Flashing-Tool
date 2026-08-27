@@ -31,6 +31,8 @@ class Ui_MainWindow(object):
         MainWindow.resize(1100, 850)
         self.actionLoadFirmware = QAction(MainWindow)
         self.actionLoadFirmware.setObjectName(u"actionLoadFirmware")
+        self.actionLoadFromGitLab = QAction(MainWindow)
+        self.actionLoadFromGitLab.setObjectName(u"actionLoadFromGitLab")
         self.actionSaveProjectAs = QAction(MainWindow)
         self.actionSaveProjectAs.setObjectName(u"actionSaveProjectAs")
         self.actionOpenProject = QAction(MainWindow)
@@ -251,6 +253,11 @@ class Ui_MainWindow(object):
         self.tableWidgetDetails.verticalHeader().setVisible(False)
 
         self.verticalLayout_dataTab.addWidget(self.tableWidgetDetails)
+
+        self.buttonLoadFromGitLab = QPushButton(self.pageData)
+        self.buttonLoadFromGitLab.setObjectName(u"buttonLoadFromGitLab")
+
+        self.verticalLayout_dataTab.addWidget(self.buttonLoadFromGitLab)
 
         self.verticalSpacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
 
@@ -638,6 +645,7 @@ class Ui_MainWindow(object):
         self.menubar.addAction(self.menuTools.menuAction())
         self.menubar.addAction(self.menuHelp.menuAction())
         self.menuFile.addAction(self.actionLoadFirmware)
+        self.menuFile.addAction(self.actionLoadFromGitLab)
         self.menuFile.addAction(self.menuRecentFiles.menuAction())
         self.menuFile.addSeparator()
         self.menuFile.addAction(self.actionSaveProjectAs)
@@ -680,6 +688,7 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
         self.actionLoadFirmware.setText(QCoreApplication.translate("MainWindow", u"Load Firmware...", None))
+        self.actionLoadFromGitLab.setText(QCoreApplication.translate("MainWindow", u"Load from GitLab...", None))
         self.actionSaveProjectAs.setText(QCoreApplication.translate("MainWindow", u"Save Project As...", None))
         self.actionOpenProject.setText(QCoreApplication.translate("MainWindow", u"Open Project...", None))
         self.actionCloseWindow.setText(QCoreApplication.translate("MainWindow", u"Close Window", None))
@@ -777,6 +786,7 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem26.setText(QCoreApplication.translate("MainWindow", u"Memory Size", None))
         self.tableWidgetDetails.setSortingEnabled(__sortingEnabled1)
 
+        self.buttonLoadFromGitLab.setText(QCoreApplication.translate("MainWindow", u"Load from GitLab...", None))
         self.labelCommTitle.setText(QCoreApplication.translate("MainWindow", u"Communication", None))
         self.labelHardware.setText(QCoreApplication.translate("MainWindow", u"Hardware configure", None))
         self.buttonTestConnectionHardware.setText(QCoreApplication.translate("MainWindow", u"Test Connection", None))

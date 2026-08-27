@@ -2286,5 +2286,29 @@ class TestLogSaving(unittest.TestCase):
             main_window_module.QMessageBox.critical = original
 
 
+class TestGitLabEntryPointWidgets(unittest.TestCase):
+    """
+    Covers the two static entry-point widgets for the "Load from
+    GitLab" feature — declared in main_window.ui (unlike the
+    dialog's own internal widgets, which are Python-built in
+    gui/gitlab_dialog.py, same precedent as TestConnectionDialog).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_action_load_from_gitlab_exists_in_file_menu(self):
+        self.assertTrue(hasattr(self.window.ui, 'actionLoadFromGitLab'))
+        self.assertIn(
+            self.window.ui.actionLoadFromGitLab,
+            self.window.ui.menuFile.actions(),
+        )
+
+    def test_button_load_from_gitlab_exists_on_data_page(self):
+        self.assertTrue(hasattr(self.window.ui, 'buttonLoadFromGitLab'))
+        self.assertTrue(self.window.ui.buttonLoadFromGitLab.isEnabled())
+
+
 if __name__ == "__main__":
     unittest.main()
