@@ -538,6 +538,100 @@ class TestDownloadPackageFile(unittest.TestCase):
                     package_name="suzuki-slp1-radar-firmware", version="1.4.1",
                 )
 
+    def test_non_404_error_fetching_package_version_is_not_misreported_as_notfound(self):
+        # GitlabGetError is python-gitlab's generic "GET failed"
+        # exception, not exclusively a 404 signal — a 403/500/429
+        # while fetching package metadata must come out as
+        # GitLabConnectionError, matching the response_code==404 gate
+        # every other GitlabGetError catch in this file already uses
+        # (_get_project, download_latest_artifact, download_job_artifact).
+        module, gl = _fake_gitlab_module()
+        proj = self._setup_project(
+            gl,
+            versions=[{"package_id": 1, "version": "1.4.1", "created_at": "2026-08-20T09:00:00Z"}],
+            files_by_package_id={1: "x.zip"},
+        )
+        proj.packages.get.side_effect = module.exceptions.GitlabGetError(
+            "500 Internal Server Error", response_code=500
+        )
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.download_package_version(
+                    "https://gitlab.com", "group/proj", "tok",
+                    package_name="suzuki-slp1-radar-firmware", version="1.4.1",
+                )
+
+    def test_version_with_no_files_raises_notfounderror(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.id = 42
+        pkg_version = MagicMock()
+        pkg_version.id = 1
+        pkg_version.version = "1.4.1"
+        pkg_version.created_at = "2026-08-20T09:00:00Z"
+        proj.packages.list.return_value = [pkg_version]
+        pkg = MagicMock()
+        pkg.package_files.list.return_value = []
+        proj.packages.get.return_value = pkg
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabNotFoundError):
+                gitlab_client.download_package_version(
+                    "https://gitlab.com", "group/proj", "tok",
+                    package_name="suzuki-slp1-radar-firmware", version="1.4.1",
+                )
+
+    def test_version_with_multiple_files_downloads_the_first(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.id = 42
+        pkg_version = MagicMock()
+        pkg_version.id = 1
+        pkg_version.version = "1.4.1"
+        pkg_version.created_at = "2026-08-20T09:00:00Z"
+        proj.packages.list.return_value = [pkg_version]
+        pkg = MagicMock()
+        first_file = MagicMock()
+        first_file.file_name = "firmware.zip"
+        second_file = MagicMock()
+        second_file.file_name = "readme.txt"
+        pkg.package_files.list.return_value = [first_file, second_file]
+        proj.packages.get.return_value = pkg
+        gl.http_get.return_value = MagicMock(content=b"PK\x03\x04firstfile")
+
+        with _patched_gitlab(module):
+            data = gitlab_client.download_package_version(
+                "https://gitlab.com", "group/proj", "tok",
+                package_name="suzuki-slp1-radar-firmware", version="1.4.1",
+            )
+
+        self.assertEqual(data, b"PK\x03\x04firstfile")
+        gl.http_get.assert_called_once_with(
+            "/projects/42/packages/generic/suzuki-slp1-radar-firmware/1.4.1/firmware.zip",
+            raw=True,
+        )
+
+    def test_file_download_404_raises_notfounderror(self):
+        module, gl = _fake_gitlab_module()
+        proj = self._setup_project(
+            gl,
+            versions=[{"package_id": 1, "version": "1.4.1", "created_at": "2026-08-20T09:00:00Z"}],
+            files_by_package_id={1: "x.zip"},
+        )
+        gl.http_get.side_effect = module.exceptions.GitlabHttpError(
+            "404", response_code=404
+        )
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabNotFoundError):
+                gitlab_client.download_package_version(
+                    "https://gitlab.com", "group/proj", "tok",
+                    package_name="suzuki-slp1-radar-firmware", version="1.4.1",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

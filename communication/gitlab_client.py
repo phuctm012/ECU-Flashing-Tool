@@ -253,7 +253,9 @@ def _download_one_file_for_version(gl, gitlab_module, proj, package_name, versio
         pkg = proj.packages.get(package_id)
         files = _list_all(pkg.package_files)
     except gitlab_module.exceptions.GitlabGetError as e:
-        raise GitLabNotFoundError(f"Package version not found: {e}")
+        if getattr(e, "response_code", None) == 404:
+            raise GitLabNotFoundError(f"Package version not found: {e}")
+        raise GitLabConnectionError(f"Could not load package version: {e}")
     except Exception as e:
         raise GitLabConnectionError(f"Could not load package version: {e}")
 
