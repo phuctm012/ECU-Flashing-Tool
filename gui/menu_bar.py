@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from config.settings import APP_NAME, APP_VERSION, APP_AUTHOR, APP_AUTHOR_NAME
 from gui.test_connection_dialog import TestConnectionDialog
+from gui.gitlab_dialog import GitLabFetchDialog
 from gui.style import load_stylesheet, is_dark_mode_enabled
 
 # Running from source: docs/user_guide.html sits two levels up
@@ -177,6 +178,11 @@ class MenuBarMixin:
         if hasattr(self.ui, 'actionOpenGuideline'):
             self.ui.actionOpenGuideline.triggered.connect(
                 self.action_open_guideline
+            )
+
+        if hasattr(self.ui, 'actionLoadFromGitLab'):
+            self.ui.actionLoadFromGitLab.triggered.connect(
+                self.open_gitlab_fetch_dialog
             )
 
         if hasattr(self.ui, 'actionExportIssue'):
@@ -441,6 +447,19 @@ class MenuBarMixin:
         )
         dialog.exec()
 
+        return dialog
+
+    def open_gitlab_fetch_dialog(self):
+        """
+        Opens the "Load from GitLab" dialog — shared by the File >
+        Load from GitLab... menu action above and the Configure >
+        Data page's own button (gui/configure_tab.py's
+        load_from_gitlab_button_clicked()), same "one handler, two
+        entry points" pattern as open_test_connection_dialog().
+        """
+
+        dialog = GitLabFetchDialog(self)
+        dialog.exec()
         return dialog
 
     # ==================================================

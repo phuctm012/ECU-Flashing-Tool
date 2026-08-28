@@ -1742,6 +1742,15 @@ class TestMenuBar(unittest.TestCase):
 
         MockDialog.assert_not_called()
 
+    def test_load_from_gitlab_menu_action_opens_dialog(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.GitLabFetchDialog"
+        ) as mock_dialog_cls:
+            mock_dialog_cls.return_value.exec.return_value = None
+            self.window.ui.actionLoadFromGitLab.trigger()
+        mock_dialog_cls.assert_called_once_with(self.window)
+        mock_dialog_cls.return_value.exec.assert_called_once()
+
 
 class TestConnectionButton(unittest.TestCase):
     """
@@ -1875,6 +1884,21 @@ class TestConnectionButton(unittest.TestCase):
             order.index("buttonTestConnectionHardware"),
             order.index("buttonRefreshHardware"),
         )
+
+
+class TestGitLabButtonOnDataPage(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_button_opens_same_dialog_as_menu_action(self):
+        with unittest.mock.patch(
+            "gui.menu_bar.GitLabFetchDialog"
+        ) as mock_dialog_cls:
+            mock_dialog_cls.return_value.exec.return_value = None
+            self.window.ui.buttonLoadFromGitLab.click()
+        mock_dialog_cls.assert_called_once_with(self.window)
 
 
 class TestRecentFiles(unittest.TestCase):

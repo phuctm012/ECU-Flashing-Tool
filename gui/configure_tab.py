@@ -98,6 +98,11 @@ class ConfigureTabMixin:
             # main_window.ui.
             self._setup_data_format_inputs()
 
+        if hasattr(self.ui, 'buttonLoadFromGitLab'):
+            self.ui.buttonLoadFromGitLab.clicked.connect(
+                self.open_gitlab_fetch_dialog
+            )
+
         # Clear and add placeholder
         self.ui.tableWidgetDatablocks.setRowCount(0)
         self._add_placeholder_row()
