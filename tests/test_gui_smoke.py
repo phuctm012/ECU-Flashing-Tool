@@ -2287,6 +2287,65 @@ class TestLogSaving(unittest.TestCase):
             main_window_module.QMessageBox.critical = original
 
 
+class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
+    """
+    Covers GitLabFetchDialog's Connection card (URL/project/token
+    fields) and its own QSettings persistence — separate from
+    gui/settings_profile.py, since this dialog only exists while
+    open (see docs/superpowers/specs/2026-08-27-gitlab-firmware-
+    fetch-design.md, section 4).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_defaults_when_nothing_saved(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog.urlEdit.text(), "https://gitlab.com")
+        self.assertEqual(dialog.projectEdit.text(), "")
+        self.assertEqual(dialog.tokenEdit.text(), "")
+        self.assertEqual(
+            dialog.tokenEdit.echoMode(), dialog.tokenEdit.EchoMode.Password
+        )
+
+    def test_fields_persist_across_dialog_instances(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+
+        dialog1 = GitLabFetchDialog(self.window)
+        dialog1.urlEdit.setText("https://gitlab.example.com")
+        dialog1.projectEdit.setText("radar-team/suzuki-slp1-firmware")
+        dialog1.tokenEdit.setText("glpat-abc123")
+        dialog1.urlEdit.textEdited.emit(dialog1.urlEdit.text())
+
+        dialog2 = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog2.urlEdit.text(), "https://gitlab.example.com")
+        self.assertEqual(dialog2.projectEdit.text(), "radar-team/suzuki-slp1-firmware")
+        self.assertEqual(dialog2.tokenEdit.text(), "glpat-abc123")
+
+    def test_ci_tab_is_selected_by_default(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog.tabs.currentIndex(), 0)
+        self.assertEqual(dialog.tabs.tabText(0), "CI Artifact")
+        self.assertEqual(dialog.tabs.tabText(1), "Package Registry")
+
+    def test_ci_browse_table_starts_hidden(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        self.assertFalse(dialog.ciBrowseTable.isVisible())
+        # _run_action() is mocked out here — expanding Browse also
+        # starts a real fetch (a real QThread), which this test has
+        # no way to wait for/clean up; this test only cares about
+        # the visibility toggle. The real fetch-and-populate
+        # behavior (including full QThread lifecycle) is covered by
+        # tests/test_gitlab_dialog_threading.py, which does wait.
+        with unittest.mock.patch.object(dialog, '_run_action'):
+            dialog.ciBrowseToggle.click()
+        self.assertTrue(dialog.ciBrowseTable.isVisible())
+
+
 class TestGitLabEntryPointWidgets(unittest.TestCase):
     """
     Covers the two static entry-point widgets for the "Load from
