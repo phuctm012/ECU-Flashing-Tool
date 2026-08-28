@@ -57,7 +57,7 @@ class TestFetchLatestArtifactRealThread(unittest.TestCase):
         self.dialog.projectEdit.setText("group/proj")
         self.dialog.tokenEdit.setText("tok")
         self.dialog.ciRefEdit.setText("main")
-        self.dialog.ciJobEdit.setText("build_firmware")
+        self.dialog.ciJobEdit.setEditText("build_firmware")
 
     def test_fetch_latest_artifact_runs_and_cleans_up_thread(self):
         with patch(

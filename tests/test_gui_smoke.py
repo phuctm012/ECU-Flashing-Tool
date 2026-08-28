@@ -2405,6 +2405,57 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
         self.assertIsNotNone(button)
         self.assertTrue(button.isEnabled())
 
+    def test_job_name_combo_populates_from_browse_results(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog._populate_ci_browse_table([
+            {
+                "pipeline_id": 100, "job_id": 4821, "job_name": "build_firmware",
+                "ref": "main", "status": "success",
+                "created_at": "2026-08-27T09:14:00Z", "has_artifacts": True,
+            },
+            {
+                "pipeline_id": 99, "job_id": 4810, "job_name": "lint",
+                "ref": "main", "status": "success",
+                "created_at": "2026-08-26T09:14:00Z", "has_artifacts": False,
+            },
+            # Same job name as the first row, from an older pipeline —
+            # must not appear twice in the dropdown.
+            {
+                "pipeline_id": 98, "job_id": 4790, "job_name": "build_firmware",
+                "ref": "main", "status": "success",
+                "created_at": "2026-08-25T09:14:00Z", "has_artifacts": True,
+            },
+        ])
+
+        items = [dialog.ciJobEdit.itemText(i) for i in range(dialog.ciJobEdit.count())]
+        self.assertEqual(items, ["build_firmware", "lint"])
+
+    def test_job_name_combo_keeps_typed_text_after_browse_populates(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.ciJobEdit.setEditText("not_in_the_list_yet")
+
+        dialog._populate_ci_browse_table([
+            {
+                "pipeline_id": 100, "job_id": 4821, "job_name": "build_firmware",
+                "ref": "main", "status": "success",
+                "created_at": "2026-08-27T09:14:00Z", "has_artifacts": True,
+            },
+        ])
+
+        self.assertEqual(dialog.ciJobEdit.currentText(), "not_in_the_list_yet")
+
+    def test_job_name_combo_value_persists_across_dialog_instances(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+
+        dialog1 = GitLabFetchDialog(self.window)
+        dialog1.ciJobEdit.setEditText("build_firmware")
+        dialog1.ciJobEdit.currentTextChanged.emit(dialog1.ciJobEdit.currentText())
+
+        dialog2 = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog2.ciJobEdit.currentText(), "build_firmware")
+
 
 class TestGitLabEntryPointWidgets(unittest.TestCase):
     """

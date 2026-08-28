@@ -28,6 +28,7 @@ import zipfile
 
 from PySide6.QtCore import QObject, QSettings, QThread, Signal, Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QGridLayout,
@@ -232,8 +233,13 @@ class GitLabFetchDialog(QDialog):
         grid.addWidget(self.ciRefEdit, 0, 1)
 
         grid.addWidget(QLabel("Job name"), 1, 0)
-        self.ciJobEdit = QLineEdit(page)
-        self.ciJobEdit.textEdited.connect(self._save_settings)
+        self.ciJobEdit = QComboBox(page)
+        self.ciJobEdit.setEditable(True)
+        # Not populated until "Browse recent jobs..." has run at
+        # least once (see _populate_ci_job_combo()) — typing a job
+        # name that's never been browsed still works, this is only
+        # a convenience shortcut once real names are known.
+        self.ciJobEdit.currentTextChanged.connect(self._save_settings)
         grid.addWidget(self.ciJobEdit, 1, 1)
         layout.addLayout(grid)
 
@@ -330,7 +336,7 @@ class GitLabFetchDialog(QDialog):
         self.projectEdit.setText(s.value("gitlab/project", "", type=str))
         self.tokenEdit.setText(s.value("gitlab/token", "", type=str))
         self.ciRefEdit.setText(s.value("gitlab/ciRef", "main", type=str))
-        self.ciJobEdit.setText(s.value("gitlab/ciJobName", "", type=str))
+        self.ciJobEdit.setEditText(s.value("gitlab/ciJobName", "", type=str))
         self.packageNameEdit.setText(s.value("gitlab/packageName", "", type=str))
 
     def _save_settings(self, _text=None):
@@ -340,7 +346,7 @@ class GitLabFetchDialog(QDialog):
         s.setValue("gitlab/project", self.projectEdit.text())
         s.setValue("gitlab/token", self.tokenEdit.text())
         s.setValue("gitlab/ciRef", self.ciRefEdit.text())
-        s.setValue("gitlab/ciJobName", self.ciJobEdit.text())
+        s.setValue("gitlab/ciJobName", self.ciJobEdit.currentText())
         s.setValue("gitlab/packageName", self.packageNameEdit.text())
         s.sync()
 
@@ -355,14 +361,44 @@ class GitLabFetchDialog(QDialog):
 
         if opening:
             self._run_action(
-                "list_jobs", {"job_name": self.ciJobEdit.text() or None},
+                "list_jobs", {"job_name": self.ciJobEdit.currentText() or None},
                 on_list=self._populate_ci_browse_table,
             )
+
+    def _populate_ci_job_combo(self, jobs):
+        """
+        Fills ciJobEdit's dropdown with the unique job names seen in
+        the most recent Browse result (newest-first, matching the
+        API's own order), without disturbing whatever text the user
+        currently has typed/selected — editable QComboBox.addItem()
+        can otherwise auto-select the first item added to a
+        never-explicitly-set combo, so the current text is saved and
+        restored around the repopulation, with signals blocked to
+        avoid a spurious extra _save_settings() call.
+        """
+
+        current_text = self.ciJobEdit.currentText()
+
+        seen = set()
+        unique_names = []
+        for job in jobs:
+            name = job["job_name"]
+            if name not in seen:
+                seen.add(name)
+                unique_names.append(name)
+
+        self.ciJobEdit.blockSignals(True)
+        self.ciJobEdit.clear()
+        self.ciJobEdit.addItems(unique_names)
+        self.ciJobEdit.setEditText(current_text)
+        self.ciJobEdit.blockSignals(False)
 
     def _populate_ci_browse_table(self, jobs):
 
         if self._cancelled:
             return
+
+        self._populate_ci_job_combo(jobs)
 
         self.ciBrowseTable.setRowCount(len(jobs))
 
@@ -407,7 +443,7 @@ class GitLabFetchDialog(QDialog):
 
         self._run_action(
             "fetch_latest_artifact",
-            {"ref": self.ciRefEdit.text(), "job_name": self.ciJobEdit.text()},
+            {"ref": self.ciRefEdit.text(), "job_name": self.ciJobEdit.currentText()},
             on_download=self._on_download_ready,
         )
 

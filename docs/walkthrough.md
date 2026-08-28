@@ -1786,3 +1786,34 @@ User yêu cầu thêm khả năng nạp firmware trực tiếp từ GitLab (CI j
   - Task 1/2 review: 1 hàm giới hạn bằng `limit=` bên trong lại dùng `get_all=True` (phá vỡ chính giới hạn đó — vẫn duyệt hết lịch sử remote trước khi cắt) và một số hàm thiếu catch fallback rộng, có nguy cơ để lọt exception không thuộc `GitLabError` ra ngoài hợp đồng của module.
   - Task 3: thêm `buttonLoadFromGitLab` làm minimum height thật (sau khi show) của `MainWindow` tăng từ 748px lên 789px, âm thầm phá preset resize "Medium (1366 × 768)" — không còn đạt đúng 768px thật sự nữa. Sửa bằng cách cập nhật preset lên 1366×789 (kích thước thật đã verify đạt được, đo trực tiếp bằng test thật chứ không tính tay) đồng bộ ở `gui/main_window.ui`, `gui/menu_bar.py` và 2 test liên quan.
   - Task 6 (đáng chú ý nhất) — gây **deadlock thật cho test suite**: khi `_on_download_ready()` có hành vi thật (thay vì stub), 3 test viết từ Task 4/5 (dùng byte giả không phải zip, chưa mock `_load_firmware_file`) kích hoạt đúng luồng parse firmware thật → lỗi thật → `QMessageBox.warning()` thật, treo vô hạn vì không có ai bấm OK trong môi trường headless (`QT_QPA_PLATFORM=offscreen`). Root-cause bằng cách lấy stack trace trực tiếp của process đang treo thật; sửa bằng mock `_load_firmware_file` trong đúng 3 test đó (chỉ sửa test, code production đã đúng từ đầu).
+
+### Phase 4.79: Final Whole-Branch Review Cho Tính Năng GitLab + Fix Round
+
+Sau khi cả 8 task hoàn tất (Phase 4.78), dispatch 1 review toàn bộ nhánh (model mạnh nhất, xem cả ~2300 dòng diff cùng lúc thay vì từng task riêng lẻ) theo đúng quy trình `subagent-driven-development`. Kết quả: "Ready to merge: With fixes" — 0 Critical, 5 Important, 7 Minor, không có gì phải chặn merge nhưng đáng sửa trước khi coi là xong. 2 trong 5 Important đổi thứ user đã duyệt trước đó (mockup, spec) nên hỏi lại user thay vì tự quyết.
+
+### Thay đổi
+
+- **`gui/gitlab_dialog.py`**: (1) đóng dialog giữa lúc đang fetch giờ hủy thật — cờ `_cancelled` chặn `download_ready` đã queue sẵn không load nhầm firmware sau khi user đã bấm Cancel; (2) dọn thư mục temp tải file khi đóng dialog (`shutil.rmtree`), Recent Files vẫn giữ nguyên hành vi cũ theo đúng lựa chọn của user (file GitLab vẫn ghi vào Recent Files như file local, nếu sau này mở lại mà bị dọn rồi thì hiện Parse Error giống hệt file local bị xóa/di chuyển — hành vi đã có sẵn, không phải case mới); (3) picker giờ chọn sẵn file firmware nhận diện được **đầu tiên** thay vì cái cuối cùng, bỏ qua entry là thư mục trong zip; (4) 2 nút "Browse..." bị disable khi đang fetch dở, tránh mở bảng trống không giải thích gì; (5) thêm nút "Download" riêng cho từng hàng ở cả 2 bảng Browse (đúng mockup gốc đã duyệt, giữ nguyên double-click cũ) — bảng CI job disable nếu `has_artifacts=False`, bảng Package version luôn bật (không có tín hiệu tương đương ở tầng list); (6) `_on_pkg_row_activated()` dùng đúng tên package đã dùng lúc browse thay vì đọc field đang gõ dở, tránh tải nhầm version của package khác nếu user sửa field giữa lúc browse và lúc bấm tải.
+- **`communication/gitlab_client.py`**: tách `_list_package_versions()` dùng chung — `download_latest_package_file()`/`download_package_version()` không còn gọi `_connect()`+`_get_project()` 2 lần (auth 2 lần) cho mỗi lượt tải.
+- **`parsers/auto_parser.py`**: thêm `FIRMWARE_EXTENSIONS` (đuôi file được `parse_firmware_file()` nhận diện là firmware thật) làm nguồn duy nhất — `gui/gitlab_dialog.py` import lại thay vì tự khai báo `.hex`/`.bin` riêng.
+- **`gui/menu_bar.py`**: sửa docstring nhắc tới 1 method không tồn tại (`load_from_gitlab_button_clicked()`).
+
+### Đã kiểm tra
+
+- Scoped re-review (model độc lập) xác nhận cả 9 finding đều sửa đúng, không phá gì thêm.
+- Full test suite: 354 test (341 cũ + 13 mới) pass.
+- Trước khi push: chạy đủ 3 bước theo protocol CLAUDE.md — full suite, `tests/test_flash_threading.py` (9 test) riêng, và 1 script headless thật nối tiếp 9 thao tác trong cùng 1 process (nạp firmware thật → flash xong qua Virtual ECU → abort 1 lần giữa chừng → dark mode → resize → mở/đóng Test Connection thật → mở GitLab dialog từ cả 2 entry point → fetch rồi cancel giữa chừng → đóng cửa sổ) — không exception, exit code sạch. Push lên `origin/main` sau khi cả 3 bước pass.
+- 1 gợi ý sửa của chính reviewer cuối (đổi "50 test mới" ở Phase 4.78 thành "49") **không áp dụng** — đếm lại tay xác nhận "50" mới đúng (30+4+16=50, khớp tổng 291+50=341), reviewer tự đếm thiếu 1 test trong `TestMenuBar` có sẵn.
+
+### Phase 4.80: Job Name Ở Tab CI Artifact Đổi Thành Combo Box Có Gợi Ý
+
+User hỏi field Branch/ref và Job name sau khi fetch có hiển thị dạng combo box/search cho dễ tìm không, hay phải tự gõ tay — lúc đó cả 2 đều là `QLineEdit` thường. Đề xuất: đổi Job name thành combo box gõ được, tự điền danh sách job name duy nhất lấy từ lần Browse gần nhất; giữ Branch/ref dạng gõ tay vì ref có thể là bất kỳ branch/tag nào, GitLab không có API rẻ để liệt kê hết. User đồng ý.
+
+### Thay đổi
+
+- **`gui/gitlab_dialog.py`**: `ciJobEdit` đổi từ `QLineEdit` sang `QComboBox` có `setEditable(True)`. Thêm `_populate_ci_job_combo(jobs)` — gọi từ `_populate_ci_browse_table()` mỗi lần Browse trả kết quả, điền danh sách job name duy nhất (giữ thứ tự mới nhất trước, đúng thứ tự API trả về), lọc trùng tên. Chữ đang gõ dở được lưu/khôi phục quanh lúc điền lại danh sách (kèm `blockSignals`) để không bị ghi đè hay tự lưu setting thừa. Mọi chỗ dùng `ciJobEdit.text()` đổi sang `.currentText()`, load/save settings dùng `.setEditText()`/`.currentText()` thay vì `.setText()`/`.text()`.
+
+### Đã kiểm tra
+
+- Test mới (`tests/test_gui_smoke.py`, `TestGitLabFetchDialogConnectionCard`): combo điền đúng danh sách job name duy nhất sau khi Browse (không lặp lại tên đã thấy); chữ đang gõ dở không bị ghi đè khi Browse điền danh sách mới; giá trị chọn/gõ vẫn persist đúng qua `QSettings` giữa các lần mở dialog.
+- Full test suite: 357 test (354 cũ + 3 mới) pass.
