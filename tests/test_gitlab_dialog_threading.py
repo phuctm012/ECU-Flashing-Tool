@@ -63,7 +63,7 @@ class TestFetchLatestArtifactRealThread(unittest.TestCase):
         with patch(
             "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
             return_value=b"PK\x03\x04fakezip",
-        ):
+        ), patch.object(self.window, '_load_firmware_file', return_value=True):
             self.dialog.ciFetchButton.click()
             self.assertIsNotNone(self.dialog._thread)
             _run_until(self.app, lambda: self.dialog._thread is None)
@@ -88,7 +88,7 @@ class TestFetchLatestArtifactRealThread(unittest.TestCase):
         with patch(
             "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
             return_value=b"PK\x03\x04fakezip",
-        ):
+        ), patch.object(self.window, '_load_firmware_file', return_value=True):
             self.dialog.ciFetchButton.click()
             self.dialog.close()
             self.app.processEvents()
@@ -109,7 +109,7 @@ class TestFetchLatestPackageRealThread(unittest.TestCase):
         with patch(
             "gui.gitlab_dialog.gitlab_client.download_latest_package_file",
             return_value=b"PK\x03\x04fakezip",
-        ):
+        ), patch.object(self.window, '_load_firmware_file', return_value=True):
             self.dialog.pkgFetchButton.click()
             self.assertIsNotNone(self.dialog._thread)
             _run_until(self.app, lambda: self.dialog._thread is None)
