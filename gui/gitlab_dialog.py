@@ -22,6 +22,7 @@
 # ==================================================
 
 import os
+import shutil
 import tempfile
 import zipfile
 
@@ -46,9 +47,7 @@ from PySide6.QtWidgets import (
 
 from communication import gitlab_client
 from config.settings import APP_AUTHOR, APP_NAME
-from parsers.auto_parser import SREC_EXTENSIONS
-
-RECOGNIZED_FIRMWARE_EXTENSIONS = (".hex", ".bin") + SREC_EXTENSIONS
+from parsers.auto_parser import FIRMWARE_EXTENSIONS as RECOGNIZED_FIRMWARE_EXTENSIONS
 
 
 class GitLabFetchWorker(QObject):
@@ -156,6 +155,12 @@ class GitLabFetchDialog(QDialog):
         self._main_window = parent
         self._thread = None
         self._worker = None
+        self._cancelled = False
+        # Set for real by _toggle_pkg_browse() when a browse actually
+        # runs; the empty default only matters if a row is ever
+        # activated without going through that path first (not a
+        # reachable path via the UI, but avoids an AttributeError).
+        self._pkg_browse_name = ""
 
         self._settings = QSettings(
             QSettings.IniFormat, QSettings.UserScope, APP_AUTHOR, APP_NAME,
@@ -242,9 +247,9 @@ class GitLabFetchDialog(QDialog):
         fetch_row.addWidget(self.ciBrowseToggle)
         layout.addLayout(fetch_row)
 
-        self.ciBrowseTable = QTableWidget(0, 5, page)
+        self.ciBrowseTable = QTableWidget(0, 6, page)
         self.ciBrowseTable.setHorizontalHeaderLabels(
-            ["Pipeline", "Job", "Ref", "Status", "When"]
+            ["Pipeline", "Job", "Ref", "Status", "When", "Download"]
         )
         self.ciBrowseTable.horizontalHeader().setStretchLastSection(True)
         self.ciBrowseTable.setVisible(False)
@@ -276,8 +281,10 @@ class GitLabFetchDialog(QDialog):
         fetch_row.addWidget(self.pkgBrowseToggle)
         layout.addLayout(fetch_row)
 
-        self.pkgBrowseTable = QTableWidget(0, 2, page)
-        self.pkgBrowseTable.setHorizontalHeaderLabels(["Version", "Uploaded"])
+        self.pkgBrowseTable = QTableWidget(0, 3, page)
+        self.pkgBrowseTable.setHorizontalHeaderLabels(
+            ["Version", "Uploaded", "Download"]
+        )
         self.pkgBrowseTable.horizontalHeader().setStretchLastSection(True)
         self.pkgBrowseTable.setVisible(False)
         self.pkgBrowseTable.cellDoubleClicked.connect(self._on_pkg_row_activated)
@@ -354,6 +361,9 @@ class GitLabFetchDialog(QDialog):
 
     def _populate_ci_browse_table(self, jobs):
 
+        if self._cancelled:
+            return
+
         self.ciBrowseTable.setRowCount(len(jobs))
 
         for row, job in enumerate(jobs):
@@ -363,6 +373,20 @@ class GitLabFetchDialog(QDialog):
             self.ciBrowseTable.setItem(row, 3, QTableWidgetItem(job["status"]))
             self.ciBrowseTable.setItem(row, 4, QTableWidgetItem(job["created_at"]))
             self.ciBrowseTable.item(row, 0).setData(Qt.UserRole, job)
+
+            # Per-row Download button — matches the originally-
+            # approved design mockup, in addition to (not instead
+            # of) the existing double-click-to-download. Disabled
+            # for artifact-less rows, same has_artifacts check
+            # _on_ci_row_activated() already applies (not duplicated
+            # here beyond this one condition — the handler itself
+            # still guards defensively too).
+            button = QPushButton("Download", self.ciBrowseTable)
+            button.setEnabled(job["has_artifacts"])
+            button.clicked.connect(
+                lambda checked=False, r=row: self._on_ci_row_activated(r, 0)
+            )
+            self.ciBrowseTable.setCellWidget(row, 5, button)
 
     def _on_ci_row_activated(self, row, _col):
 
@@ -389,6 +413,14 @@ class GitLabFetchDialog(QDialog):
 
     def _on_download_ready(self, data, suggested_filename):
 
+        if self._cancelled:
+            # closeEvent() already ran (Cancel/close mid-fetch) — the
+            # QThread was stopped, but this download_ready signal was
+            # already queued on the main thread's event loop and
+            # gets delivered anyway. Bail out before writing anything
+            # to disk; nothing to clean up since nothing gets written.
+            return
+
         self._download_dir = tempfile.mkdtemp(prefix="sflash_gitlab_")
         archive_path = os.path.join(self._download_dir, suggested_filename)
 
@@ -414,16 +446,29 @@ class GitLabFetchDialog(QDialog):
         self.pickerPanel.setVisible(True)
         self.pickerList.clear()
 
-        preselect_row = 0
-        for i, name in enumerate(names):
+        preselect_row = None
+        row = 0
+        for name in names:
+            if name.endswith("/"):
+                # A directory entry within the zip (zipfile.namelist()
+                # includes these), not a real file — don't list it as
+                # a selectable candidate.
+                continue
+
             item = QListWidgetItem(name)
             item.setData(Qt.UserRole, os.path.join(extract_dir, name))
             self.pickerList.addItem(item)
-            if any(name.lower().endswith(ext) for ext in RECOGNIZED_FIRMWARE_EXTENSIONS):
-                preselect_row = i
+            if (
+                preselect_row is None
+                and any(name.lower().endswith(ext) for ext in RECOGNIZED_FIRMWARE_EXTENSIONS)
+            ):
+                preselect_row = row
+            row += 1
 
         if self.pickerList.count() > 0:
-            self.pickerList.setCurrentRow(preselect_row)
+            self.pickerList.setCurrentRow(preselect_row if preselect_row is not None else 0)
+        else:
+            self.statusLabel.setText("Archive contains no files.")
 
     def _on_load_selected_file(self):
 
@@ -456,12 +501,21 @@ class GitLabFetchDialog(QDialog):
         self.pkgBrowseTable.setVisible(opening)
 
         if opening:
+            # Stash the package name actually used for this browse,
+            # so a later row activation uses the name the list was
+            # fetched for — not whatever packageNameEdit says at
+            # click time, which the user may have since edited (see
+            # _on_pkg_row_activated()).
+            self._pkg_browse_name = self.packageNameEdit.text()
             self._run_action(
-                "list_packages", {"package_name": self.packageNameEdit.text()},
+                "list_packages", {"package_name": self._pkg_browse_name},
                 on_list=self._populate_pkg_browse_table,
             )
 
     def _populate_pkg_browse_table(self, versions):
+
+        if self._cancelled:
+            return
 
         self.pkgBrowseTable.setRowCount(len(versions))
 
@@ -470,13 +524,25 @@ class GitLabFetchDialog(QDialog):
             self.pkgBrowseTable.setItem(row, 1, QTableWidgetItem(version["created_at"]))
             self.pkgBrowseTable.item(row, 0).setData(Qt.UserRole, version)
 
+            # Per-row Download button — matches the originally-
+            # approved design mockup, in addition to (not instead
+            # of) the existing double-click-to-download. Always
+            # enabled: unlike CI jobs, there's no has_artifacts-
+            # equivalent signal available at listing time for
+            # package versions.
+            button = QPushButton("Download", self.pkgBrowseTable)
+            button.clicked.connect(
+                lambda checked=False, r=row: self._on_pkg_row_activated(r, 0)
+            )
+            self.pkgBrowseTable.setCellWidget(row, 2, button)
+
     def _on_pkg_row_activated(self, row, _col):
 
         version = self.pkgBrowseTable.item(row, 0).data(Qt.UserRole)
 
         self._run_action(
             "download_package_version",
-            {"package_name": self.packageNameEdit.text(), "version": version["version"]},
+            {"package_name": self._pkg_browse_name, "version": version["version"]},
             on_download=self._on_download_ready,
         )
 
@@ -501,11 +567,19 @@ class GitLabFetchDialog(QDialog):
         """
 
         if self._thread is not None:
+            # Defense in depth: the fetch/browse controls below are
+            # disabled while a fetch is in flight, so this should be
+            # unreachable via normal UI interaction — but if it's
+            # ever hit some other way, say why nothing happened
+            # instead of silently no-op'ing.
+            self.statusLabel.setText("A fetch is already in progress. Please wait.")
             return
 
         self.statusLabel.setText("")
         self.ciFetchButton.setEnabled(False)
         self.pkgFetchButton.setEnabled(False)
+        self.ciBrowseToggle.setEnabled(False)
+        self.pkgBrowseToggle.setEnabled(False)
 
         self._thread = QThread()
         self._worker = GitLabFetchWorker(
@@ -542,8 +616,18 @@ class GitLabFetchDialog(QDialog):
         self._worker = None
         self.ciFetchButton.setEnabled(True)
         self.pkgFetchButton.setEnabled(True)
+        self.ciBrowseToggle.setEnabled(True)
+        self.pkgBrowseToggle.setEnabled(True)
 
     def closeEvent(self, event):
+
+        # Must be set before anything else: a download_ready signal
+        # already queued on the main thread's event loop (emitted by
+        # the worker just before we get here) still gets delivered
+        # after close() returns — _on_download_ready() etc. check
+        # this flag and bail out rather than loading an unrequested
+        # firmware file post-cancel.
+        self._cancelled = True
 
         if self._thread is not None and self._thread.isRunning():
             # Same reasoning as gui/test_connection_dialog.py's
@@ -554,5 +638,14 @@ class GitLabFetchDialog(QDialog):
             # quit() directly first (thread-safe from any thread).
             self._thread.quit()
             self._thread.wait()
+
+        # Clean up any download temp dir created by a completed
+        # fetch. Safe ordering-wise: any file that was going to be
+        # parsed (_load_and_close() -> _load_firmware_file()) has
+        # already been read and returned before self.close() is ever
+        # called, so this only ever runs after parsing is done.
+        download_dir = getattr(self, "_download_dir", None)
+        if download_dir and os.path.isdir(download_dir):
+            shutil.rmtree(download_dir, ignore_errors=True)
 
         event.accept()

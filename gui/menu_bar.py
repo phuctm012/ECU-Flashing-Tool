@@ -454,7 +454,7 @@ class MenuBarMixin:
         Opens the "Load from GitLab" dialog — shared by the File >
         Load from GitLab... menu action above and the Configure >
         Data page's own button (gui/configure_tab.py's
-        load_from_gitlab_button_clicked()), same "one handler, two
+        buttonLoadFromGitLab.clicked wiring), same "one handler, two
         entry points" pattern as open_test_connection_dialog().
         """
 

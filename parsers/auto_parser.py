@@ -20,6 +20,13 @@ SREC_EXTENSIONS = (
     ".srec", ".mot",
 )
 
+# Every extension parse_firmware_file() recognizes as an actual
+# firmware format (vs. "anything else, tried as Intel HEX"). Single
+# source of truth for callers that need to recognize firmware files
+# without parsing them (e.g. gui/gitlab_dialog.py's zip-entry
+# picker) — don't re-hardcode ".hex"/".bin" in a caller.
+FIRMWARE_EXTENSIONS = (".hex", ".bin") + SREC_EXTENSIONS
+
 
 def parse_firmware_file(file_path, base_address=0x0000):
     """

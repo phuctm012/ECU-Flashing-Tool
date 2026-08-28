@@ -2371,6 +2371,40 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
             dialog.ciBrowseToggle.click()
         self.assertTrue(dialog.ciBrowseTable.isVisible())
 
+    def test_ci_row_download_button_disabled_when_job_has_no_artifacts(self):
+        # Regression test for final-review Fix 5's per-row Download
+        # button on ciBrowseTable — must stay disabled for a
+        # has_artifacts: False row, same as _on_ci_row_activated()'s
+        # existing guard for the double-click path.
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog._populate_ci_browse_table([
+            {
+                "pipeline_id": 101, "job_id": 4822, "job_name": "lint",
+                "ref": "main", "status": "failed",
+                "created_at": "2026-08-27T09:15:00Z", "has_artifacts": False,
+            },
+        ])
+
+        button = dialog.ciBrowseTable.cellWidget(0, 5)
+        self.assertIsNotNone(button)
+        self.assertFalse(button.isEnabled())
+
+    def test_ci_row_download_button_enabled_when_job_has_artifacts(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog._populate_ci_browse_table([
+            {
+                "pipeline_id": 100, "job_id": 4821, "job_name": "build_firmware",
+                "ref": "main", "status": "success",
+                "created_at": "2026-08-27T09:14:00Z", "has_artifacts": True,
+            },
+        ])
+
+        button = dialog.ciBrowseTable.cellWidget(0, 5)
+        self.assertIsNotNone(button)
+        self.assertTrue(button.isEnabled())
+
 
 class TestGitLabEntryPointWidgets(unittest.TestCase):
     """
@@ -2435,6 +2469,36 @@ class TestGitLabFetchDialogPackageTab(unittest.TestCase):
             dialog.pkgBrowseToggle.click()
         self.assertTrue(dialog.pkgBrowseTable.isVisible())
 
+    def test_pkg_row_activation_uses_browsed_name_not_live_edit_text(self):
+        # Regression test for the final-review Fix 9 finding:
+        # _on_pkg_row_activated() used to re-read the LIVE
+        # packageNameEdit.text() at click time instead of the
+        # package name the row's version list was actually fetched
+        # for. If the user browses "A", then edits the field to "B"
+        # before clicking a row that still shows one of "A"'s
+        # versions, the download must still go out for "A".
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.packageNameEdit.setText("A")
+
+        with unittest.mock.patch.object(dialog, '_run_action'):
+            dialog.pkgBrowseToggle.click()
+
+        dialog._populate_pkg_browse_table([
+            {"package_id": 1, "version": "1.0.0", "created_at": "2026-08-01T00:00:00Z"},
+        ])
+
+        # User edits the field after browsing, without re-browsing.
+        dialog.packageNameEdit.setText("B")
+
+        with unittest.mock.patch.object(dialog, '_run_action') as mock_run:
+            dialog._on_pkg_row_activated(0, 0)
+
+        action, params = mock_run.call_args[0]
+        self.assertEqual(action, "download_package_version")
+        self.assertEqual(params["package_name"], "A")
+        self.assertEqual(params["version"], "1.0.0")
+
 
 class TestGitLabFetchDialogZipPicker(unittest.TestCase):
 
@@ -2481,6 +2545,73 @@ class TestGitLabFetchDialogZipPicker(unittest.TestCase):
         self.assertTrue(
             selected[0].text().endswith("RAD_SUZ05_FFI_ForCanFlashing.s3")
         )
+
+    def test_first_of_multiple_recognized_files_is_preselected(self):
+        # Regression test for the final-review "last match wins"
+        # finding: _show_picker()'s loop used to keep overwriting
+        # preselect_row on every match instead of stopping at the
+        # first one, contradicting the design spec's "the first
+        # entry... is pre-selected". A fixture with only one
+        # recognized file (test_recognized_firmware_file_is_preselected
+        # above) can't catch a first-vs-last regression — this one
+        # has two.
+        self.dialog.show()
+        self.app.processEvents()
+        data = self._make_zip_bytes([
+            ("firmware/a.hex", "a"),
+            ("firmware/b.hex", "b"),
+        ])
+        self.dialog._on_download_ready(data, "build_firmware-4821.zip")
+        self.app.processEvents()
+
+        selected = self.dialog.pickerList.selectedItems()
+        self.assertEqual(len(selected), 1)
+        self.assertTrue(selected[0].text().endswith("firmware/a.hex"))
+
+    def test_directory_entries_are_not_listed_as_selectable(self):
+        # Regression test for the final-review "empty zip / directory
+        # entries listed as selectable" finding: zipfile.namelist()
+        # includes directory entries (names ending in "/"), which
+        # aren't real files and shouldn't appear as pickable rows.
+        self.dialog.show()
+        self.app.processEvents()
+        # writestr with a trailing "/" name creates a directory entry
+        # in the zip's namelist(), same as a real directory added via
+        # zf.write() on a folder.
+        import io
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("firmware/", "")
+            zf.writestr("firmware/RAD_SUZ05_FFI_ForCanFlashing.s3", "S1...")
+        data = buf.getvalue()
+
+        self.dialog._on_download_ready(data, "build_firmware-4821.zip")
+        self.app.processEvents()
+
+        self.assertEqual(self.dialog.pickerList.count(), 1)
+        self.assertTrue(
+            self.dialog.pickerList.item(0).text().endswith(
+                "RAD_SUZ05_FFI_ForCanFlashing.s3"
+            )
+        )
+
+    def test_download_temp_dir_removed_on_close(self):
+        # Regression test for the final-review "temp dir never
+        # cleaned up" finding.
+        self.dialog.show()
+        self.app.processEvents()
+        data = self._make_zip_bytes([
+            ("firmware/RAD_SUZ05_FFI_ForCanFlashing.s3", "S1..."),
+        ])
+        self.dialog._on_download_ready(data, "build_firmware-4821.zip")
+        self.app.processEvents()
+
+        download_dir = self.dialog._download_dir
+        self.assertTrue(os.path.isdir(download_dir))
+
+        self.dialog.close()
+
+        self.assertFalse(os.path.isdir(download_dir))
 
     def test_load_selected_file_calls_existing_load_pipeline(self):
         self.dialog.show()

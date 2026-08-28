@@ -93,6 +93,127 @@ class TestFetchLatestArtifactRealThread(unittest.TestCase):
             self.dialog.close()
             self.app.processEvents()
 
+    def test_close_mid_fetch_actually_cancels_pending_load(self):
+        # Regression test for the final-review "cancel doesn't
+        # actually cancel" finding: closeEvent() stops the QThread,
+        # but a download_ready signal already queued on the main
+        # thread's event loop still gets delivered after close()
+        # returns — without the self._cancelled guard,
+        # _on_download_ready() would run anyway and load an
+        # unrequested firmware file after the user clicked Cancel.
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+            return_value=b"PK\x03\x04fakezip",
+        ), patch.object(self.window, '_load_firmware_file', return_value=True) as mock_load:
+            self.dialog.ciFetchButton.click()
+            self.dialog.close()
+            self.app.processEvents()
+
+        mock_load.assert_not_called()
+
+    def test_browse_toggles_disabled_during_fetch(self):
+        # Regression test for the final-review "browse toggles stay
+        # enabled during an in-flight fetch" finding: clicking Browse
+        # mid-fetch used to silently no-op (via _run_action()'s
+        # `if self._thread is not None: return` guard) with no
+        # indication why, since only the two Fetch buttons were
+        # disabled — not the two Browse toggles.
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+            return_value=b"PK\x03\x04fakezip",
+        ), patch.object(self.window, '_load_firmware_file', return_value=True):
+            self.dialog.ciFetchButton.click()
+            self.assertFalse(self.dialog.ciBrowseToggle.isEnabled())
+            self.assertFalse(self.dialog.pkgBrowseToggle.isEnabled())
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        self.assertTrue(self.dialog.ciBrowseToggle.isEnabled())
+        self.assertTrue(self.dialog.pkgBrowseToggle.isEnabled())
+
+
+class TestCiRowDownloadButtonRealThread(unittest.TestCase):
+    """
+    Covers the per-row "Download" button added to ciBrowseTable
+    (final-review Fix 5) — must behave identically to the existing
+    cellDoubleClicked wiring, including going through a real QThread.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.dialog = GitLabFetchDialog(self.window)
+        self.dialog.urlEdit.setText("https://gitlab.com")
+        self.dialog.projectEdit.setText("group/proj")
+        self.dialog.tokenEdit.setText("tok")
+        self.dialog._populate_ci_browse_table([
+            {
+                "pipeline_id": 100, "job_id": 4821, "job_name": "build_firmware",
+                "ref": "main", "status": "success",
+                "created_at": "2026-08-27T09:14:00Z", "has_artifacts": True,
+            },
+        ])
+
+    def test_clicking_download_button_triggers_same_path_as_double_click(self):
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_job_artifact",
+            return_value=b"PK\x03\x04fakezip",
+        ) as mock_download, patch.object(
+            self.window, '_load_firmware_file', return_value=True
+        ):
+            button = self.dialog.ciBrowseTable.cellWidget(0, 5)
+            self.assertIsNotNone(button)
+            self.assertTrue(button.isEnabled())
+            button.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        mock_download.assert_called_once_with(
+            "https://gitlab.com", "group/proj", "tok", job_id=4821,
+        )
+
+
+class TestPkgRowDownloadButtonRealThread(unittest.TestCase):
+    """
+    Covers the per-row "Download" button added to pkgBrowseTable
+    (final-review Fix 5) — must behave identically to the existing
+    cellDoubleClicked wiring, including going through a real QThread.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.dialog = GitLabFetchDialog(self.window)
+        self.dialog.urlEdit.setText("https://gitlab.com")
+        self.dialog.projectEdit.setText("group/proj")
+        self.dialog.tokenEdit.setText("tok")
+        self.dialog.packageNameEdit.setText("suzuki-slp1-radar-firmware")
+        # Simulates what _toggle_pkg_browse() would have stashed
+        # (see Fix 9) — the fetch this row came from.
+        self.dialog._pkg_browse_name = "suzuki-slp1-radar-firmware"
+        self.dialog._populate_pkg_browse_table([
+            {"package_id": 1, "version": "1.4.2", "created_at": "2026-08-27T09:00:00Z"},
+        ])
+
+    def test_download_button_exists_and_is_enabled(self):
+        button = self.dialog.pkgBrowseTable.cellWidget(0, 2)
+        self.assertIsNotNone(button)
+        self.assertTrue(button.isEnabled())
+
+    def test_clicking_download_button_triggers_download_package_version(self):
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_package_version",
+            return_value=b"PK\x03\x04fakezip",
+        ) as mock_download, patch.object(
+            self.window, '_load_firmware_file', return_value=True
+        ):
+            button = self.dialog.pkgBrowseTable.cellWidget(0, 2)
+            button.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        mock_download.assert_called_once_with(
+            "https://gitlab.com", "group/proj", "tok",
+            package_name="suzuki-slp1-radar-firmware", version="1.4.2",
+        )
+
 
 class TestFetchLatestPackageRealThread(unittest.TestCase):
 

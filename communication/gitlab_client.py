@@ -192,6 +192,20 @@ def list_package_versions(url, project, token, package_name, limit=20):
     gl, gitlab_module = _connect(url, token)
     proj = _get_project(gl, gitlab_module, project)
 
+    return _list_package_versions(gl, gitlab_module, proj, package_name, limit)
+
+
+def _list_package_versions(gl, gitlab_module, proj, package_name, limit=20):
+    """
+    Body of list_package_versions(), factored out to take an
+    already-connected gl/proj so download_latest_package_file() and
+    download_package_version() (which both already have their own
+    gl/proj from a local _connect()+_get_project() call) can reuse it
+    without a second, redundant gl.auth()+gl.projects.get() round-trip.
+    The public list_package_versions() above is now a thin wrapper
+    around this.
+    """
+
     try:
         # Deliberately NOT _list_all() — same reasoning as
         # list_recent_jobs(): a single per_page=limit page (server-
@@ -287,7 +301,7 @@ def download_latest_package_file(url, project, token, package_name):
     gl, gitlab_module = _connect(url, token)
     proj = _get_project(gl, gitlab_module, project)
 
-    latest = list_package_versions(url, project, token, package_name, limit=1)[0]
+    latest = _list_package_versions(gl, gitlab_module, proj, package_name, limit=1)[0]
 
     return _download_one_file_for_version(
         gl, gitlab_module, proj, package_name, latest["version"], latest["package_id"]
@@ -305,7 +319,7 @@ def download_package_version(url, project, token, package_name, version):
     gl, gitlab_module = _connect(url, token)
     proj = _get_project(gl, gitlab_module, project)
 
-    versions = list_package_versions(url, project, token, package_name, limit=100)
+    versions = _list_package_versions(gl, gitlab_module, proj, package_name, limit=100)
     match = next((v for v in versions if v["version"] == version), None)
 
     if match is None:

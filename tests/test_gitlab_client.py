@@ -632,6 +632,57 @@ class TestDownloadPackageFile(unittest.TestCase):
                     package_name="suzuki-slp1-radar-firmware", version="1.4.1",
                 )
 
+    def test_download_latest_package_file_authenticates_only_once(self):
+        # Regression test for the final-review "double auth" finding:
+        # download_latest_package_file() used to call the PUBLIC
+        # list_package_versions(), which internally did its own
+        # _connect()+_get_project() on top of the caller's own — two
+        # gl.auth()/gl.projects.get() round-trips for one download.
+        # It must now reuse the gl/proj it already has via the
+        # private _list_package_versions() helper instead.
+        module, gl = _fake_gitlab_module()
+        proj = self._setup_project(
+            gl,
+            versions=[
+                {"package_id": 2, "version": "1.4.2", "created_at": "2026-08-27T09:00:00Z"},
+            ],
+            files_by_package_id={2: "suzuki-slp1-radar-firmware-1.4.2.zip"},
+        )
+        gl.http_get.return_value = MagicMock(content=b"PK\x03\x04pkgbytes")
+
+        with _patched_gitlab(module):
+            gitlab_client.download_latest_package_file(
+                "https://gitlab.com", "group/proj", "tok",
+                package_name="suzuki-slp1-radar-firmware",
+            )
+
+        self.assertEqual(gl.auth.call_count, 1)
+        self.assertEqual(gl.projects.get.call_count, 1)
+        self.assertEqual(proj.packages.list.call_count, 1)
+
+    def test_download_package_version_authenticates_only_once(self):
+        # Same regression coverage as the "latest" variant above, for
+        # download_package_version().
+        module, gl = _fake_gitlab_module()
+        proj = self._setup_project(
+            gl,
+            versions=[
+                {"package_id": 1, "version": "1.4.1", "created_at": "2026-08-20T09:00:00Z"},
+            ],
+            files_by_package_id={1: "suzuki-slp1-radar-firmware-1.4.1.zip"},
+        )
+        gl.http_get.return_value = MagicMock(content=b"PK older bytes")
+
+        with _patched_gitlab(module):
+            gitlab_client.download_package_version(
+                "https://gitlab.com", "group/proj", "tok",
+                package_name="suzuki-slp1-radar-firmware", version="1.4.1",
+            )
+
+        self.assertEqual(gl.auth.call_count, 1)
+        self.assertEqual(gl.projects.get.call_count, 1)
+        self.assertEqual(proj.packages.list.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
