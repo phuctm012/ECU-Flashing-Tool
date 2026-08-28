@@ -22,6 +22,7 @@
 # ==================================================
 
 import os
+import tempfile
 import zipfile
 
 from PySide6.QtCore import QObject, QSettings, QThread, Signal, Qt
@@ -33,6 +34,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QTabWidget,
     QTableWidget,
@@ -176,6 +179,10 @@ class GitLabFetchDialog(QDialog):
         self.tabs.addTab(self._build_package_tab(), "Package Registry")
         layout.addWidget(self.tabs)
 
+        self.pickerPanel = self._build_picker_panel()
+        self.pickerPanel.setVisible(False)
+        layout.addWidget(self.pickerPanel)
+
         self.statusLabel = QLabel("")
         self.statusLabel.setWordWrap(True)
         layout.addWidget(self.statusLabel)
@@ -279,6 +286,32 @@ class GitLabFetchDialog(QDialog):
         layout.addStretch(1)
         return page
 
+    def _build_picker_panel(self):
+
+        panel = QWidget(self)
+        layout = QVBoxLayout(panel)
+
+        layout.addWidget(QLabel("Select the firmware file:"))
+
+        self.pickerList = QListWidget(panel)
+        layout.addWidget(self.pickerList)
+
+        row = QHBoxLayout()
+        self.pickerLoadButton = QPushButton("Load Selected File", panel)
+        self.pickerLoadButton.clicked.connect(self._on_load_selected_file)
+        row.addWidget(self.pickerLoadButton)
+
+        self.pickerBackButton = QPushButton("Back", panel)
+        self.pickerBackButton.clicked.connect(self._show_tabs)
+        row.addWidget(self.pickerBackButton)
+        layout.addLayout(row)
+
+        return panel
+
+    def _show_tabs(self):
+        self.pickerPanel.setVisible(False)
+        self.tabs.setVisible(True)
+
     # ==================================================
     # Settings persistence
     # ==================================================
@@ -355,11 +388,63 @@ class GitLabFetchDialog(QDialog):
         )
 
     def _on_download_ready(self, data, suggested_filename):
-        # Zip extraction + file picker is added in Task 6 — for now
-        # just confirm the bytes arrived.
-        self.statusLabel.setText(
-            f"Downloaded {suggested_filename} ({len(data)} bytes)."
-        )
+
+        self._download_dir = tempfile.mkdtemp(prefix="sflash_gitlab_")
+        archive_path = os.path.join(self._download_dir, suggested_filename)
+
+        with open(archive_path, "wb") as f:
+            f.write(data)
+
+        if not zipfile.is_zipfile(archive_path):
+            # Not a zip (current known sources always are, but don't
+            # crash if that ever changes) — load it directly.
+            self._load_and_close(archive_path)
+            return
+
+        extract_dir = os.path.join(self._download_dir, "extracted")
+        with zipfile.ZipFile(archive_path) as zf:
+            zf.extractall(extract_dir)
+            names = zf.namelist()
+
+        self._show_picker(extract_dir, names)
+
+    def _show_picker(self, extract_dir, names):
+
+        self.tabs.setVisible(False)
+        self.pickerPanel.setVisible(True)
+        self.pickerList.clear()
+
+        preselect_row = 0
+        for i, name in enumerate(names):
+            item = QListWidgetItem(name)
+            item.setData(Qt.UserRole, os.path.join(extract_dir, name))
+            self.pickerList.addItem(item)
+            if any(name.lower().endswith(ext) for ext in RECOGNIZED_FIRMWARE_EXTENSIONS):
+                preselect_row = i
+
+        if self.pickerList.count() > 0:
+            self.pickerList.setCurrentRow(preselect_row)
+
+    def _on_load_selected_file(self):
+
+        item = self.pickerList.currentItem()
+        if item is None:
+            return
+
+        self._load_and_close(item.data(Qt.UserRole))
+
+    def _load_and_close(self, path):
+
+        if self._main_window._load_firmware_file(path):
+            if self._main_window._loaded_datablocks:
+                self._main_window._update_details_table(
+                    self._main_window._loaded_datablocks[-1]
+                )
+            self._main_window.log_information(
+                f"Loaded firmware from GitLab: {os.path.basename(path)}"
+            )
+
+        self.close()
 
     # ==================================================
     # Package Registry tab actions

@@ -2412,5 +2412,108 @@ class TestGitLabFetchDialogPackageTab(unittest.TestCase):
         self.assertTrue(dialog.pkgBrowseTable.isVisible())
 
 
+class TestGitLabFetchDialogZipPicker(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        from gui.gitlab_dialog import GitLabFetchDialog
+        self.dialog = GitLabFetchDialog(self.window)
+
+    def _make_zip_bytes(self, names_and_contents):
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, content in names_and_contents:
+                zf.writestr(name, content)
+        return buf.getvalue()
+
+    def test_download_ready_switches_to_picker_and_lists_files(self):
+        self.dialog.show()
+        self.app.processEvents()
+        data = self._make_zip_bytes([
+            ("firmware/RAD_SUZ05_FFI_ForCanFlashing.s3", "S1..."),
+            ("firmware/checksum.sha256", "abc123"),
+        ])
+        self.dialog._on_download_ready(data, "build_firmware-4821.zip")
+        self.app.processEvents()
+
+        self.assertEqual(self.dialog.tabs.isVisible(), False)
+        self.assertEqual(self.dialog.pickerList.count(), 2)
+
+    def test_recognized_firmware_file_is_preselected(self):
+        self.dialog.show()
+        self.app.processEvents()
+        data = self._make_zip_bytes([
+            ("build/manifest.json", "{}"),
+            ("firmware/RAD_SUZ05_FFI_ForCanFlashing.s3", "S1..."),
+        ])
+        self.dialog._on_download_ready(data, "build_firmware-4821.zip")
+        self.app.processEvents()
+
+        selected = self.dialog.pickerList.selectedItems()
+        self.assertEqual(len(selected), 1)
+        self.assertTrue(
+            selected[0].text().endswith("RAD_SUZ05_FFI_ForCanFlashing.s3")
+        )
+
+    def test_load_selected_file_calls_existing_load_pipeline(self):
+        self.dialog.show()
+        self.app.processEvents()
+        data = self._make_zip_bytes([
+            ("firmware/RAD_SUZ05_FFI_ForCanFlashing.s3", "S1130000100055555555555555555555555\n"),
+        ])
+        self.dialog._on_download_ready(data, "build_firmware-4821.zip")
+        self.app.processEvents()
+
+        with unittest.mock.patch.object(
+            self.window, '_load_firmware_file', return_value=True
+        ) as mock_load:
+            self.dialog.pickerLoadButton.click()
+
+        mock_load.assert_called_once()
+        loaded_path = mock_load.call_args[0][0]
+        self.assertTrue(loaded_path.endswith("RAD_SUZ05_FFI_ForCanFlashing.s3"))
+
+    def test_load_selected_file_closes_dialog(self):
+        self.dialog.show()
+        self.app.processEvents()
+        data = self._make_zip_bytes([
+            ("firmware/RAD_SUZ05_FFI_ForCanFlashing.s3", "S1..."),
+        ])
+        self.dialog._on_download_ready(data, "build_firmware-4821.zip")
+        self.app.processEvents()
+
+        with unittest.mock.patch.object(
+            self.window, '_load_firmware_file', return_value=True
+        ):
+            self.dialog.pickerLoadButton.click()
+
+        self.assertFalse(self.dialog.isVisible())
+
+    def test_non_zip_download_loads_directly_without_picker(self):
+        with unittest.mock.patch.object(
+            self.window, '_load_firmware_file', return_value=True
+        ) as mock_load:
+            self.dialog._on_download_ready(b"not a zip file at all", "firmware.hex")
+
+        mock_load.assert_called_once()
+        self.assertTrue(mock_load.call_args[0][0].endswith("firmware.hex"))
+
+    def test_back_button_returns_to_tabs(self):
+        self.dialog.show()
+        self.app.processEvents()
+        data = self._make_zip_bytes([
+            ("firmware/RAD_SUZ05_FFI_ForCanFlashing.s3", "S1..."),
+        ])
+        self.dialog._on_download_ready(data, "build_firmware-4821.zip")
+        self.app.processEvents()
+        self.dialog.pickerBackButton.click()
+        self.app.processEvents()
+
+        self.assertTrue(self.dialog.tabs.isVisible())
+
+
 if __name__ == "__main__":
     unittest.main()
