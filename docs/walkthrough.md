@@ -1817,3 +1817,18 @@ User hỏi field Branch/ref và Job name sau khi fetch có hiển thị dạng c
 
 - Test mới (`tests/test_gui_smoke.py`, `TestGitLabFetchDialogConnectionCard`): combo điền đúng danh sách job name duy nhất sau khi Browse (không lặp lại tên đã thấy); chữ đang gõ dở không bị ghi đè khi Browse điền danh sách mới; giá trị chọn/gõ vẫn persist đúng qua `QSettings` giữa các lần mở dialog.
 - Full test suite: 357 test (354 cũ + 3 mới) pass.
+
+### Phase 4.81: Tách Field "Project" Riêng Cho CI Artifact Và Package Registry
+
+User cho biết CI Artifact và Package Registry trong thực tế nằm ở **2 project/repo GitLab khác nhau** — không phải 1 project chung như thiết kế ban đầu (đã duyệt lúc brainstorm, xem Phase 4.78 §2 "1 project cố định"). Xác nhận lại: URL instance và Access Token vẫn dùng chung được (cùng server, cùng token đủ quyền cả 2 project), chỉ riêng "Project" là khác nhau giữa 2 tab. User duyệt hướng: bỏ field Project ra khỏi Connection card, mỗi tab tự có field Project riêng.
+
+### Thay đổi
+
+- **`gui/gitlab_dialog.py`**: Connection card (`_build_connection_card()`) giờ chỉ còn Instance URL + Access Token — bỏ hẳn field `projectEdit` chung. Tab CI Artifact thêm field `ciProjectEdit` (phía trên Branch/ref), tab Package Registry thêm field `pkgProjectEdit` (phía trên Package name), mỗi field có placeholder riêng gợi ý (`group/ci-project` / `group/firmware-packages`). `_run_action()` tự chọn đúng project theo action đang chạy — hằng số `_CI_ACTIONS` (module-level) liệt kê 3 action thuộc CI (`list_jobs`, `fetch_latest_artifact`, `download_job_artifact`), còn lại (`list_packages`, `fetch_latest_package`, `download_package_version`) dùng `pkgProjectEdit`. `QSettings`: `gitlab/project` (1 key chung cũ) tách thành `gitlab/ciProject` và `gitlab/packageProject`, lưu/nhớ độc lập.
+
+### Đã kiểm tra
+
+- Cập nhật lại các test cũ từng set `dialog.projectEdit` sang đúng field mới (`ciProjectEdit` cho luồng CI, `pkgProjectEdit` cho luồng Package) ở cả `tests/test_gui_smoke.py` và `tests/test_gitlab_dialog_threading.py`.
+- Test mới (`TestGitLabFetchDialogConnectionCard.test_ci_and_package_project_persist_independently`): xác nhận 2 project lưu/khôi phục độc lập, không đè lên nhau.
+- Verify thật bằng script headless: mở dialog, set `ciProjectEdit`/`pkgProjectEdit` khác nhau, mở dialog mới xác nhận cả 2 giá trị đúng và độc lập; xác nhận `projectEdit` (field cũ) không còn tồn tại trên dialog nữa.
+- Full test suite: 358 test (357 cũ + 1 mới) pass.

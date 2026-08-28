@@ -2313,11 +2313,13 @@ class TestLogSaving(unittest.TestCase):
 
 class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
     """
-    Covers GitLabFetchDialog's Connection card (URL/project/token
-    fields) and its own QSettings persistence — separate from
-    gui/settings_profile.py, since this dialog only exists while
-    open (see docs/superpowers/specs/2026-08-27-gitlab-firmware-
-    fetch-design.md, section 4).
+    Covers GitLabFetchDialog's Connection card (URL/token fields —
+    Project lives on each tab instead, since CI Artifact and Package
+    Registry commonly live in two different GitLab projects) and its
+    own QSettings persistence — separate from gui/settings_profile.py,
+    since this dialog only exists while open (see
+    docs/superpowers/specs/2026-08-27-gitlab-firmware-fetch-design.md,
+    section 4).
     """
 
     def setUp(self):
@@ -2328,8 +2330,9 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
         from gui.gitlab_dialog import GitLabFetchDialog
         dialog = GitLabFetchDialog(self.window)
         self.assertEqual(dialog.urlEdit.text(), "https://gitlab.com")
-        self.assertEqual(dialog.projectEdit.text(), "")
         self.assertEqual(dialog.tokenEdit.text(), "")
+        self.assertEqual(dialog.ciProjectEdit.text(), "")
+        self.assertEqual(dialog.pkgProjectEdit.text(), "")
         self.assertEqual(
             dialog.tokenEdit.echoMode(), dialog.tokenEdit.EchoMode.Password
         )
@@ -2339,14 +2342,29 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
 
         dialog1 = GitLabFetchDialog(self.window)
         dialog1.urlEdit.setText("https://gitlab.example.com")
-        dialog1.projectEdit.setText("radar-team/suzuki-slp1-firmware")
         dialog1.tokenEdit.setText("glpat-abc123")
         dialog1.urlEdit.textEdited.emit(dialog1.urlEdit.text())
 
         dialog2 = GitLabFetchDialog(self.window)
         self.assertEqual(dialog2.urlEdit.text(), "https://gitlab.example.com")
-        self.assertEqual(dialog2.projectEdit.text(), "radar-team/suzuki-slp1-firmware")
         self.assertEqual(dialog2.tokenEdit.text(), "glpat-abc123")
+
+    def test_ci_and_package_project_persist_independently(self):
+        # Regression test: CI Artifact and Package Registry commonly
+        # live in two different GitLab projects, so their Project
+        # fields must be saved/restored independently, not share one
+        # setting.
+        from gui.gitlab_dialog import GitLabFetchDialog
+
+        dialog1 = GitLabFetchDialog(self.window)
+        dialog1.ciProjectEdit.setText("radar-team/ci-firmware")
+        dialog1.ciProjectEdit.textEdited.emit(dialog1.ciProjectEdit.text())
+        dialog1.pkgProjectEdit.setText("radar-team/firmware-packages")
+        dialog1.pkgProjectEdit.textEdited.emit(dialog1.pkgProjectEdit.text())
+
+        dialog2 = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog2.ciProjectEdit.text(), "radar-team/ci-firmware")
+        self.assertEqual(dialog2.pkgProjectEdit.text(), "radar-team/firmware-packages")
 
     def test_ci_tab_is_selected_by_default(self):
         from gui.gitlab_dialog import GitLabFetchDialog

@@ -54,7 +54,7 @@ class TestFetchLatestArtifactRealThread(unittest.TestCase):
         self.window = MainWindow()
         self.dialog = GitLabFetchDialog(self.window)
         self.dialog.urlEdit.setText("https://gitlab.com")
-        self.dialog.projectEdit.setText("group/proj")
+        self.dialog.ciProjectEdit.setText("group/proj")
         self.dialog.tokenEdit.setText("tok")
         self.dialog.ciRefEdit.setText("main")
         self.dialog.ciJobEdit.setEditText("build_firmware")
@@ -143,7 +143,7 @@ class TestCiRowDownloadButtonRealThread(unittest.TestCase):
         self.window = MainWindow()
         self.dialog = GitLabFetchDialog(self.window)
         self.dialog.urlEdit.setText("https://gitlab.com")
-        self.dialog.projectEdit.setText("group/proj")
+        self.dialog.ciProjectEdit.setText("group/proj")
         self.dialog.tokenEdit.setText("tok")
         self.dialog._populate_ci_browse_table([
             {
@@ -183,7 +183,7 @@ class TestPkgRowDownloadButtonRealThread(unittest.TestCase):
         self.window = MainWindow()
         self.dialog = GitLabFetchDialog(self.window)
         self.dialog.urlEdit.setText("https://gitlab.com")
-        self.dialog.projectEdit.setText("group/proj")
+        self.dialog.pkgProjectEdit.setText("group/proj")
         self.dialog.tokenEdit.setText("tok")
         self.dialog.packageNameEdit.setText("suzuki-slp1-radar-firmware")
         # Simulates what _toggle_pkg_browse() would have stashed
@@ -222,7 +222,7 @@ class TestFetchLatestPackageRealThread(unittest.TestCase):
         self.window = MainWindow()
         self.dialog = GitLabFetchDialog(self.window)
         self.dialog.urlEdit.setText("https://gitlab.com")
-        self.dialog.projectEdit.setText("group/proj")
+        self.dialog.pkgProjectEdit.setText("group/proj")
         self.dialog.tokenEdit.setText("tok")
         self.dialog.packageNameEdit.setText("suzuki-slp1-radar-firmware")
 

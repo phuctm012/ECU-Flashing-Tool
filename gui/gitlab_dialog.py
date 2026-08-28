@@ -50,6 +50,11 @@ from communication import gitlab_client
 from config.settings import APP_AUTHOR, APP_NAME
 from parsers.auto_parser import FIRMWARE_EXTENSIONS as RECOGNIZED_FIRMWARE_EXTENSIONS
 
+# Which GitLabFetchWorker actions belong to the CI Artifact tab (use
+# ciProjectEdit) vs the Package Registry tab (use pkgProjectEdit) —
+# see _run_action()'s project selection.
+_CI_ACTIONS = {"list_jobs", "fetch_latest_artifact", "download_job_artifact"}
+
 
 class GitLabFetchWorker(QObject):
     """
@@ -207,17 +212,11 @@ class GitLabFetchDialog(QDialog):
         self.urlEdit.textEdited.connect(self._save_settings)
         grid.addWidget(self.urlEdit, 0, 1)
 
-        grid.addWidget(QLabel("Project"), 1, 0)
-        self.projectEdit = QLineEdit(box)
-        self.projectEdit.setPlaceholderText("group/firmware-repo")
-        self.projectEdit.textEdited.connect(self._save_settings)
-        grid.addWidget(self.projectEdit, 1, 1)
-
-        grid.addWidget(QLabel("Access Token"), 2, 0)
+        grid.addWidget(QLabel("Access Token"), 1, 0)
         self.tokenEdit = QLineEdit(box)
         self.tokenEdit.setEchoMode(QLineEdit.EchoMode.Password)
         self.tokenEdit.textEdited.connect(self._save_settings)
-        grid.addWidget(self.tokenEdit, 2, 1)
+        grid.addWidget(self.tokenEdit, 1, 1)
 
         return box
 
@@ -227,12 +226,18 @@ class GitLabFetchDialog(QDialog):
         layout = QVBoxLayout(page)
 
         grid = QGridLayout()
-        grid.addWidget(QLabel("Branch / ref"), 0, 0)
+        grid.addWidget(QLabel("Project"), 0, 0)
+        self.ciProjectEdit = QLineEdit(page)
+        self.ciProjectEdit.setPlaceholderText("group/ci-project")
+        self.ciProjectEdit.textEdited.connect(self._save_settings)
+        grid.addWidget(self.ciProjectEdit, 0, 1)
+
+        grid.addWidget(QLabel("Branch / ref"), 1, 0)
         self.ciRefEdit = QLineEdit(page)
         self.ciRefEdit.textEdited.connect(self._save_settings)
-        grid.addWidget(self.ciRefEdit, 0, 1)
+        grid.addWidget(self.ciRefEdit, 1, 1)
 
-        grid.addWidget(QLabel("Job name"), 1, 0)
+        grid.addWidget(QLabel("Job name"), 2, 0)
         self.ciJobEdit = QComboBox(page)
         self.ciJobEdit.setEditable(True)
         # Not populated until "Browse recent jobs..." has run at
@@ -240,7 +245,7 @@ class GitLabFetchDialog(QDialog):
         # name that's never been browsed still works, this is only
         # a convenience shortcut once real names are known.
         self.ciJobEdit.currentTextChanged.connect(self._save_settings)
-        grid.addWidget(self.ciJobEdit, 1, 1)
+        grid.addWidget(self.ciJobEdit, 2, 1)
         layout.addLayout(grid)
 
         fetch_row = QHBoxLayout()
@@ -271,10 +276,16 @@ class GitLabFetchDialog(QDialog):
         layout = QVBoxLayout(page)
 
         grid = QGridLayout()
-        grid.addWidget(QLabel("Package name"), 0, 0)
+        grid.addWidget(QLabel("Project"), 0, 0)
+        self.pkgProjectEdit = QLineEdit(page)
+        self.pkgProjectEdit.setPlaceholderText("group/firmware-packages")
+        self.pkgProjectEdit.textEdited.connect(self._save_settings)
+        grid.addWidget(self.pkgProjectEdit, 0, 1)
+
+        grid.addWidget(QLabel("Package name"), 1, 0)
         self.packageNameEdit = QLineEdit(page)
         self.packageNameEdit.textEdited.connect(self._save_settings)
-        grid.addWidget(self.packageNameEdit, 0, 1)
+        grid.addWidget(self.packageNameEdit, 1, 1)
         layout.addLayout(grid)
 
         fetch_row = QHBoxLayout()
@@ -333,20 +344,22 @@ class GitLabFetchDialog(QDialog):
 
         s = self._settings
         self.urlEdit.setText(s.value("gitlab/instanceUrl", "https://gitlab.com", type=str))
-        self.projectEdit.setText(s.value("gitlab/project", "", type=str))
         self.tokenEdit.setText(s.value("gitlab/token", "", type=str))
+        self.ciProjectEdit.setText(s.value("gitlab/ciProject", "", type=str))
         self.ciRefEdit.setText(s.value("gitlab/ciRef", "main", type=str))
         self.ciJobEdit.setEditText(s.value("gitlab/ciJobName", "", type=str))
+        self.pkgProjectEdit.setText(s.value("gitlab/packageProject", "", type=str))
         self.packageNameEdit.setText(s.value("gitlab/packageName", "", type=str))
 
     def _save_settings(self, _text=None):
 
         s = self._settings
         s.setValue("gitlab/instanceUrl", self.urlEdit.text())
-        s.setValue("gitlab/project", self.projectEdit.text())
         s.setValue("gitlab/token", self.tokenEdit.text())
+        s.setValue("gitlab/ciProject", self.ciProjectEdit.text())
         s.setValue("gitlab/ciRef", self.ciRefEdit.text())
         s.setValue("gitlab/ciJobName", self.ciJobEdit.currentText())
+        s.setValue("gitlab/packageProject", self.pkgProjectEdit.text())
         s.setValue("gitlab/packageName", self.packageNameEdit.text())
         s.sync()
 
@@ -617,10 +630,22 @@ class GitLabFetchDialog(QDialog):
         self.ciBrowseToggle.setEnabled(False)
         self.pkgBrowseToggle.setEnabled(False)
 
+        # CI Artifact and Package Registry commonly live in two
+        # different GitLab projects (e.g. one repo builds firmware
+        # via CI, a separate one hosts the published packages) — the
+        # Connection card only holds what both genuinely share
+        # (Instance URL, Access Token); each tab has its own Project
+        # field instead of one shared one.
+        project = (
+            self.ciProjectEdit.text()
+            if action in _CI_ACTIONS
+            else self.pkgProjectEdit.text()
+        )
+
         self._thread = QThread()
         self._worker = GitLabFetchWorker(
             action,
-            self.urlEdit.text(), self.projectEdit.text(), self.tokenEdit.text(),
+            self.urlEdit.text(), project, self.tokenEdit.text(),
             **params,
         )
         self._worker.moveToThread(self._thread)
