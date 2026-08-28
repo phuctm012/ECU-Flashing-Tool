@@ -1868,6 +1868,14 @@ class TestGitLabFetchDialogPackageTab(unittest.TestCase):
     def test_package_browse_table_starts_hidden(self):
         from gui.gitlab_dialog import GitLabFetchDialog
         dialog = GitLabFetchDialog(self.window)
+        # dialog.show() + processEvents() are required here: Qt's
+        # isVisible() on a child widget is always False while the
+        # top-level ancestor has never been shown, on any platform
+        # (not offscreen-specific) — Task 4's identical
+        # test_ci_browse_table_starts_hidden shipped without this
+        # and had to go through a fix round for exactly this reason.
+        dialog.show()
+        self.app.processEvents()
         self.assertFalse(dialog.pkgBrowseTable.isVisible())
         # Same reasoning as test_ci_browse_table_starts_hidden above
         # — _run_action() starts a real QThread this test can't wait
