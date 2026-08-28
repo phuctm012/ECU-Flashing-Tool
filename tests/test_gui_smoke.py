@@ -2372,5 +2372,45 @@ class TestGitLabEntryPointWidgets(unittest.TestCase):
         self.assertTrue(self.window.ui.buttonLoadFromGitLab.isEnabled())
 
 
+class TestGitLabFetchDialogPackageTab(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_package_name_persists_across_dialog_instances(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+
+        dialog1 = GitLabFetchDialog(self.window)
+        dialog1.packageNameEdit.setText("suzuki-slp1-radar-firmware")
+        dialog1.packageNameEdit.textEdited.emit(dialog1.packageNameEdit.text())
+
+        dialog2 = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog2.packageNameEdit.text(), "suzuki-slp1-radar-firmware")
+
+    def test_package_browse_table_starts_hidden(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        # dialog.show() + processEvents() are required here: Qt's
+        # isVisible() on a child widget is always False while the
+        # top-level ancestor has never been shown, on any platform
+        # (not offscreen-specific) — Task 4's identical
+        # test_ci_browse_table_starts_hidden shipped without this
+        # and had to go through a fix round for exactly this reason.
+        dialog.show()
+        self.app.processEvents()
+        # Package table is on Tab 1, so switch to it to test visibility
+        dialog.tabs.setCurrentIndex(1)
+        self.app.processEvents()
+        self.assertFalse(dialog.pkgBrowseTable.isVisible())
+        # Same reasoning as test_ci_browse_table_starts_hidden above
+        # — _run_action() starts a real QThread this test can't wait
+        # for, so it's mocked out; the real fetch path is covered by
+        # tests/test_gitlab_dialog_threading.py.
+        with unittest.mock.patch.object(dialog, '_run_action'):
+            dialog.pkgBrowseToggle.click()
+        self.assertTrue(dialog.pkgBrowseTable.isVisible())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -248,10 +248,35 @@ class GitLabFetchDialog(QDialog):
         return page
 
     def _build_package_tab(self):
-        # Filled in by Task 5 — placeholder page so the tab exists
-        # and index 1 is reachable; Task 5 replaces this body.
+
         page = QWidget(self)
-        QVBoxLayout(page)
+        layout = QVBoxLayout(page)
+
+        grid = QGridLayout()
+        grid.addWidget(QLabel("Package name"), 0, 0)
+        self.packageNameEdit = QLineEdit(page)
+        self.packageNameEdit.textEdited.connect(self._save_settings)
+        grid.addWidget(self.packageNameEdit, 0, 1)
+        layout.addLayout(grid)
+
+        fetch_row = QHBoxLayout()
+        self.pkgFetchButton = QPushButton("Fetch Latest Version", page)
+        self.pkgFetchButton.clicked.connect(self._on_fetch_latest_package)
+        fetch_row.addWidget(self.pkgFetchButton)
+
+        self.pkgBrowseToggle = QPushButton("Browse versions...", page)
+        self.pkgBrowseToggle.clicked.connect(self._toggle_pkg_browse)
+        fetch_row.addWidget(self.pkgBrowseToggle)
+        layout.addLayout(fetch_row)
+
+        self.pkgBrowseTable = QTableWidget(0, 2, page)
+        self.pkgBrowseTable.setHorizontalHeaderLabels(["Version", "Uploaded"])
+        self.pkgBrowseTable.horizontalHeader().setStretchLastSection(True)
+        self.pkgBrowseTable.setVisible(False)
+        self.pkgBrowseTable.cellDoubleClicked.connect(self._on_pkg_row_activated)
+        layout.addWidget(self.pkgBrowseTable)
+
+        layout.addStretch(1)
         return page
 
     # ==================================================
@@ -266,6 +291,7 @@ class GitLabFetchDialog(QDialog):
         self.tokenEdit.setText(s.value("gitlab/token", "", type=str))
         self.ciRefEdit.setText(s.value("gitlab/ciRef", "main", type=str))
         self.ciJobEdit.setText(s.value("gitlab/ciJobName", "", type=str))
+        self.packageNameEdit.setText(s.value("gitlab/packageName", "", type=str))
 
     def _save_settings(self, _text=None):
 
@@ -275,6 +301,7 @@ class GitLabFetchDialog(QDialog):
         s.setValue("gitlab/token", self.tokenEdit.text())
         s.setValue("gitlab/ciRef", self.ciRefEdit.text())
         s.setValue("gitlab/ciJobName", self.ciJobEdit.text())
+        s.setValue("gitlab/packageName", self.packageNameEdit.text())
         s.sync()
 
     # ==================================================
@@ -335,6 +362,47 @@ class GitLabFetchDialog(QDialog):
         )
 
     # ==================================================
+    # Package Registry tab actions
+    # ==================================================
+
+    def _toggle_pkg_browse(self):
+
+        opening = not self.pkgBrowseTable.isVisible()
+        self.pkgBrowseTable.setVisible(opening)
+
+        if opening:
+            self._run_action(
+                "list_packages", {"package_name": self.packageNameEdit.text()},
+                on_list=self._populate_pkg_browse_table,
+            )
+
+    def _populate_pkg_browse_table(self, versions):
+
+        self.pkgBrowseTable.setRowCount(len(versions))
+
+        for row, version in enumerate(versions):
+            self.pkgBrowseTable.setItem(row, 0, QTableWidgetItem(version["version"]))
+            self.pkgBrowseTable.setItem(row, 1, QTableWidgetItem(version["created_at"]))
+            self.pkgBrowseTable.item(row, 0).setData(Qt.UserRole, version)
+
+    def _on_pkg_row_activated(self, row, _col):
+
+        version = self.pkgBrowseTable.item(row, 0).data(Qt.UserRole)
+
+        self._run_action(
+            "download_package_version",
+            {"package_name": self.packageNameEdit.text(), "version": version["version"]},
+            on_download=self._on_download_ready,
+        )
+
+    def _on_fetch_latest_package(self):
+
+        self._run_action(
+            "fetch_latest_package", {"package_name": self.packageNameEdit.text()},
+            on_download=self._on_download_ready,
+        )
+
+    # ==================================================
     # Threading helper (shared by every action)
     # ==================================================
 
@@ -352,6 +420,7 @@ class GitLabFetchDialog(QDialog):
 
         self.statusLabel.setText("")
         self.ciFetchButton.setEnabled(False)
+        self.pkgFetchButton.setEnabled(False)
 
         self._thread = QThread()
         self._worker = GitLabFetchWorker(
@@ -387,6 +456,7 @@ class GitLabFetchDialog(QDialog):
         self._thread = None
         self._worker = None
         self.ciFetchButton.setEnabled(True)
+        self.pkgFetchButton.setEnabled(True)
 
     def closeEvent(self, event):
 

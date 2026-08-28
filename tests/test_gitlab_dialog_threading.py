@@ -94,5 +94,28 @@ class TestFetchLatestArtifactRealThread(unittest.TestCase):
             self.app.processEvents()
 
 
+class TestFetchLatestPackageRealThread(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.dialog = GitLabFetchDialog(self.window)
+        self.dialog.urlEdit.setText("https://gitlab.com")
+        self.dialog.projectEdit.setText("group/proj")
+        self.dialog.tokenEdit.setText("tok")
+        self.dialog.packageNameEdit.setText("suzuki-slp1-radar-firmware")
+
+    def test_fetch_latest_package_runs_and_cleans_up_thread(self):
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_package_file",
+            return_value=b"PK\x03\x04fakezip",
+        ):
+            self.dialog.pkgFetchButton.click()
+            self.assertIsNotNone(self.dialog._thread)
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        self.assertIsNone(self.dialog._thread)
+
+
 if __name__ == "__main__":
     unittest.main()
