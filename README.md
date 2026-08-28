@@ -195,6 +195,15 @@ Nếu bỏ qua bước này, kết nối từ tool sẽ báo lỗi kiểu *"no c
 4. Tester Serial Number ghi vào ECU khi flash (chỉ sequence **Suzuki**, bước "Write Tester Info", DID `0xF198`): tab **Configure → Miscellaneous** → mục **"Fingerprint"** → gõ hex trực tiếp vào **"Tester Serial Number"** (tối đa 20 ký tự hex = 10 byte, mặc định `00112233445566778899`, chữ thường tự động chuyển thành chữ hoa). Sequence **Generic** không dùng field này.
 5. Nạp file firmware và nhấn **Flash** như trên. Khuyến nghị chạy `test-connection` trước (xem mục [Command Line Interface](#command-line-interface-clipy)) để xác nhận đấu dây/channel/security đúng trước khi flash thật.
 
+### Nạp Firmware Từ GitLab (CI Artifact / Package Registry)
+
+Ngoài chọn file firmware trên máy, app hỗ trợ nạp trực tiếp từ GitLab — lấy về job artifact mới nhất của 1 pipeline CI, hoặc 1 phiên bản trong Package Registry (Generic packages) của project.
+
+- **Kích hoạt**: mặc định tính năng này **tắt** — cần `pip install python-gitlab` rồi bỏ comment dòng `python-gitlab` trong `requirements.txt` (hoặc `requirements_build.txt` nếu muốn có luôn trong bản build `.exe`). Không cài thì phần còn lại của app không đổi hành vi gì.
+- **Vị trí**: menu **File → Load from GitLab...**, hoặc nút **"Load from GitLab..."** trên tab **Configure → Data** (ngay dưới bảng Details).
+- **Cách dùng**: điền Instance URL/Project/Access Token (lưu riêng, không dùng chung Profile của app), chọn tab **CI Artifact** (nhập ref + tên job, hoặc bấm "Browse recent jobs..." để chọn từ danh sách) hoặc tab **Package Registry** (nhập tên package, hoặc "Browse versions..."), bấm Fetch. Nếu file tải về là `.zip`, app tự giải nén và cho chọn đúng file firmware bên trong (tự chọn sẵn file khớp đuôi `.hex`/`.s19`/`.bin` nếu tìm thấy); xác nhận xong file được nạp vào app **y hệt** như chọn file local — qua bảng Details, Recent Files bình thường.
+- **Chỉ đọc (read-only)**: tính năng này **chỉ fetch** — không bao giờ publish, upload, hay trigger pipeline nào trên GitLab.
+
 ### Lưu ý về đánh số channel (`--channel N`)
 
 **GUI**: combo Hardware tự phát hiện serial number của thiết bị Vector và dùng nó để chọn đúng channel vật lý — **không cần** cấu hình bước B (Vector Hardware Config) nếu python-can hỗ trợ tham số `serial` (phiên bản 4.x trở lên). Nếu python-can không hỗ trợ `serial`, app tự động fallback về dùng `app_name`/`xlGetApplConfig` — khi đó bước B là bắt buộc.
