@@ -2334,6 +2334,8 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
     def test_ci_browse_table_starts_hidden(self):
         from gui.gitlab_dialog import GitLabFetchDialog
         dialog = GitLabFetchDialog(self.window)
+        dialog.show()
+        self.app.processEvents()
         self.assertFalse(dialog.ciBrowseTable.isVisible())
         # _run_action() is mocked out here — expanding Browse also
         # starts a real fetch (a real QThread), which this test has
