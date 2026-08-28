@@ -2366,6 +2366,54 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
         self.assertEqual(dialog2.ciProjectEdit.text(), "radar-team/ci-firmware")
         self.assertEqual(dialog2.pkgProjectEdit.text(), "radar-team/firmware-packages")
 
+    def test_verify_tls_checkbox_checked_by_default(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        self.assertTrue(dialog.verifyTlsCheckbox.isChecked())
+
+    def test_verify_tls_checkbox_persists_across_dialog_instances(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+
+        dialog1 = GitLabFetchDialog(self.window)
+        dialog1.verifyTlsCheckbox.setChecked(False)
+
+        dialog2 = GitLabFetchDialog(self.window)
+        self.assertFalse(dialog2.verifyTlsCheckbox.isChecked())
+
+    def test_verify_tls_checkbox_is_passed_to_worker(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.verifyTlsCheckbox.setChecked(False)
+        dialog.ciProjectEdit.setText("group/proj")
+        dialog.tokenEdit.setText("tok")
+
+        with unittest.mock.patch(
+            "gui.gitlab_dialog.GitLabFetchWorker"
+        ) as MockWorker, unittest.mock.patch(
+            "gui.gitlab_dialog.QThread"
+        ):
+            dialog.ciFetchButton.click()
+
+        MockWorker.assert_called_once()
+        self.assertFalse(MockWorker.call_args.kwargs["ssl_verify"])
+
+    def test_token_permission_hint_is_shown(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        self.assertIn("read_api", dialog.tokenHint.text())
+        self.assertIn("read_registry", dialog.tokenHint.text())
+
+    def test_log_view_accumulates_messages_instead_of_overwriting(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+
+        dialog._append_log("Loaded 3 job(s).")
+        dialog._append_log("Downloading latest artifact...")
+
+        log_text = dialog.logView.toPlainText()
+        self.assertIn("Loaded 3 job(s).", log_text)
+        self.assertIn("Downloading latest artifact...", log_text)
+
     def test_ci_tab_is_selected_by_default(self):
         from gui.gitlab_dialog import GitLabFetchDialog
         dialog = GitLabFetchDialog(self.window)

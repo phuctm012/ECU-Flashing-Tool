@@ -28,6 +28,7 @@ import zipfile
 
 from PySide6.QtCore import QObject, QSettings, QThread, Signal, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -38,6 +39,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QPlainTextEdit,
     QPushButton,
     QTabWidget,
     QTableWidget,
@@ -71,12 +73,13 @@ class GitLabFetchWorker(QObject):
     error = Signal(str)
     finished = Signal()
 
-    def __init__(self, action, url, project, token, **params):
+    def __init__(self, action, url, project, token, ssl_verify=True, **params):
         super().__init__()
         self._action = action
         self._url = url
         self._project = project
         self._token = token
+        self._ssl_verify = ssl_verify
         self._params = params
 
     def run(self):
@@ -88,6 +91,7 @@ class GitLabFetchWorker(QObject):
                 jobs = gitlab_client.list_recent_jobs(
                     self._url, self._project, self._token,
                     job_name=self._params.get("job_name"),
+                    ssl_verify=self._ssl_verify,
                 )
                 self.list_ready.emit(jobs)
 
@@ -96,6 +100,7 @@ class GitLabFetchWorker(QObject):
                 data = gitlab_client.download_latest_artifact(
                     self._url, self._project, self._token,
                     ref=self._params["ref"], job_name=self._params["job_name"],
+                    ssl_verify=self._ssl_verify,
                 )
                 self.download_ready.emit(
                     data, f"{self._params['job_name']}-latest.zip"
@@ -106,6 +111,7 @@ class GitLabFetchWorker(QObject):
                 data = gitlab_client.download_job_artifact(
                     self._url, self._project, self._token,
                     job_id=self._params["job_id"],
+                    ssl_verify=self._ssl_verify,
                 )
                 self.download_ready.emit(data, f"job-{self._params['job_id']}.zip")
 
@@ -114,6 +120,7 @@ class GitLabFetchWorker(QObject):
                 versions = gitlab_client.list_package_versions(
                     self._url, self._project, self._token,
                     package_name=self._params["package_name"],
+                    ssl_verify=self._ssl_verify,
                 )
                 self.list_ready.emit(versions)
 
@@ -122,6 +129,7 @@ class GitLabFetchWorker(QObject):
                 data = gitlab_client.download_latest_package_file(
                     self._url, self._project, self._token,
                     package_name=self._params["package_name"],
+                    ssl_verify=self._ssl_verify,
                 )
                 self.download_ready.emit(
                     data, f"{self._params['package_name']}-latest.zip"
@@ -133,6 +141,7 @@ class GitLabFetchWorker(QObject):
                     self._url, self._project, self._token,
                     package_name=self._params["package_name"],
                     version=self._params["version"],
+                    ssl_verify=self._ssl_verify,
                 )
                 self.download_ready.emit(
                     data,
@@ -156,7 +165,7 @@ class GitLabFetchDialog(QDialog):
         super().__init__(parent)
 
         self.setWindowTitle("Load from GitLab")
-        self.resize(620, 460)
+        self.resize(620, 600)
 
         self._main_window = parent
         self._thread = None
@@ -198,9 +207,25 @@ class GitLabFetchDialog(QDialog):
         self.statusLabel.setWordWrap(True)
         layout.addWidget(self.statusLabel)
 
+        layout.addWidget(QLabel("GitLab log"))
+        self.logView = QPlainTextEdit(self)
+        self.logView.setReadOnly(True)
+        self.logView.setMaximumBlockCount(500)
+        self.logView.setMaximumHeight(120)
+        layout.addWidget(self.logView)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel, self)
         buttons.rejected.connect(self.close)
         layout.addWidget(buttons)
+
+    def _append_log(self, message):
+        # Keeps the full run history visible (statusLabel above only
+        # ever shows the single most-recent message, overwritten on
+        # every update) — same "never leave the user guessing what
+        # happened" philosophy as this app's other trace/log panels
+        # (Information tab, Trace tab).
+        if message:
+            self.logView.appendPlainText(message)
 
     def _build_connection_card(self):
 
@@ -217,6 +242,21 @@ class GitLabFetchDialog(QDialog):
         self.tokenEdit.setEchoMode(QLineEdit.EchoMode.Password)
         self.tokenEdit.textEdited.connect(self._save_settings)
         grid.addWidget(self.tokenEdit, 1, 1)
+
+        self.verifyTlsCheckbox = QCheckBox("Verify TLS certificate (recommended)", box)
+        self.verifyTlsCheckbox.setChecked(True)
+        self.verifyTlsCheckbox.toggled.connect(self._save_settings)
+        grid.addWidget(self.verifyTlsCheckbox, 2, 0, 1, 2)
+
+        self.tokenHint = QLabel(
+            "Required token permissions: read_api (branches/tags, pipelines, "
+            "jobs, artifacts); read_registry (Package Registry); "
+            "read_repository if required by project policy.",
+            box,
+        )
+        self.tokenHint.setWordWrap(True)
+        self.tokenHint.setStyleSheet("color: #808080; font-size: 11px;")
+        grid.addWidget(self.tokenHint, 3, 0, 1, 2)
 
         return box
 
@@ -345,6 +385,7 @@ class GitLabFetchDialog(QDialog):
         s = self._settings
         self.urlEdit.setText(s.value("gitlab/instanceUrl", "https://gitlab.com", type=str))
         self.tokenEdit.setText(s.value("gitlab/token", "", type=str))
+        self.verifyTlsCheckbox.setChecked(s.value("gitlab/verifyTls", True, type=bool))
         self.ciProjectEdit.setText(s.value("gitlab/ciProject", "", type=str))
         self.ciRefEdit.setText(s.value("gitlab/ciRef", "main", type=str))
         self.ciJobEdit.setEditText(s.value("gitlab/ciJobName", "", type=str))
@@ -356,6 +397,7 @@ class GitLabFetchDialog(QDialog):
         s = self._settings
         s.setValue("gitlab/instanceUrl", self.urlEdit.text())
         s.setValue("gitlab/token", self.tokenEdit.text())
+        s.setValue("gitlab/verifyTls", self.verifyTlsCheckbox.isChecked())
         s.setValue("gitlab/ciProject", self.ciProjectEdit.text())
         s.setValue("gitlab/ciRef", self.ciRefEdit.text())
         s.setValue("gitlab/ciJobName", self.ciJobEdit.currentText())
@@ -437,14 +479,16 @@ class GitLabFetchDialog(QDialog):
             )
             self.ciBrowseTable.setCellWidget(row, 5, button)
 
+        self._append_log(f"Loaded {len(jobs)} job(s).")
+
     def _on_ci_row_activated(self, row, _col):
 
         job = self.ciBrowseTable.item(row, 0).data(Qt.UserRole)
 
         if not job["has_artifacts"]:
-            self.statusLabel.setText(
-                f"Job #{job['job_id']} ({job['status']}) has no artifact to download."
-            )
+            message = f"Job #{job['job_id']} ({job['status']}) has no artifact to download."
+            self.statusLabel.setText(message)
+            self._append_log(message)
             return
 
         self._run_action(
@@ -475,6 +519,8 @@ class GitLabFetchDialog(QDialog):
 
         with open(archive_path, "wb") as f:
             f.write(data)
+
+        self._append_log(f"Downloaded {suggested_filename} ({len(data)} bytes).")
 
         if not zipfile.is_zipfile(archive_path):
             # Not a zip (current known sources always are, but don't
@@ -518,6 +564,7 @@ class GitLabFetchDialog(QDialog):
             self.pickerList.setCurrentRow(preselect_row if preselect_row is not None else 0)
         else:
             self.statusLabel.setText("Archive contains no files.")
+            self._append_log("Archive contains no files.")
 
     def _on_load_selected_file(self):
 
@@ -534,9 +581,9 @@ class GitLabFetchDialog(QDialog):
                 self._main_window._update_details_table(
                     self._main_window._loaded_datablocks[-1]
                 )
-            self._main_window.log_information(
-                f"Loaded firmware from GitLab: {os.path.basename(path)}"
-            )
+            message = f"Loaded firmware from GitLab: {os.path.basename(path)}"
+            self._main_window.log_information(message)
+            self._append_log(f"Selected flashing input: {path}")
 
         self.close()
 
@@ -585,6 +632,8 @@ class GitLabFetchDialog(QDialog):
             )
             self.pkgBrowseTable.setCellWidget(row, 2, button)
 
+        self._append_log(f"Loaded {len(versions)} version(s).")
+
     def _on_pkg_row_activated(self, row, _col):
 
         version = self.pkgBrowseTable.item(row, 0).data(Qt.UserRole)
@@ -622,6 +671,7 @@ class GitLabFetchDialog(QDialog):
             # ever hit some other way, say why nothing happened
             # instead of silently no-op'ing.
             self.statusLabel.setText("A fetch is already in progress. Please wait.")
+            self._append_log("A fetch is already in progress. Please wait.")
             return
 
         self.statusLabel.setText("")
@@ -646,18 +696,21 @@ class GitLabFetchDialog(QDialog):
         self._worker = GitLabFetchWorker(
             action,
             self.urlEdit.text(), project, self.tokenEdit.text(),
+            ssl_verify=self.verifyTlsCheckbox.isChecked(),
             **params,
         )
         self._worker.moveToThread(self._thread)
 
         self._thread.started.connect(self._worker.run)
         self._worker.progress_message.connect(self.statusLabel.setText)
+        self._worker.progress_message.connect(self._append_log)
 
         if on_list is not None:
             self._worker.list_ready.connect(on_list)
         if on_download is not None:
             self._worker.download_ready.connect(on_download)
         self._worker.error.connect(self.statusLabel.setText)
+        self._worker.error.connect(self._append_log)
 
         self._worker.finished.connect(self._thread.quit)
         self._worker.finished.connect(self._worker.deleteLater)

@@ -31,7 +31,7 @@ class GitLabConnectionError(GitLabError):
     pass
 
 
-def _connect(url, token):
+def _connect(url, token, ssl_verify=True):
     """
     Returns (gl, gitlab_module) — an authenticated gitlab.Gitlab
     client plus the gitlab module itself (callers need it for
@@ -39,6 +39,11 @@ def _connect(url, token):
     at module load time). Raises GitLabError/a subclass on any
     failure — never returns a client that hasn't been verified to
     actually authenticate.
+
+    ssl_verify=False skips TLS certificate verification — needed for
+    a self-hosted instance with a self-signed certificate. Defaults
+    to True (verify) since that's the safe default; the GUI surfaces
+    this as an opt-out checkbox, not a hidden setting.
     """
 
     try:
@@ -49,7 +54,9 @@ def _connect(url, token):
         )
 
     try:
-        gl = gitlab.Gitlab(url, private_token=token, timeout=15)
+        gl = gitlab.Gitlab(
+            url, private_token=token, ssl_verify=ssl_verify, timeout=15,
+        )
         gl.auth()
     except gitlab.exceptions.GitlabAuthenticationError as e:
         raise GitLabAuthError(f"Authentication failed: {e}")
@@ -94,7 +101,7 @@ def _list_all(manager, **kwargs):
         return list(manager.list(all=True, **kwargs))
 
 
-def list_recent_jobs(url, project, token, job_name=None, limit=20):
+def list_recent_jobs(url, project, token, job_name=None, limit=20, ssl_verify=True):
     """
     Returns up to `limit` most recent CI jobs for the project,
     newest first, as a list of dicts: pipeline_id, job_id, job_name,
@@ -102,7 +109,7 @@ def list_recent_jobs(url, project, token, job_name=None, limit=20):
     only jobs with that exact name are returned.
     """
 
-    gl, gitlab_module = _connect(url, token)
+    gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
     proj = _get_project(gl, gitlab_module, project)
 
     try:
@@ -139,14 +146,14 @@ def list_recent_jobs(url, project, token, job_name=None, limit=20):
     return results
 
 
-def download_latest_artifact(url, project, token, ref, job_name):
+def download_latest_artifact(url, project, token, ref, job_name, ssl_verify=True):
     """
     Downloads the latest successful job artifact archive for the
     given ref+job name (GitLab's "download latest artifact" API).
     Returns raw bytes.
     """
 
-    gl, gitlab_module = _connect(url, token)
+    gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
     proj = _get_project(gl, gitlab_module, project)
 
     try:
@@ -161,13 +168,13 @@ def download_latest_artifact(url, project, token, ref, job_name):
         raise GitLabConnectionError(f"Download failed: {e}")
 
 
-def download_job_artifact(url, project, token, job_id):
+def download_job_artifact(url, project, token, job_id, ssl_verify=True):
     """
     Downloads a specific job's artifact archive by job ID (picked
     from list_recent_jobs()). Returns raw bytes.
     """
 
-    gl, gitlab_module = _connect(url, token)
+    gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
     proj = _get_project(gl, gitlab_module, project)
 
     try:
@@ -181,7 +188,7 @@ def download_job_artifact(url, project, token, job_id):
         raise GitLabConnectionError(f"Download failed: {e}")
 
 
-def list_package_versions(url, project, token, package_name, limit=20):
+def list_package_versions(url, project, token, package_name, limit=20, ssl_verify=True):
     """
     Returns up to `limit` most recent versions of the given Generic
     package name, newest first, as a list of dicts: package_id,
@@ -189,7 +196,7 @@ def list_package_versions(url, project, token, package_name, limit=20):
     that package name exists in the project.
     """
 
-    gl, gitlab_module = _connect(url, token)
+    gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
     proj = _get_project(gl, gitlab_module, project)
 
     return _list_package_versions(gl, gitlab_module, proj, package_name, limit)
@@ -292,13 +299,13 @@ def _download_one_file_for_version(gl, gitlab_module, proj, package_name, versio
         raise GitLabConnectionError(f"Download failed: {e}")
 
 
-def download_latest_package_file(url, project, token, package_name):
+def download_latest_package_file(url, project, token, package_name, ssl_verify=True):
     """
     Downloads the file attached to the newest version of the given
     package. Returns raw bytes.
     """
 
-    gl, gitlab_module = _connect(url, token)
+    gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
     proj = _get_project(gl, gitlab_module, project)
 
     latest = _list_package_versions(gl, gitlab_module, proj, package_name, limit=1)[0]
@@ -308,7 +315,7 @@ def download_latest_package_file(url, project, token, package_name):
     )
 
 
-def download_package_version(url, project, token, package_name, version):
+def download_package_version(url, project, token, package_name, version, ssl_verify=True):
     """
     Downloads the file attached to a specific package version (as
     picked from list_package_versions()). Returns raw bytes. Raises
@@ -316,7 +323,7 @@ def download_package_version(url, project, token, package_name, version):
     project's versions of this package.
     """
 
-    gl, gitlab_module = _connect(url, token)
+    gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
     proj = _get_project(gl, gitlab_module, project)
 
     versions = _list_package_versions(gl, gitlab_module, proj, package_name, limit=100)

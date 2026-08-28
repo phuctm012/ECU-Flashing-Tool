@@ -168,6 +168,7 @@ class TestCiRowDownloadButtonRealThread(unittest.TestCase):
 
         mock_download.assert_called_once_with(
             "https://gitlab.com", "group/proj", "tok", job_id=4821,
+            ssl_verify=True,
         )
 
 
@@ -212,6 +213,7 @@ class TestPkgRowDownloadButtonRealThread(unittest.TestCase):
         mock_download.assert_called_once_with(
             "https://gitlab.com", "group/proj", "tok",
             package_name="suzuki-slp1-radar-firmware", version="1.4.2",
+            ssl_verify=True,
         )
 
 

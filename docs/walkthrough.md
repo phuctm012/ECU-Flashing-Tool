@@ -1832,3 +1832,19 @@ User cho biết CI Artifact và Package Registry trong thực tế nằm ở **2
 - Test mới (`TestGitLabFetchDialogConnectionCard.test_ci_and_package_project_persist_independently`): xác nhận 2 project lưu/khôi phục độc lập, không đè lên nhau.
 - Verify thật bằng script headless: mở dialog, set `ciProjectEdit`/`pkgProjectEdit` khác nhau, mở dialog mới xác nhận cả 2 giá trị đúng và độc lập; xác nhận `projectEdit` (field cũ) không còn tồn tại trên dialog nữa.
 - Full test suite: 358 test (357 cũ + 1 mới) pass.
+
+### Phase 4.82: Verify TLS Certificate, Log Lịch Sử, Gợi Ý Quyền Token
+
+User gửi ảnh chụp 1 tool tương tự (Suzuki Flashing Tool v1.0) có tính năng lấy firmware từ GitLab, hỏi có nên tham khảo thêm gì không. Sau khi so sánh, chọn 3 điểm dễ thêm và không xung đột thiết kế hiện tại để làm trước: (1) checkbox "Verify TLS certificate" cho instance tự host dùng cert tự ký, (2) panel log nhiều dòng thay vì chỉ 1 dòng `statusLabel` bị ghi đè liên tục, (3) dòng gợi ý quyền token cần có ngay trong Connection card. 2 điểm còn lại (tách Branch/tag thành combo load từ API riêng; "Trigger manual job" — thao tác ghi lên GitLab, vốn ngoài phạm vi spec "chỉ đọc"; lưu file tải về vào folder cố định thay vì temp) để lại chờ quyết định sau, không tự ý làm.
+
+### Thay đổi
+
+- **`gui/gitlab_dialog.py`**: thêm `verifyTlsCheckbox` (`QCheckBox`, mặc định bật) vào Connection card, persist qua `gitlab/verifyTls`. Giá trị này được truyền xuyên suốt: `_run_action()` đọc `verifyTlsCheckbox.isChecked()` → `GitLabFetchWorker(..., ssl_verify=...)` → từng lệnh gọi `gitlab_client.*` đều nhận `ssl_verify`. Thêm `tokenHint` (`QLabel` chữ nhỏ, màu xám) liệt kê quyền token cần có (`read_api`, `read_registry`, `read_repository`). Thêm `logView` (`QPlainTextEdit` chỉ đọc, giới hạn 500 dòng) + helper `_append_log()` — nối vào `progress_message`/`error` của worker và các điểm hoàn tất quan trọng khác (load xong N job/version, tải xong file, chọn file nào để nạp) mà trước đây chỉ có `statusLabel` (1 dòng, luôn bị ghi đè) thấy được. Tăng kích thước dialog mặc định (620×460 → 620×600) cho vừa các widget mới.
+- **`communication/gitlab_client.py`**: `_connect()` và cả 6 hàm public đều thêm tham số `ssl_verify=True` (mặc định bật, an toàn), truyền thẳng vào `gitlab.Gitlab(..., ssl_verify=ssl_verify)`.
+
+### Đã kiểm tra
+
+- Test mới: `tests/test_gitlab_client.py` (`TestConnect`, 2 test — mặc định `ssl_verify=True` được truyền đúng vào `gitlab.Gitlab(...)`, giá trị `False` cũng truyền đúng); `tests/test_gui_smoke.py` (`TestGitLabFetchDialogConnectionCard`, 6 test — checkbox mặc định bật, persist đúng qua `QSettings`, giá trị truyền đúng tới `GitLabFetchWorker`, hint text hiện đúng, log giữ được nhiều dòng không mất dòng cũ).
+- Sửa 2 test cũ (`tests/test_gitlab_dialog_threading.py`) có assert nguyên văn tham số gọi `download_job_artifact()`/`download_package_version()` — thêm `ssl_verify=True` (giá trị mặc định) vào kỳ vọng.
+- Verify thật bằng script headless: bật/tắt checkbox TLS, xác nhận giá trị `ssl_verify=False` thật sự tới được lệnh gọi `gitlab_client.list_recent_jobs()`; log tích lũy đúng nhiều dòng ("Loading recent jobs..." rồi "Loaded 1 job(s).") thay vì mất dòng đầu.
+- Full test suite: 365 test (358 cũ + 7 mới) pass.

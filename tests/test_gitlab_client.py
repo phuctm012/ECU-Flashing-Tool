@@ -136,6 +136,31 @@ class TestConnect(unittest.TestCase):
                     "https://gitlab.com", "group/proj", "tok"
                 )
 
+    def test_ssl_verify_defaults_to_true(self):
+        module, gl = _fake_gitlab_module()
+        gl.projects.get.return_value = MagicMock(jobs=MagicMock(list=MagicMock(return_value=[])))
+        with _patched_gitlab(module):
+            gitlab_client.list_recent_jobs("https://gitlab.com", "group/proj", "tok")
+
+        module.Gitlab.assert_called_once_with(
+            "https://gitlab.com", private_token="tok", ssl_verify=True, timeout=15,
+        )
+
+    def test_ssl_verify_false_is_passed_through_to_gitlab_client(self):
+        # Needed for a self-hosted instance with a self-signed cert
+        # — the GUI surfaces this as an opt-out checkbox, defaulting
+        # to verifying (see test_ssl_verify_defaults_to_true).
+        module, gl = _fake_gitlab_module()
+        gl.projects.get.return_value = MagicMock(jobs=MagicMock(list=MagicMock(return_value=[])))
+        with _patched_gitlab(module):
+            gitlab_client.list_recent_jobs(
+                "https://gitlab.internal", "group/proj", "tok", ssl_verify=False,
+            )
+
+        module.Gitlab.assert_called_once_with(
+            "https://gitlab.internal", private_token="tok", ssl_verify=False, timeout=15,
+        )
+
 
 class TestListAll(unittest.TestCase):
     """
