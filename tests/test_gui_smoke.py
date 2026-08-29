@@ -2522,6 +2522,78 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
         dialog2 = GitLabFetchDialog(self.window)
         self.assertEqual(dialog2.ciJobEdit.currentText(), "build_firmware")
 
+    def test_ref_combo_populates_branches_then_tags_deduped(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog._populate_ci_ref_combo([
+            {"name": "main", "ref_type": "branch"},
+            {"name": "dev", "ref_type": "branch"},
+            # Same name as a branch above — must not appear twice.
+            {"name": "main", "ref_type": "tag"},
+            {"name": "v1.0.0", "ref_type": "tag"},
+        ])
+
+        items = [dialog.ciRefEdit.itemText(i) for i in range(dialog.ciRefEdit.count())]
+        self.assertEqual(items, ["main", "dev", "v1.0.0"])
+
+    def test_ref_combo_keeps_typed_text_after_load_populates(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.ciRefEdit.setEditText("not_loaded_yet")
+
+        dialog._populate_ci_ref_combo([
+            {"name": "main", "ref_type": "branch"},
+        ])
+
+        self.assertEqual(dialog.ciRefEdit.currentText(), "not_loaded_yet")
+
+    def test_ref_combo_value_persists_across_dialog_instances(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+
+        dialog1 = GitLabFetchDialog(self.window)
+        dialog1.ciRefEdit.setEditText("Release_R_04_01_01")
+        dialog1.ciRefEdit.currentTextChanged.emit(dialog1.ciRefEdit.currentText())
+
+        dialog2 = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog2.ciRefEdit.currentText(), "Release_R_04_01_01")
+
+    def test_load_branches_tags_button_triggers_list_branches_and_tags_action(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+
+        with unittest.mock.patch.object(dialog, '_run_action') as mock_run:
+            dialog.ciLoadRefsButton.click()
+
+        mock_run.assert_called_once_with(
+            "list_branches_and_tags", {}, on_list=dialog._populate_ci_ref_combo,
+        )
+
+    def test_browse_uses_project_wide_jobs_when_no_ref_selected(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.ciRefEdit.setEditText("")
+
+        with unittest.mock.patch.object(dialog, '_run_action') as mock_run:
+            dialog.ciBrowseToggle.click()
+
+        mock_run.assert_called_once_with(
+            "list_jobs", {"job_name": None}, on_list=dialog._populate_ci_browse_table,
+        )
+
+    def test_browse_scopes_to_selected_ref_when_one_is_chosen(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.ciRefEdit.setEditText("Release_R_04_01_01")
+
+        with unittest.mock.patch.object(dialog, '_run_action') as mock_run:
+            dialog.ciBrowseToggle.click()
+
+        mock_run.assert_called_once_with(
+            "list_jobs_for_ref",
+            {"ref": "Release_R_04_01_01", "job_name": None},
+            on_list=dialog._populate_ci_browse_table,
+        )
+
 
 class TestGitLabEntryPointWidgets(unittest.TestCase):
     """

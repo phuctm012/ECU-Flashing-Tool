@@ -146,6 +146,99 @@ def list_recent_jobs(url, project, token, job_name=None, limit=20, ssl_verify=Tr
     return results
 
 
+def list_branches_and_tags(url, project, token, limit=50, ssl_verify=True):
+    """
+    Returns up to `limit` branches PLUS up to `limit` tags for the
+    project (branches first, then tags — the order the reference
+    picker fills its dropdown in), as a list of dicts: name,
+    ref_type ("branch" or "tag"). Used to populate a Branch/tag
+    picker before scoping a job search to one specific ref (see
+    list_jobs_for_ref()).
+    """
+
+    gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
+    proj = _get_project(gl, gitlab_module, project)
+
+    try:
+        # Same single-page-not-full-history reasoning as
+        # list_recent_jobs(): a bounded per_page=limit call, never
+        # _list_all()/get_all=True, which would walk every branch/tag
+        # the project has ever had before any limit= ever applies.
+        branches = proj.branches.list(per_page=limit)
+    except Exception as e:
+        raise GitLabConnectionError(f"Could not list branches: {e}")
+
+    try:
+        tags = proj.tags.list(per_page=limit)
+    except Exception as e:
+        raise GitLabConnectionError(f"Could not list tags: {e}")
+
+    return (
+        [{"name": b.name, "ref_type": "branch"} for b in branches]
+        + [{"name": t.name, "ref_type": "tag"} for t in tags]
+    )
+
+
+def list_jobs_for_ref(url, project, token, ref, job_name=None, limit=20, ssl_verify=True):
+    """
+    Returns up to `limit` most recent CI jobs from the most recent
+    pipeline(s) for the given ref (branch or tag name), newest
+    pipeline first — same dict shape as list_recent_jobs(): pipeline_id,
+    job_id, job_name, ref, status, created_at, has_artifacts. Raises
+    GitLabNotFoundError if no pipeline exists for that ref.
+
+    GitLab's project-wide Jobs API has no ref filter, so this goes
+    through Pipelines (which does support ref=) to find the relevant
+    pipeline(s) first, then lists each one's jobs — same "the API
+    decides the order, take the first per_page page" bounded pattern
+    as list_recent_jobs(), just two calls instead of one.
+    """
+
+    gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
+    proj = _get_project(gl, gitlab_module, project)
+
+    try:
+        pipelines = proj.pipelines.list(
+            ref=ref, order_by="id", sort="desc", per_page=5,
+        )
+    except Exception as e:
+        raise GitLabConnectionError(f"Could not list pipelines for ref '{ref}': {e}")
+
+    if not pipelines:
+        raise GitLabNotFoundError(f"No pipelines found for ref '{ref}'")
+
+    results = []
+
+    for pipeline in pipelines:
+
+        try:
+            jobs = pipeline.jobs.list(per_page=limit)
+        except Exception as e:
+            raise GitLabConnectionError(
+                f"Could not list jobs for pipeline #{pipeline.id}: {e}"
+            )
+
+        for job in jobs:
+
+            if job_name and job.name != job_name:
+                continue
+
+            results.append({
+                "pipeline_id": pipeline.id,
+                "job_id": job.id,
+                "job_name": job.name,
+                "ref": ref,
+                "status": job.status,
+                "created_at": job.created_at,
+                "has_artifacts": bool(getattr(job, "artifacts_file", None)),
+            })
+
+            if len(results) >= limit:
+                return results
+
+    return results
+
+
 def download_latest_artifact(url, project, token, ref, job_name, ssl_verify=True):
     """
     Downloads the latest successful job artifact archive for the

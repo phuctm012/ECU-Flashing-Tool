@@ -300,6 +300,174 @@ class TestListRecentJobs(unittest.TestCase):
         self.assertEqual(len(jobs), 3)
 
 
+class TestListBranchesAndTags(unittest.TestCase):
+
+    def _make_ref(self, name):
+        ref = MagicMock()
+        ref.name = name
+        return ref
+
+    def test_returns_branches_then_tags(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.branches.list.return_value = [self._make_ref("main"), self._make_ref("dev")]
+        proj.tags.list.return_value = [self._make_ref("v1.0.0")]
+
+        with _patched_gitlab(module):
+            refs = gitlab_client.list_branches_and_tags(
+                "https://gitlab.com", "group/proj", "tok"
+            )
+
+        self.assertEqual(refs, [
+            {"name": "main", "ref_type": "branch"},
+            {"name": "dev", "ref_type": "branch"},
+            {"name": "v1.0.0", "ref_type": "tag"},
+        ])
+
+    def test_fetches_a_single_bounded_page_not_the_whole_history(self):
+        # Same reasoning as list_recent_jobs's equivalent test — must
+        # NOT use _list_all()/get_all=True for either branches or tags.
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.branches.list.return_value = []
+        proj.tags.list.return_value = []
+
+        with _patched_gitlab(module):
+            gitlab_client.list_branches_and_tags(
+                "https://gitlab.com", "group/proj", "tok", limit=10
+            )
+
+        proj.branches.list.assert_called_once_with(per_page=10)
+        proj.tags.list.assert_called_once_with(per_page=10)
+
+    def test_branches_network_error_raises_connectionerror(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.branches.list.side_effect = OSError("Connection reset by peer")
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.list_branches_and_tags(
+                    "https://gitlab.com", "group/proj", "tok"
+                )
+
+    def test_tags_network_error_raises_connectionerror(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.branches.list.return_value = []
+        proj.tags.list.side_effect = OSError("Connection reset by peer")
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.list_branches_and_tags(
+                    "https://gitlab.com", "group/proj", "tok"
+                )
+
+
+class TestListJobsForRef(unittest.TestCase):
+
+    def _make_job(self, job_id, name, status, artifacts_file=None):
+        job = MagicMock()
+        job.id = job_id
+        job.name = name
+        job.status = status
+        job.created_at = "2026-08-27T09:14:00Z"
+        job.artifacts_file = artifacts_file
+        return job
+
+    def _make_pipeline(self, pipeline_id, jobs):
+        pipeline = MagicMock()
+        pipeline.id = pipeline_id
+        pipeline.jobs.list.return_value = jobs
+        return pipeline
+
+    def test_returns_dicts_with_expected_keys(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        pipeline = self._make_pipeline(500, [
+            self._make_job(1, "build_firmware", "success", {"filename": "a.zip"}),
+        ])
+        proj.pipelines.list.return_value = [pipeline]
+
+        with _patched_gitlab(module):
+            jobs = gitlab_client.list_jobs_for_ref(
+                "https://gitlab.com", "group/proj", "tok", ref="Release_R_04_01_01",
+            )
+
+        self.assertEqual(jobs, [{
+            "pipeline_id": 500,
+            "job_id": 1,
+            "job_name": "build_firmware",
+            "ref": "Release_R_04_01_01",
+            "status": "success",
+            "created_at": "2026-08-27T09:14:00Z",
+            "has_artifacts": True,
+        }])
+
+    def test_no_pipelines_for_ref_raises_notfounderror(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.pipelines.list.return_value = []
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabNotFoundError):
+                gitlab_client.list_jobs_for_ref(
+                    "https://gitlab.com", "group/proj", "tok", ref="no-such-ref",
+                )
+
+    def test_filters_by_job_name(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        pipeline = self._make_pipeline(500, [
+            self._make_job(1, "build_firmware", "success"),
+            self._make_job(2, "lint", "success"),
+        ])
+        proj.pipelines.list.return_value = [pipeline]
+
+        with _patched_gitlab(module):
+            jobs = gitlab_client.list_jobs_for_ref(
+                "https://gitlab.com", "group/proj", "tok", ref="main",
+                job_name="lint",
+            )
+
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["job_name"], "lint")
+
+    def test_pipelines_fetched_as_a_single_bounded_page(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.pipelines.list.return_value = [self._make_pipeline(500, [])]
+
+        with _patched_gitlab(module):
+            gitlab_client.list_jobs_for_ref(
+                "https://gitlab.com", "group/proj", "tok", ref="main",
+            )
+
+        proj.pipelines.list.assert_called_once_with(
+            ref="main", order_by="id", sort="desc", per_page=5,
+        )
+
+    def test_pipeline_list_network_error_raises_connectionerror(self):
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.pipelines.list.side_effect = OSError("Connection reset by peer")
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabConnectionError):
+                gitlab_client.list_jobs_for_ref(
+                    "https://gitlab.com", "group/proj", "tok", ref="main",
+                )
+
+
 class TestDownloadArtifacts(unittest.TestCase):
 
     def test_download_latest_artifact_returns_bytes(self):

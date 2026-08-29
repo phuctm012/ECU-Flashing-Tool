@@ -56,7 +56,7 @@ class TestFetchLatestArtifactRealThread(unittest.TestCase):
         self.dialog.urlEdit.setText("https://gitlab.com")
         self.dialog.ciProjectEdit.setText("group/proj")
         self.dialog.tokenEdit.setText("tok")
-        self.dialog.ciRefEdit.setText("main")
+        self.dialog.ciRefEdit.setEditText("main")
         self.dialog.ciJobEdit.setEditText("build_firmware")
 
     def test_fetch_latest_artifact_runs_and_cleans_up_thread(self):
@@ -129,6 +129,62 @@ class TestFetchLatestArtifactRealThread(unittest.TestCase):
 
         self.assertTrue(self.dialog.ciBrowseToggle.isEnabled())
         self.assertTrue(self.dialog.pkgBrowseToggle.isEnabled())
+
+
+class TestBranchTagAndRefScopedJobsRealThread(unittest.TestCase):
+    """
+    Covers loading branches/tags into ciRefEdit and then browsing
+    jobs scoped to the selected ref — both go through a real
+    QThread, same discipline as every other action in this file.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.dialog = GitLabFetchDialog(self.window)
+        self.dialog.urlEdit.setText("https://gitlab.com")
+        self.dialog.ciProjectEdit.setText("group/proj")
+        self.dialog.tokenEdit.setText("tok")
+
+    def test_load_branches_and_tags_populates_ref_combo(self):
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.list_branches_and_tags",
+            return_value=[
+                {"name": "main", "ref_type": "branch"},
+                {"name": "v1.0.0", "ref_type": "tag"},
+            ],
+        ):
+            self.dialog.ciLoadRefsButton.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        items = [
+            self.dialog.ciRefEdit.itemText(i)
+            for i in range(self.dialog.ciRefEdit.count())
+        ]
+        self.assertEqual(items, ["main", "v1.0.0"])
+
+    def test_browsing_with_a_selected_ref_scopes_the_job_list(self):
+        self.dialog.ciRefEdit.setEditText("Release_R_04_01_01")
+
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.list_jobs_for_ref",
+            return_value=[
+                {
+                    "pipeline_id": 500, "job_id": 4821,
+                    "job_name": "create_ffi_3p5mb_no_HTSM",
+                    "ref": "Release_R_04_01_01", "status": "success",
+                    "created_at": "2026-08-27T09:14:00Z", "has_artifacts": True,
+                },
+            ],
+        ) as mock_list:
+            self.dialog.ciBrowseToggle.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        mock_list.assert_called_once_with(
+            "https://gitlab.com", "group/proj", "tok",
+            ref="Release_R_04_01_01", job_name=None, ssl_verify=True,
+        )
+        self.assertEqual(self.dialog.ciBrowseTable.rowCount(), 1)
 
 
 class TestCiRowDownloadButtonRealThread(unittest.TestCase):

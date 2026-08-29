@@ -55,7 +55,10 @@ from parsers.auto_parser import FIRMWARE_EXTENSIONS as RECOGNIZED_FIRMWARE_EXTEN
 # Which GitLabFetchWorker actions belong to the CI Artifact tab (use
 # ciProjectEdit) vs the Package Registry tab (use pkgProjectEdit) —
 # see _run_action()'s project selection.
-_CI_ACTIONS = {"list_jobs", "fetch_latest_artifact", "download_job_artifact"}
+_CI_ACTIONS = {
+    "list_jobs", "fetch_latest_artifact", "download_job_artifact",
+    "list_branches_and_tags", "list_jobs_for_ref",
+}
 
 
 class GitLabFetchWorker(QObject):
@@ -90,6 +93,26 @@ class GitLabFetchWorker(QObject):
                 self.progress_message.emit("Loading recent jobs...")
                 jobs = gitlab_client.list_recent_jobs(
                     self._url, self._project, self._token,
+                    job_name=self._params.get("job_name"),
+                    ssl_verify=self._ssl_verify,
+                )
+                self.list_ready.emit(jobs)
+
+            elif self._action == "list_branches_and_tags":
+                self.progress_message.emit("Loading branches and tags...")
+                refs = gitlab_client.list_branches_and_tags(
+                    self._url, self._project, self._token,
+                    ssl_verify=self._ssl_verify,
+                )
+                self.list_ready.emit(refs)
+
+            elif self._action == "list_jobs_for_ref":
+                self.progress_message.emit(
+                    f"Loading jobs for {self._params['ref']}..."
+                )
+                jobs = gitlab_client.list_jobs_for_ref(
+                    self._url, self._project, self._token,
+                    ref=self._params["ref"],
                     job_name=self._params.get("job_name"),
                     ssl_verify=self._ssl_verify,
                 )
@@ -272,10 +295,19 @@ class GitLabFetchDialog(QDialog):
         self.ciProjectEdit.textEdited.connect(self._save_settings)
         grid.addWidget(self.ciProjectEdit, 0, 1)
 
-        grid.addWidget(QLabel("Branch / ref"), 1, 0)
-        self.ciRefEdit = QLineEdit(page)
-        self.ciRefEdit.textEdited.connect(self._save_settings)
+        grid.addWidget(QLabel("Branch / tag"), 1, 0)
+        self.ciRefEdit = QComboBox(page)
+        self.ciRefEdit.setEditable(True)
+        # Not populated until "Load branches/tags" has run at least
+        # once (see _populate_ci_ref_combo()) — typing a ref that's
+        # never been loaded still works, same "combo as a shortcut,
+        # not a requirement" convention as ciJobEdit.
+        self.ciRefEdit.currentTextChanged.connect(self._save_settings)
         grid.addWidget(self.ciRefEdit, 1, 1)
+
+        self.ciLoadRefsButton = QPushButton("Load branches/tags", page)
+        self.ciLoadRefsButton.clicked.connect(self._load_ci_refs)
+        grid.addWidget(self.ciLoadRefsButton, 1, 2)
 
         grid.addWidget(QLabel("Job name"), 2, 0)
         self.ciJobEdit = QComboBox(page)
@@ -293,7 +325,7 @@ class GitLabFetchDialog(QDialog):
         self.ciFetchButton.clicked.connect(self._on_fetch_latest_artifact)
         fetch_row.addWidget(self.ciFetchButton)
 
-        self.ciBrowseToggle = QPushButton("Browse recent jobs...", page)
+        self.ciBrowseToggle = QPushButton("Browse jobs...", page)
         self.ciBrowseToggle.clicked.connect(self._toggle_ci_browse)
         fetch_row.addWidget(self.ciBrowseToggle)
         layout.addLayout(fetch_row)
@@ -381,16 +413,48 @@ class GitLabFetchDialog(QDialog):
     # ==================================================
 
     def _load_settings(self):
+        """
+        Loading order matters here in a way that's easy to
+        regress: ciRefEdit/ciJobEdit are editable QComboBoxes whose
+        currentTextChanged is wired to _save_settings() (so picking
+        or typing a value saves it immediately), and
+        verifyTlsCheckbox's toggled fires on setChecked() too —
+        unlike QLineEdit.setText(), which never fires textEdited.
+        Setting any of these BEFORE every other field below it has
+        been loaded would fire a premature _save_settings() that
+        reads the not-yet-loaded fields' still-default widget values
+        and overwrites their real saved settings with those defaults
+        (hit for real: ciRefEdit's non-empty "main" default changing
+        from "" fired a save that clobbered gitlab/packageProject and
+        gitlab/packageName before they'd been loaded). Block signals
+        on every settings-connected widget for the whole method
+        rather than relying on load order staying safe forever.
+        """
 
-        s = self._settings
-        self.urlEdit.setText(s.value("gitlab/instanceUrl", "https://gitlab.com", type=str))
-        self.tokenEdit.setText(s.value("gitlab/token", "", type=str))
-        self.verifyTlsCheckbox.setChecked(s.value("gitlab/verifyTls", True, type=bool))
-        self.ciProjectEdit.setText(s.value("gitlab/ciProject", "", type=str))
-        self.ciRefEdit.setText(s.value("gitlab/ciRef", "main", type=str))
-        self.ciJobEdit.setEditText(s.value("gitlab/ciJobName", "", type=str))
-        self.pkgProjectEdit.setText(s.value("gitlab/packageProject", "", type=str))
-        self.packageNameEdit.setText(s.value("gitlab/packageName", "", type=str))
+        for widget in (
+            self.urlEdit, self.tokenEdit, self.verifyTlsCheckbox,
+            self.ciProjectEdit, self.ciRefEdit, self.ciJobEdit,
+            self.pkgProjectEdit, self.packageNameEdit,
+        ):
+            widget.blockSignals(True)
+
+        try:
+            s = self._settings
+            self.urlEdit.setText(s.value("gitlab/instanceUrl", "https://gitlab.com", type=str))
+            self.tokenEdit.setText(s.value("gitlab/token", "", type=str))
+            self.verifyTlsCheckbox.setChecked(s.value("gitlab/verifyTls", True, type=bool))
+            self.ciProjectEdit.setText(s.value("gitlab/ciProject", "", type=str))
+            self.ciRefEdit.setEditText(s.value("gitlab/ciRef", "main", type=str))
+            self.ciJobEdit.setEditText(s.value("gitlab/ciJobName", "", type=str))
+            self.pkgProjectEdit.setText(s.value("gitlab/packageProject", "", type=str))
+            self.packageNameEdit.setText(s.value("gitlab/packageName", "", type=str))
+        finally:
+            for widget in (
+                self.urlEdit, self.tokenEdit, self.verifyTlsCheckbox,
+                self.ciProjectEdit, self.ciRefEdit, self.ciJobEdit,
+                self.pkgProjectEdit, self.packageNameEdit,
+            ):
+                widget.blockSignals(False)
 
     def _save_settings(self, _text=None):
 
@@ -399,7 +463,7 @@ class GitLabFetchDialog(QDialog):
         s.setValue("gitlab/token", self.tokenEdit.text())
         s.setValue("gitlab/verifyTls", self.verifyTlsCheckbox.isChecked())
         s.setValue("gitlab/ciProject", self.ciProjectEdit.text())
-        s.setValue("gitlab/ciRef", self.ciRefEdit.text())
+        s.setValue("gitlab/ciRef", self.ciRefEdit.currentText())
         s.setValue("gitlab/ciJobName", self.ciJobEdit.currentText())
         s.setValue("gitlab/packageProject", self.pkgProjectEdit.text())
         s.setValue("gitlab/packageName", self.packageNameEdit.text())
@@ -409,16 +473,68 @@ class GitLabFetchDialog(QDialog):
     # CI Artifact tab actions
     # ==================================================
 
+    def _load_ci_refs(self):
+        self._run_action(
+            "list_branches_and_tags", {},
+            on_list=self._populate_ci_ref_combo,
+        )
+
+    def _populate_ci_ref_combo(self, refs):
+        """
+        Fills ciRefEdit's dropdown with branch/tag names (branches
+        first, then tags, matching list_branches_and_tags()'s own
+        order) after "Load branches/tags" runs. Same
+        save/block/restore-current-text pattern as
+        _populate_ci_job_combo() — a real branch and tag could share
+        a name, so entries are deduped by name only, not by type.
+        """
+
+        if self._cancelled:
+            return
+
+        current_text = self.ciRefEdit.currentText()
+
+        seen = set()
+        names = []
+        for ref in refs:
+            name = ref["name"]
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+
+        self.ciRefEdit.blockSignals(True)
+        self.ciRefEdit.clear()
+        self.ciRefEdit.addItems(names)
+        self.ciRefEdit.setEditText(current_text)
+        self.ciRefEdit.blockSignals(False)
+
+        self._append_log(f"Loaded {len(names)} branch/tag reference(s).")
+
     def _toggle_ci_browse(self):
 
         opening = not self.ciBrowseTable.isVisible()
         self.ciBrowseTable.setVisible(opening)
 
         if opening:
-            self._run_action(
-                "list_jobs", {"job_name": self.ciJobEdit.currentText() or None},
-                on_list=self._populate_ci_browse_table,
-            )
+            ref = self.ciRefEdit.currentText()
+            job_name = self.ciJobEdit.currentText() or None
+
+            if ref:
+                # A branch/tag is selected — scope the job list to
+                # that ref's own pipeline(s), matching the reference
+                # tool's "pick ref, then load jobs for it" flow,
+                # instead of the project-wide recent-jobs list.
+                self._run_action(
+                    "list_jobs_for_ref", {"ref": ref, "job_name": job_name},
+                    on_list=self._populate_ci_browse_table,
+                )
+            else:
+                # No ref chosen — unchanged, original behavior:
+                # recent jobs across the whole project.
+                self._run_action(
+                    "list_jobs", {"job_name": job_name},
+                    on_list=self._populate_ci_browse_table,
+                )
 
     def _populate_ci_job_combo(self, jobs):
         """
@@ -500,7 +616,7 @@ class GitLabFetchDialog(QDialog):
 
         self._run_action(
             "fetch_latest_artifact",
-            {"ref": self.ciRefEdit.text(), "job_name": self.ciJobEdit.currentText()},
+            {"ref": self.ciRefEdit.currentText(), "job_name": self.ciJobEdit.currentText()},
             on_download=self._on_download_ready,
         )
 
