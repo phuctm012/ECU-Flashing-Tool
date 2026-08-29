@@ -10,7 +10,9 @@
 # ==================================================
 
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 from PySide6.QtCore import QTimer
@@ -185,6 +187,105 @@ class TestBranchTagAndRefScopedJobsRealThread(unittest.TestCase):
             ref="Release_R_04_01_01", job_name=None, ssl_verify=True,
         )
         self.assertEqual(self.dialog.ciBrowseTable.rowCount(), 1)
+
+
+class TestDownloadFolderRealThread(unittest.TestCase):
+    """
+    Covers copying the loaded firmware file into a user-configured
+    "Download folder" (gui/gitlab_dialog.py's
+    _copy_to_download_folder(), called from _load_and_close()) — an
+    opt-in alternative to the default throwaway-temp-dir behavior, so
+    Recent Files can reopen a GitLab-fetched file after closeEvent()
+    deletes the dialog's temp dir. Goes through a real QThread, same
+    discipline as every other action in this file.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.dialog = GitLabFetchDialog(self.window)
+        self.dialog.urlEdit.setText("https://gitlab.com")
+        self.dialog.ciProjectEdit.setText("group/proj")
+        self.dialog.tokenEdit.setText("tok")
+        self.dialog.ciRefEdit.setEditText("main")
+        self.dialog.ciJobEdit.setEditText("build_firmware")
+        self.output_dir = tempfile.mkdtemp(prefix="sflash_test_output_")
+
+    def tearDown(self):
+        shutil.rmtree(self.output_dir, ignore_errors=True)
+
+    def test_downloaded_file_is_copied_to_configured_folder(self):
+        self.dialog.downloadFolderEdit.setText(self.output_dir)
+
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+            return_value=b"PK\x03\x04fakezip",
+        ), patch.object(
+            self.window, '_load_firmware_file', return_value=True
+        ) as mock_load:
+            self.dialog.ciFetchButton.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        mock_load.assert_called_once()
+        loaded_path = mock_load.call_args[0][0]
+        self.assertEqual(os.path.dirname(loaded_path), self.output_dir)
+
+    def test_copied_file_survives_dialogs_own_temp_dir_cleanup(self):
+        # _load_and_close() calls self.close() right after loading,
+        # which runs closeEvent() -> shutil.rmtree() on the dialog's
+        # temp dir. The copy into output_dir must be unaffected.
+        self.dialog.downloadFolderEdit.setText(self.output_dir)
+
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+            return_value=b"PK\x03\x04fakezip",
+        ), patch.object(self.window, '_load_firmware_file', return_value=True):
+            self.dialog.ciFetchButton.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        files = os.listdir(self.output_dir)
+        self.assertEqual(len(files), 1)
+        self.assertTrue(os.path.isfile(os.path.join(self.output_dir, files[0])))
+
+    def test_name_collision_gets_a_timestamp_suffix_not_overwritten(self):
+        # suggested_filename for fetch_latest_artifact is
+        # "{job_name}-latest.zip" — pre-create that exact name so the
+        # real download collides with an already-present file.
+        self.dialog.downloadFolderEdit.setText(self.output_dir)
+        existing_path = os.path.join(self.output_dir, "build_firmware-latest.zip")
+        with open(existing_path, "wb") as f:
+            f.write(b"pre-existing content")
+
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+            return_value=b"PK\x03\x04fakezip",
+        ), patch.object(self.window, '_load_firmware_file', return_value=True):
+            self.dialog.ciFetchButton.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        files = os.listdir(self.output_dir)
+        self.assertEqual(len(files), 2)
+        with open(existing_path, "rb") as f:
+            self.assertEqual(f.read(), b"pre-existing content")
+
+    def test_empty_download_folder_keeps_using_temp_dir(self):
+        # Regression guard: leaving the field empty must not attempt
+        # any copy — the file loads straight from the dialog's own
+        # temp dir, exactly like before this feature existed.
+        self.dialog.downloadFolderEdit.setText("")
+
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+            return_value=b"PK\x03\x04fakezip",
+        ), patch.object(
+            self.window, '_load_firmware_file', return_value=True
+        ) as mock_load:
+            self.dialog.ciFetchButton.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        loaded_path = mock_load.call_args[0][0]
+        self.assertNotEqual(os.path.dirname(loaded_path), self.output_dir)
+        self.assertEqual(os.listdir(self.output_dir), [])
 
 
 class TestCiRowDownloadButtonRealThread(unittest.TestCase):

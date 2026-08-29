@@ -2594,6 +2594,86 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
             on_list=dialog._populate_ci_browse_table,
         )
 
+    def test_download_folder_defaults_to_empty(self):
+        # Empty means "keep today's behavior": download into a temp
+        # dir that closeEvent() deletes. Only a non-empty value opts
+        # into copying the loaded file out to a persistent location.
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog.downloadFolderEdit.text(), "")
+
+    def test_download_folder_persists_across_dialog_instances(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+
+        dialog1 = GitLabFetchDialog(self.window)
+        dialog1.downloadFolderEdit.setText("/tmp/sflash_downloads")
+        dialog1.downloadFolderEdit.textEdited.emit(dialog1.downloadFolderEdit.text())
+
+        dialog2 = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog2.downloadFolderEdit.text(), "/tmp/sflash_downloads")
+
+    def test_browse_download_folder_button_sets_field_and_saves(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+
+        with unittest.mock.patch(
+            "gui.gitlab_dialog.QFileDialog.getExistingDirectory",
+            return_value="/tmp/sflash_downloads",
+        ):
+            dialog.downloadFolderBrowseButton.click()
+
+        self.assertEqual(dialog.downloadFolderEdit.text(), "/tmp/sflash_downloads")
+
+        dialog2 = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog2.downloadFolderEdit.text(), "/tmp/sflash_downloads")
+
+    def test_browse_download_folder_cancelled_leaves_field_unchanged(self):
+        # QFileDialog.getExistingDirectory() returns "" when the user
+        # cancels the picker — must not overwrite an existing value.
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.downloadFolderEdit.setText("/tmp/sflash_downloads")
+
+        with unittest.mock.patch(
+            "gui.gitlab_dialog.QFileDialog.getExistingDirectory",
+            return_value="",
+        ):
+            dialog.downloadFolderBrowseButton.click()
+
+        self.assertEqual(dialog.downloadFolderEdit.text(), "/tmp/sflash_downloads")
+
+    def test_fetch_blocked_when_download_folder_does_not_exist(self):
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.ciProjectEdit.setText("group/proj")
+        dialog.tokenEdit.setText("tok")
+        dialog.downloadFolderEdit.setText("/no/such/folder/sflash_xyz")
+
+        with unittest.mock.patch(
+            "gui.gitlab_dialog.GitLabFetchWorker"
+        ) as MockWorker, unittest.mock.patch("gui.gitlab_dialog.QThread"):
+            dialog.ciFetchButton.click()
+
+        MockWorker.assert_not_called()
+        self.assertIn("does not exist", dialog.statusLabel.text())
+
+    def test_fetch_allowed_when_download_folder_is_empty(self):
+        # Regression guard: the folder-existence check must only
+        # apply when the user actually set a folder, not block every
+        # download-producing action by default.
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.ciProjectEdit.setText("group/proj")
+        dialog.tokenEdit.setText("tok")
+        dialog.downloadFolderEdit.setText("")
+
+        with unittest.mock.patch(
+            "gui.gitlab_dialog.GitLabFetchWorker"
+        ) as MockWorker, unittest.mock.patch("gui.gitlab_dialog.QThread"):
+            dialog.ciFetchButton.click()
+
+        MockWorker.assert_called_once()
+
 
 class TestGitLabEntryPointWidgets(unittest.TestCase):
     """

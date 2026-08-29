@@ -25,6 +25,7 @@ import os
 import shutil
 import tempfile
 import zipfile
+from datetime import datetime
 
 from PySide6.QtCore import QObject, QSettings, QThread, Signal, Qt
 from PySide6.QtWidgets import (
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -281,6 +283,18 @@ class GitLabFetchDialog(QDialog):
         self.tokenHint.setStyleSheet("color: #808080; font-size: 11px;")
         grid.addWidget(self.tokenHint, 3, 0, 1, 2)
 
+        grid.addWidget(QLabel("Download folder"), 4, 0)
+        self.downloadFolderEdit = QLineEdit(box)
+        self.downloadFolderEdit.setPlaceholderText(
+            "Leave empty to use a temp folder (auto-deleted on close)"
+        )
+        self.downloadFolderEdit.textEdited.connect(self._save_settings)
+        grid.addWidget(self.downloadFolderEdit, 4, 1)
+
+        self.downloadFolderBrowseButton = QPushButton("Browse...", box)
+        self.downloadFolderBrowseButton.clicked.connect(self._browse_download_folder)
+        grid.addWidget(self.downloadFolderBrowseButton, 4, 2)
+
         return box
 
     def _build_ci_tab(self):
@@ -408,6 +422,16 @@ class GitLabFetchDialog(QDialog):
         self.pickerPanel.setVisible(False)
         self.tabs.setVisible(True)
 
+    def _browse_download_folder(self):
+
+        start_dir = self.downloadFolderEdit.text() or os.path.expanduser("~")
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Download Folder", start_dir
+        )
+        if folder:
+            self.downloadFolderEdit.setText(folder)
+            self._save_settings()
+
     # ==================================================
     # Settings persistence
     # ==================================================
@@ -434,7 +458,7 @@ class GitLabFetchDialog(QDialog):
         for widget in (
             self.urlEdit, self.tokenEdit, self.verifyTlsCheckbox,
             self.ciProjectEdit, self.ciRefEdit, self.ciJobEdit,
-            self.pkgProjectEdit, self.packageNameEdit,
+            self.pkgProjectEdit, self.packageNameEdit, self.downloadFolderEdit,
         ):
             widget.blockSignals(True)
 
@@ -448,11 +472,12 @@ class GitLabFetchDialog(QDialog):
             self.ciJobEdit.setEditText(s.value("gitlab/ciJobName", "", type=str))
             self.pkgProjectEdit.setText(s.value("gitlab/packageProject", "", type=str))
             self.packageNameEdit.setText(s.value("gitlab/packageName", "", type=str))
+            self.downloadFolderEdit.setText(s.value("gitlab/downloadFolder", "", type=str))
         finally:
             for widget in (
                 self.urlEdit, self.tokenEdit, self.verifyTlsCheckbox,
                 self.ciProjectEdit, self.ciRefEdit, self.ciJobEdit,
-                self.pkgProjectEdit, self.packageNameEdit,
+                self.pkgProjectEdit, self.packageNameEdit, self.downloadFolderEdit,
             ):
                 widget.blockSignals(False)
 
@@ -467,6 +492,7 @@ class GitLabFetchDialog(QDialog):
         s.setValue("gitlab/ciJobName", self.ciJobEdit.currentText())
         s.setValue("gitlab/packageProject", self.pkgProjectEdit.text())
         s.setValue("gitlab/packageName", self.packageNameEdit.text())
+        s.setValue("gitlab/downloadFolder", self.downloadFolderEdit.text())
         s.sync()
 
     # ==================================================
@@ -690,7 +716,37 @@ class GitLabFetchDialog(QDialog):
 
         self._load_and_close(item.data(Qt.UserRole))
 
+    def _copy_to_download_folder(self, path, folder):
+        """
+        Copies the one firmware file the user picked (not the whole
+        downloaded zip/extracted contents) into their chosen download
+        folder, so it survives closeEvent()'s temp-dir cleanup and
+        Recent Files can reopen it later. A name collision gets a
+        timestamp suffix (same "%Y%m%d_%H%M%S" format already used by
+        gui/issue_export.py and gui/report_export.py) rather than
+        overwriting a previous download.
+        """
+
+        dest_path = os.path.join(folder, os.path.basename(path))
+        if os.path.exists(dest_path):
+            base, ext = os.path.splitext(os.path.basename(path))
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dest_path = os.path.join(folder, f"{base}_{stamp}{ext}")
+
+        shutil.copy2(path, dest_path)
+        return dest_path
+
     def _load_and_close(self, path):
+
+        folder = self.downloadFolderEdit.text().strip()
+        if folder:
+            try:
+                path = self._copy_to_download_folder(path, folder)
+                self._append_log(f"Saved firmware to {path}")
+            except OSError as e:
+                message = f"Could not save to download folder ({e}) — loading from temp file instead."
+                self.statusLabel.setText(message)
+                self._append_log(message)
 
         if self._main_window._load_firmware_file(path):
             if self._main_window._loaded_datablocks:
@@ -789,6 +845,14 @@ class GitLabFetchDialog(QDialog):
             self.statusLabel.setText("A fetch is already in progress. Please wait.")
             self._append_log("A fetch is already in progress. Please wait.")
             return
+
+        if on_download is not None:
+            folder = self.downloadFolderEdit.text().strip()
+            if folder and not os.path.isdir(folder):
+                message = f"Download folder does not exist: {folder}"
+                self.statusLabel.setText(message)
+                self._append_log(message)
+                return
 
         self.statusLabel.setText("")
         self.ciFetchButton.setEnabled(False)
