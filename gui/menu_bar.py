@@ -14,7 +14,7 @@ import os
 import sys
 
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from config.settings import APP_NAME, APP_VERSION, APP_AUTHOR, APP_AUTHOR_NAME
@@ -103,6 +103,21 @@ class MenuBarMixin:
             # stops a test (or a screen reader) from checking
             # isEnabled() before that ever happens.
             self._sync_flash_abort_menu_state()
+
+        if hasattr(self.ui, 'actionModeFlash') and hasattr(
+            self.ui, 'actionModeBatchFlash'
+        ):
+            # Both actions are checkable per main_window.ui, but
+            # Qt only makes a set of QActions mutually exclusive
+            # when they share a QActionGroup.
+            self._mode_action_group = QActionGroup(self)
+            self._mode_action_group.addAction(self.ui.actionModeFlash)
+            self._mode_action_group.addAction(self.ui.actionModeBatchFlash)
+
+        if hasattr(self.ui, 'actionModeBatchFlash'):
+            self.ui.actionModeBatchFlash.toggled.connect(
+                self.on_batch_mode_toggled
+            )
 
         if hasattr(self.ui, 'actionTestConnection'):
             self.ui.actionTestConnection.triggered.connect(

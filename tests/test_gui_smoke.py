@@ -1616,6 +1616,38 @@ class TestBatchFlashScaffolding(unittest.TestCase):
         self.assertFalse(self.window.ui.buttonExportBatchReport.isEnabled())
 
 
+class TestBatchModeToggle(unittest.TestCase):
+    """
+    Covers switching Tools > Mode > Flash / Batch Flash —
+    gui/batch_flash.py's BatchFlashMixin.on_batch_mode_toggled().
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_selecting_batch_flash_shows_section_and_relabels_button(self):
+        self.window.show()
+        self.app.processEvents()
+        self.window.ui.actionModeBatchFlash.setChecked(True)
+        self.assertTrue(self.window.ui.groupBoxBatchFlash.isVisible())
+        self.assertEqual(self.window.ui.flashButton.text(), "Start Batch")
+        self.assertTrue(self.window._batch_mode_active)
+
+    def test_selecting_flash_hides_section_and_restores_button(self):
+        self.window.show()
+        self.app.processEvents()
+        self.window.ui.actionModeBatchFlash.setChecked(True)
+        self.window.ui.actionModeFlash.setChecked(True)
+        self.assertFalse(self.window.ui.groupBoxBatchFlash.isVisible())
+        self.assertEqual(self.window.ui.flashButton.text(), "Flash")
+        self.assertFalse(self.window._batch_mode_active)
+
+    def test_mode_actions_are_mutually_exclusive(self):
+        self.window.ui.actionModeBatchFlash.setChecked(True)
+        self.assertFalse(self.window.ui.actionModeFlash.isChecked())
+
+
 class TestMenuBar(unittest.TestCase):
     """
     Covers MenuBarMixin (gui/menu_bar.py) — File/Tools/Help

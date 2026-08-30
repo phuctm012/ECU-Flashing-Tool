@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from gui.ui_main_window import Ui_MainWindow
 from gui.flash_tab import FlashTabMixin
+from gui.batch_flash import BatchFlashMixin
 from gui.configure_tab import ConfigureTabMixin
 from gui.settings_profile import SettingsProfileMixin
 from gui.report_export import ReportExportMixin
@@ -41,6 +42,7 @@ from config.settings import (
 
 class MainWindow(
     FlashTabMixin,
+    BatchFlashMixin,
     ConfigureTabMixin,
     SettingsProfileMixin,
     ReportExportMixin,
@@ -90,6 +92,7 @@ class MainWindow(
         # ==========================================
 
         self.setup_flash_tab()
+        self.setup_batch_flash()
         self.setup_configure_tab()
         self.setup_stress_test()
 
