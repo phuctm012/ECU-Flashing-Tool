@@ -129,9 +129,8 @@ class TestFullBatchCycleRealThread(unittest.TestCase):
 
         table = self.window.ui.tableWidgetBatchLog
         self.assertEqual(table.rowCount(), 1)
-        self.assertEqual(table.item(0, 0).text(), "1")
-        self.assertTrue(len(table.item(0, 1).text()) > 0)  # Serial Number
-        self.assertEqual(table.item(0, 3).text(), "PASS")
+        self.assertTrue(len(table.item(0, 0).text()) > 0)  # Serial Number
+        self.assertEqual(table.item(0, 2).text(), "PASS")
 
         self.assertEqual(self.window._batch_counts["pass"], 1)
         self.assertEqual(self.window.ui.flashButton.text(), "Next")
@@ -158,7 +157,7 @@ class TestFullBatchCycleRealThread(unittest.TestCase):
         _run_until(self.app, lambda: self.window.thread is None)
 
         table = self.window.ui.tableWidgetBatchLog
-        self.assertEqual(table.item(0, 3).text(), "ABORTED")
+        self.assertEqual(table.item(0, 2).text(), "ABORTED")
         self.assertEqual(self.window._batch_counts["abort"], 1)
         self.assertEqual(self.window._batch_counts["fail"], 0)
 
@@ -176,7 +175,7 @@ class TestFullBatchCycleRealThread(unittest.TestCase):
             self._run_full_cycle()
 
         table = self.window.ui.tableWidgetBatchLog
-        self.assertEqual(table.item(0, 3).text(), "FAIL")
+        self.assertEqual(table.item(0, 2).text(), "FAIL")
         self.assertEqual(self.window._batch_counts["fail"], 1)
         self.assertEqual(self.window._batch_counts["abort"], 0)
         self.assertIn(
@@ -273,7 +272,7 @@ class TestStopBatchRealThread(unittest.TestCase):
 
         self.assertEqual(self.window.ui.tableWidgetBatchLog.rowCount(), 1)
         self.assertEqual(
-            self.window.ui.tableWidgetBatchLog.item(0, 3).text(), "ABORTED"
+            self.window.ui.tableWidgetBatchLog.item(0, 2).text(), "ABORTED"
         )
         self.assertEqual(self.window.ui.flashButton.text(), "Start")
         self.assertFalse(self.window.ui.buttonStopBatch.isEnabled())

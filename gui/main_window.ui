@@ -206,11 +206,6 @@
               <widget class="QTableWidget" name="tableWidgetBatchLog">
                <column>
                 <property name="text">
-                 <string>#</string>
-                </property>
-               </column>
-               <column>
-                <property name="text">
                  <string>Serial Number</string>
                 </property>
                </column>

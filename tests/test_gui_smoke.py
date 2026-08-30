@@ -1641,16 +1641,20 @@ class TestBatchFlashScaffolding(unittest.TestCase):
     def test_batch_section_hidden_by_default(self):
         self.assertFalse(self.window.ui.groupBoxBatchFlash.isVisible())
 
-    def test_batch_log_table_has_five_columns(self):
+    def test_batch_log_table_has_four_columns(self):
+        # No separate "#" column - QTableWidget's own vertical
+        # header already numbers the rows, so an explicit index
+        # column would just duplicate it (see docs/walkthrough.md
+        # Phase 4.89).
         table = self.window.ui.tableWidgetBatchLog
-        self.assertEqual(table.columnCount(), 5)
+        self.assertEqual(table.columnCount(), 4)
         headers = [
             table.horizontalHeaderItem(i).text()
-            for i in range(5)
+            for i in range(4)
         ]
         self.assertEqual(
             headers,
-            ["#", "Serial Number", "Timestamp", "Result", "Duration"],
+            ["Serial Number", "Timestamp", "Result", "Duration"],
         )
 
     def test_stop_and_export_buttons_start_disabled(self):

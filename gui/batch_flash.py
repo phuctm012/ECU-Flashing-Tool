@@ -25,7 +25,12 @@ from datetime import datetime
 
 from PySide6.QtCore import QThread
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QTableWidgetItem
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QHeaderView,
+    QMessageBox,
+    QTableWidgetItem,
+)
 
 from core.test_connection import TestConnectionWorker
 from core.flash_controller import FlashWorker
@@ -61,6 +66,13 @@ class BatchFlashMixin:
             self.ui.buttonExportBatchReport.clicked.connect(
                 self.export_batch_report
             )
+
+        if hasattr(self.ui, 'tableWidgetBatchLog'):
+            header = self.ui.tableWidgetBatchLog.horizontalHeader()
+            for col in range(self.ui.tableWidgetBatchLog.columnCount()):
+                header.setSectionResizeMode(
+                    col, QHeaderView.ResizeMode.Stretch
+                )
 
     def _reset_batch_session(self):
 
@@ -491,9 +503,7 @@ class BatchFlashMixin:
             "reason": reason,
         })
 
-        self._append_batch_log_row(
-            self._batch_ecu_index, serial, result, duration, reason
-        )
+        self._append_batch_log_row(serial, result, duration, reason)
         self._update_batch_tally_label()
         self.ui.labelEcuCounter.setText(f"ECU #{self._batch_ecu_index}")
         self.ui.buttonExportBatchReport.setEnabled(True)
@@ -527,7 +537,7 @@ class BatchFlashMixin:
         )
         self.ui.flashButton.setText("Next")
 
-    def _append_batch_log_row(self, index, serial, result, duration, reason):
+    def _append_batch_log_row(self, serial, result, duration, reason):
 
         table = self.ui.tableWidgetBatchLog
         row = table.rowCount()
@@ -539,7 +549,7 @@ class BatchFlashMixin:
         color_kind = {"pass": "done", "fail": "error", "abort": "running"}
 
         cells = [
-            str(index), serial, datetime.now().strftime("%H:%M:%S"),
+            serial, datetime.now().strftime("%H:%M:%S"),
             result_labels[result], f"{duration}s",
         ]
         for col, text in enumerate(cells):
@@ -550,7 +560,7 @@ class BatchFlashMixin:
             table.setItem(row, col, item)
 
         if reason:
-            table.item(row, 3).setToolTip(reason)
+            table.item(row, 2).setToolTip(reason)
 
         table.scrollToBottom()
 
