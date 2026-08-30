@@ -1897,3 +1897,17 @@ User yêu cầu đổi version app thành 2.0 (trước đó là 1.1, đặt t�
 - `python cli.py --version` in đúng `"SFlash 2.0"`.
 - Test version-related (`tests/test_gui_smoke.py`, đọc `APP_VERSION` động thay vì hardcode "1.1") không cần sửa, vẫn pass nguyên trạng.
 - Full test suite: 392 test pass, không có test nào hardcode "1.1" nên không có gì phải cập nhật thêm.
+
+### Phase 4.86: Thêm Section "Loading Firmware from GitLab" Vào `docs/user_guide.html`
+
+User yêu cầu bổ sung hướng dẫn dùng tính năng Load from GitLab (Phase 4.78-4.84) vào guideline người dùng — file này được viết từ Phase 4.35/4.37 (trước khi tính năng GitLab tồn tại) nên hoàn toàn chưa nhắc tới.
+
+### Thay đổi
+
+- **`docs/user_guide.html`**: thêm section mới "Loading Firmware from GitLab" (sau "Basic Flashing Steps", trước "Safety Notes") — tái dùng class CSS `.step-body` sẵn có (không bọc trong `.step` đánh số, vì đây không phải 1 bước tuần tự bắt buộc mà là 1 lựa chọn thay thế cho bước 1) để giữ đúng typography `h3`/`p`/`img` nhất quán với các section khác. Nội dung chia 4 phần: Connection (Instance URL/Token + quyền cần có, TLS verify, Download folder), tab CI Artifact (Project, Branch/tag + nút Load branches/tags, Fetch Latest Artifact/Browse jobs), tab Package Registry (Project riêng, Package name), và bước sau khi tải xong (picker chọn file trong zip, ghi vào Recent Files, log panel). Kèm 1 `.note` tip nhắc tính năng chỉ đọc (read-only), không bao giờ trigger pipeline hay ghi gì lên GitLab. Kèm 1 ảnh chụp thật (không dàn dựng) — `GitLabFetchDialog` dựng qua `QT_QPA_PLATFORM=offscreen`, điền dữ liệu ví dụ (`https://gitlab.example.com`, `acme/radar-firmware`, branch `main`, job `build_firmware`), `dialog.grab()` → PNG → nhúng base64, đúng kỹ thuật đã dùng cho toàn bộ ảnh khác trong file này từ Phase 4.35.
+
+### Đã kiểm tra
+
+- Render bằng Chrome headless (`--headless --screenshot`, window cao 6000px để chụp hết trang) — layout đẹp, section mới nằm đúng vị trí, ảnh hiển thị đúng, không còn placeholder `__GITLAB_DIALOG_IMG_B64__` sót lại, không lệch CSS.
+- `grep` xác nhận không còn placeholder nào sót lại trong file.
+- Full test suite: 392 test pass (không có test nào assert nội dung `user_guide.html`, chỉ có 1 test xác nhận file tồn tại — `TestMenuBar.test_open_guideline_opens_existing_file` — không bị ảnh hưởng).
