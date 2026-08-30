@@ -1648,6 +1648,58 @@ class TestBatchModeToggle(unittest.TestCase):
         self.assertFalse(self.window.ui.actionModeFlash.isChecked())
 
 
+class TestBatchReportExport(unittest.TestCase):
+    """
+    Covers gui/batch_flash.py's export — mirrors
+    TestReportExport's split between the pure HTML-building
+    method and the QFileDialog-opening wrapper.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.window.ui.actionModeBatchFlash.setChecked(True)
+        self.window._load_firmware_file(SAMPLE_HEX)
+        self.window._batch_records = [
+            {
+                "index": 1, "serial": "AB12-3391", "timestamp": "09:14:02",
+                "result": "pass", "duration": 38, "reason": None,
+            },
+            {
+                "index": 2, "serial": "AB12-3415", "timestamp": "09:16:25",
+                "result": "fail", "duration": 12,
+                "reason": "Error: Security Access denied",
+            },
+        ]
+        self.window._batch_counts = {"pass": 1, "fail": 1, "abort": 0}
+
+    def test_html_contains_summary_and_per_unit_rows(self):
+        html_out = self.window._build_batch_report_html()
+        self.assertIn("AB12-3391", html_out)
+        self.assertIn("AB12-3415", html_out)
+        self.assertIn("PASS", html_out)
+        self.assertIn("FAIL", html_out)
+        self.assertIn("Security Access denied", html_out)
+        self.assertIn("<td>Total PASS</td><td>1</td>", html_out)
+        self.assertIn("<td>Total FAIL</td><td>1</td>", html_out)
+
+    def test_write_batch_report_file_creates_file(self):
+        tmp_dir = tempfile.mkdtemp()
+        file_path = os.path.join(tmp_dir, "batch_report.html")
+
+        self.window._write_batch_report_file(file_path)
+
+        self.assertTrue(os.path.isfile(file_path))
+        with open(file_path, encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("AB12-3391", content)
+
+    def test_export_button_disabled_until_first_row_logged(self):
+        fresh = MainWindow()
+        fresh.ui.actionModeBatchFlash.setChecked(True)
+        self.assertFalse(fresh.ui.buttonExportBatchReport.isEnabled())
+
+
 class TestMenuBar(unittest.TestCase):
     """
     Covers MenuBarMixin (gui/menu_bar.py) — File/Tools/Help

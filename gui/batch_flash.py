@@ -20,11 +20,12 @@
 # and reused here for the batch Flash step too).
 # ==================================================
 
+import html
 from datetime import datetime
 
 from PySide6.QtCore import QThread
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QTableWidgetItem
 
 from core.test_connection import TestConnectionWorker
 from core.flash_controller import FlashWorker
@@ -32,6 +33,7 @@ from core.flash_sequence import (
     build_flash_sequence,
     build_suzuki_slp1_flash_sequence,
 )
+from config.settings import APP_NAME, APP_VERSION
 
 
 class BatchFlashMixin:
@@ -55,8 +57,10 @@ class BatchFlashMixin:
                 self.stop_batch
             )
 
-        # buttonExportBatchReport.clicked is wired once
-        # export_batch_report() is defined (Task 6).
+        if hasattr(self.ui, 'buttonExportBatchReport'):
+            self.ui.buttonExportBatchReport.clicked.connect(
+                self.export_batch_report
+            )
 
     def _reset_batch_session(self):
 
@@ -605,3 +609,124 @@ class BatchFlashMixin:
             "to begin a new session."
         )
         self.ui.labelBatchStatusCaption.setText("")
+
+    # ==================================================
+    # Batch report export (HTML)
+    # ==================================================
+
+    def export_batch_report(self):
+
+        default_name = (
+            "batch_flash_report_"
+            + datetime.now().strftime("%Y%m%d_%H%M%S")
+            + ".html"
+        )
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Batch Flash Report",
+            default_name,
+            "HTML Files (*.html);;All Files (*)",
+        )
+
+        if not file_path:
+            return
+
+        self._write_batch_report_file(file_path)
+
+    def _write_batch_report_file(self, file_path):
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(self._build_batch_report_html())
+
+        except OSError as e:
+            QMessageBox.critical(
+                self, "Export Batch Report Failed", str(e)
+            )
+            return
+
+        self.log_information(
+            f"Batch report exported to {file_path}"
+        )
+
+    def _build_batch_report_html(self):
+
+        e = html.escape
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c = self._batch_counts
+
+        can_summary = "N/A"
+        if hasattr(self.ui, 'comboBoxHardware'):
+            can_summary = self.ui.comboBoxHardware.currentText()
+
+        radar_side = "N/A"
+        if hasattr(self.ui, 'comboBoxRadarSide'):
+            radar_side = self.ui.comboBoxRadarSide.currentText()
+
+        sequence = "N/A"
+        if hasattr(self.ui, 'comboBoxFlashSequence'):
+            sequence = self.ui.comboBoxFlashSequence.currentText()
+
+        session_start = (
+            self._batch_session_start_time.strftime("%Y-%m-%d %H:%M:%S")
+            if self._batch_session_start_time else "N/A"
+        )
+
+        rows_html = "".join(
+            f'<tr><td>{r["index"]}</td><td>{e(r["serial"])}</td>'
+            f'<td>{e(r["timestamp"])}</td>'
+            f'<td>{e(r["result"].upper())}</td>'
+            f'<td>{r["duration"]}s</td>'
+            f'<td>{e(r["reason"] or "")}</td></tr>'
+            for r in self._batch_records
+        )
+        if not rows_html:
+            rows_html = (
+                '<tr><td colspan="6">No units flashed yet.</td></tr>'
+            )
+
+        return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{e(APP_NAME)} Batch Flash Report — {e(now)}</title>
+<style>
+  body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1a1a1a; }}
+  h1 {{ font-size: 20px; margin-bottom: 0; }}
+  .subtitle {{ color: #666; margin-top: 4px; margin-bottom: 24px; }}
+  h2 {{ font-size: 15px; background: #E0E0E0; padding: 6px 8px; margin-top: 28px; }}
+  table {{ border-collapse: collapse; width: 100%; margin-top: 8px; }}
+  th, td {{ border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }}
+  th {{ background: #f2f2f2; }}
+  .summary td:first-child {{ font-weight: bold; width: 220px; }}
+</style>
+</head>
+<body>
+<h1>{e(APP_NAME)} v{e(APP_VERSION)} — Batch Flash Report</h1>
+<div class="subtitle">Exported {e(now)}</div>
+
+<h2>Summary</h2>
+<table class="summary">
+<tr><td>Hardware</td><td>{e(can_summary)}</td></tr>
+<tr><td>Radar Side</td><td>{e(radar_side)}</td></tr>
+<tr><td>Flash Sequence</td><td>{e(sequence)}</td></tr>
+<tr><td>Session Start</td><td>{e(session_start)}</td></tr>
+<tr><td>Total PASS</td><td>{c['pass']}</td></tr>
+<tr><td>Total FAIL</td><td>{c['fail']}</td></tr>
+<tr><td>Total ABORTED</td><td>{c['abort']}</td></tr>
+</table>
+
+<h2>Firmware</h2>
+{self._report_datablocks_table()}
+
+<h2>Batch Log</h2>
+<table>
+<tr><th>#</th><th>Serial Number</th><th>Timestamp</th><th>Result</th>
+<th>Duration</th><th>Reason</th></tr>
+{rows_html}
+</table>
+
+</body>
+</html>
+"""
