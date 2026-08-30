@@ -30,7 +30,7 @@
         <attribute name="title">
          <string>Flash</string>
         </attribute>
-        <layout class="QVBoxLayout" name="verticalLayout_flashTab" stretch="0,0">
+        <layout class="QVBoxLayout" name="verticalLayout_flashTab" stretch="0,0,0">
           <item>
            <layout class="QHBoxLayout" name="horizontalLayout_flashHeader" stretch="1,10">
             <item>
@@ -133,6 +133,106 @@
              </widget>
             </item>
            </layout>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="groupBoxBatchFlash">
+            <property name="visible">
+             <bool>false</bool>
+            </property>
+            <property name="title">
+             <string>Batch Flash</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_batchFlash">
+             <item>
+              <layout class="QHBoxLayout" name="horizontalLayout_batchControls">
+               <item>
+                <widget class="QLabel" name="labelEcuCounter">
+                 <property name="text">
+                  <string>ECU #0</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="labelBatchTally">
+                 <property name="text">
+                  <string>0 PASS · 0 FAIL · 0 ABORTED</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="horizontalSpacer_batchControls">
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Horizontal</enum>
+                 </property>
+                </spacer>
+               </item>
+               <item>
+                <widget class="QPushButton" name="buttonStopBatch">
+                 <property name="enabled">
+                  <bool>false</bool>
+                 </property>
+                 <property name="text">
+                  <string>Stop Batch</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="buttonExportBatchReport">
+                 <property name="enabled">
+                  <bool>false</bool>
+                 </property>
+                 <property name="text">
+                  <string>Export Report</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelBatchStatus">
+               <property name="text">
+                <string/>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="labelBatchStatusCaption">
+               <property name="text">
+                <string/>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QTableWidget" name="tableWidgetBatchLog">
+               <column>
+                <property name="text">
+                 <string>#</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Serial Number</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Timestamp</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Result</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>Duration</string>
+                </property>
+               </column>
+              </widget>
+             </item>
+            </layout>
+           </widget>
           </item>
          </layout>
        </widget>
@@ -949,6 +1049,15 @@
     <addaction name="separator"/>
     <addaction name="actionTestConnection"/>
     <addaction name="actionExportReport"/>
+    <addaction name="separator"/>
+    <widget class="QMenu" name="menuMode">
+     <property name="title">
+      <string>Mode</string>
+     </property>
+     <addaction name="actionModeFlash"/>
+     <addaction name="actionModeBatchFlash"/>
+    </widget>
+    <addaction name="menuMode"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -1014,6 +1123,25 @@
   <action name="actionExportReport">
    <property name="text">
     <string>Export Report...</string>
+   </property>
+  </action>
+  <action name="actionModeFlash">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Flash</string>
+   </property>
+  </action>
+  <action name="actionModeBatchFlash">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Batch Flash</string>
    </property>
   </action>
   <action name="actionAbout">

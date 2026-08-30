@@ -1579,6 +1579,43 @@ class TestIssueExport(unittest.TestCase):
             os.unlink(path)
 
 
+class TestBatchFlashScaffolding(unittest.TestCase):
+    """
+    Covers the static widgets added for Batch Flash mode
+    (gui/main_window.ui) — pure structure/defaults, before any
+    behavior is wired (see BatchFlashMixin, Task 2+).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_mode_actions_exist_and_default_to_flash_checked(self):
+        self.assertTrue(self.window.ui.actionModeFlash.isCheckable())
+        self.assertTrue(self.window.ui.actionModeBatchFlash.isCheckable())
+        self.assertTrue(self.window.ui.actionModeFlash.isChecked())
+        self.assertFalse(self.window.ui.actionModeBatchFlash.isChecked())
+
+    def test_batch_section_hidden_by_default(self):
+        self.assertFalse(self.window.ui.groupBoxBatchFlash.isVisible())
+
+    def test_batch_log_table_has_five_columns(self):
+        table = self.window.ui.tableWidgetBatchLog
+        self.assertEqual(table.columnCount(), 5)
+        headers = [
+            table.horizontalHeaderItem(i).text()
+            for i in range(5)
+        ]
+        self.assertEqual(
+            headers,
+            ["#", "Serial Number", "Timestamp", "Result", "Duration"],
+        )
+
+    def test_stop_and_export_buttons_start_disabled(self):
+        self.assertFalse(self.window.ui.buttonStopBatch.isEnabled())
+        self.assertFalse(self.window.ui.buttonExportBatchReport.isEnabled())
+
+
 class TestMenuBar(unittest.TestCase):
     """
     Covers MenuBarMixin (gui/menu_bar.py) — File/Tools/Help
