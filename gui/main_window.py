@@ -107,6 +107,18 @@ class MainWindow(
 
         self.setup_menu_bar()
 
+        # load_profile() (inside setup_settings_profile(), above)
+        # set actionModeBatchFlash's checked state before
+        # setup_menu_bar() had wired its toggled ->
+        # on_batch_mode_toggled() connection, so that signal fired
+        # with no listener yet — the action's own isChecked() is
+        # correct, but groupBoxBatchFlash/flashButton never got
+        # told. Sync them explicitly, once, now that the
+        # connection exists.
+        self.on_batch_mode_toggled(
+            self.ui.actionModeBatchFlash.isChecked()
+        )
+
         # ==========================================
         # Logs
         # ==========================================

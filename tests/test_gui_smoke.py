@@ -1094,6 +1094,19 @@ class TestSettingsProfile(unittest.TestCase):
             window2.ui.comboBoxFlashSequence.currentIndex(), 1
         )
 
+    def test_batch_mode_persists_across_restart(self):
+        window1 = MainWindow()
+        window1.ui.actionModeBatchFlash.setChecked(True)
+
+        window2 = MainWindow()
+        self.assertTrue(window2.ui.actionModeBatchFlash.isChecked())
+        self.assertTrue(window2._batch_mode_active)
+
+    def test_flash_mode_is_the_default(self):
+        window = MainWindow()
+        self.assertTrue(window.ui.actionModeFlash.isChecked())
+        self.assertFalse(window._batch_mode_active)
+
     def test_data_format_selection_persists_across_restart(self):
         window1 = MainWindow()
         window1.ui.lineEditCompressionMethod.setText("3")

@@ -84,6 +84,11 @@ class SettingsProfileMixin:
                 lambda _: self.save_profile()
             )
 
+        if hasattr(self.ui, 'actionModeBatchFlash'):
+            self.ui.actionModeBatchFlash.toggled.connect(
+                lambda _: self.save_profile()
+            )
+
     # ==================================================
     # Save
     # ==================================================
@@ -151,6 +156,14 @@ class SettingsProfileMixin:
             s.setValue(
                 "fingerprint/testerSerialNumber",
                 self.ui.lineEditTesterSerialNumber.text().strip()
+            )
+
+        if hasattr(self.ui, 'actionModeBatchFlash'):
+            s.setValue(
+                "flash/mode",
+                "batch"
+                if self.ui.actionModeBatchFlash.isChecked()
+                else "flash",
             )
 
         # Force an immediate flush to disk/registry rather than
@@ -244,3 +257,7 @@ class SettingsProfileMixin:
                 self.ui.lineEditTesterSerialNumber.setText(
                     text.upper()
                 )
+
+        if hasattr(self.ui, 'actionModeBatchFlash'):
+            mode = s.value("flash/mode", "flash", type=str)
+            self.ui.actionModeBatchFlash.setChecked(mode == "batch")
