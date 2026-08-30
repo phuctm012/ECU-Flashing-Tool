@@ -94,3 +94,167 @@ class BatchFlashMixin:
         self.ui.labelBatchTally.setText(
             f"{c['pass']} PASS · {c['fail']} FAIL · {c['abort']} ABORTED"
         )
+
+    # ==================================================
+    # Main button (Start Batch / Abort / Next ECU)
+    # ==================================================
+
+    def _batch_main_button_clicked(self):
+
+        if self.thread is not None and self.thread.isRunning():
+            # Flashing — Abort this unit only (batch keeps
+            # going, see stop_batch() for ending the session).
+            self._batch_operator_abort = True
+            self.worker.request_abort()
+            return
+
+        if (self._identify_thread is not None
+                and self._identify_thread.isRunning()):
+            # Already identifying — ignore (mirrors
+            # flash_button_clicked()'s own re-entrancy
+            # assumption: the button/menu are the only entry
+            # points, and both are disabled while a thread is
+            # alive — see Task 8).
+            return
+
+        datablocks = (
+            self.get_checked_datablocks()
+            if hasattr(self, 'get_checked_datablocks')
+            else getattr(self, '_loaded_datablocks', [])
+        )
+
+        if not datablocks:
+            QMessageBox.warning(
+                self,
+                "No Firmware Loaded",
+                "No firmware file is loaded (or ticked) "
+                "to flash.\n\nLoad a datablock in the Data "
+                "tab first, or tick at least one row in "
+                "the Datablocks table.",
+            )
+            return
+
+        self._start_identify()
+
+    def _start_identify(self):
+
+        if self._batch_session_start_time is None:
+            # Set once per session, on the very first Identify -
+            # a "Next ECU" retry after "No ECU detected" must
+            # not push this forward, and the batch report needs
+            # this as a stable session-start marker, not a
+            # per-unit timestamp.
+            self._batch_session_start_time = datetime.now()
+
+        self.ui.buttonStopBatch.setEnabled(True)
+        self.ui.labelBatchStatus.setText(
+            "Identifying ECU — reading Serial Number..."
+        )
+        self.ui.labelBatchStatusCaption.setText(
+            "Reads DID 0xF18C via the same probe as Tools > "
+            "Test Connection — independent of the flash "
+            "sequence itself."
+        )
+
+        use_virtual = True
+        if hasattr(self.ui, 'comboBoxHardware'):
+            use_virtual = (
+                self.ui.comboBoxHardware.currentData() is None
+            )
+
+        security_dll_path = getattr(
+            self, '_security_dll_path', ''
+        ) or None
+
+        use_suzuki_sequence = False
+        if hasattr(self.ui, 'comboBoxFlashSequence'):
+            use_suzuki_sequence = (
+                "Suzuki"
+                in self.ui.comboBoxFlashSequence.currentText()
+            )
+
+        can_config = (
+            self.get_can_config()
+            if hasattr(self, 'get_can_config')
+            else {}
+        )
+
+        self._batch_identify_ecu_info = {}
+
+        self._identify_thread = QThread()
+        self._identify_worker = TestConnectionWorker(
+            use_virtual=use_virtual,
+            security_dll_path=security_dll_path,
+            functional=use_suzuki_sequence,
+            can_channel=can_config.get("channel", 0),
+            can_serial=can_config.get("serial"),
+            can_tx_id=can_config.get("tx_id", 0x778),
+            can_rx_id=can_config.get("rx_id", 0x788),
+            can_bitrate=can_config.get("bitrate", 500000),
+            can_fd=can_config.get("fd", False),
+            can_data_bitrate=can_config.get(
+                "data_bitrate", 2000000
+            ),
+        )
+        self._identify_worker.moveToThread(self._identify_thread)
+
+        self._identify_thread.started.connect(
+            self._identify_worker.run
+        )
+
+        self._identify_worker.ecu_info_message.connect(
+            self._on_identify_ecu_info
+        )
+        self._identify_worker.finished.connect(
+            self._on_identify_finished
+        )
+
+        self._identify_worker.finished.connect(
+            self._identify_thread.quit
+        )
+        self._identify_worker.finished.connect(
+            self._identify_worker.deleteLater
+        )
+
+        # NOTE: intentionally NOT connecting thread.finished ->
+        # thread.deleteLater here — see module docstring and
+        # CLAUDE.md's "Threading model".
+        self._identify_thread.finished.connect(
+            self._cleanup_identify_thread
+        )
+
+        self._identify_thread.start()
+
+    def _on_identify_ecu_info(self, info_dict):
+        self._batch_identify_ecu_info = info_dict
+
+    def _cleanup_identify_thread(self):
+
+        if self._identify_thread is not None:
+            self._identify_thread.wait()
+
+        self._identify_thread = None
+        self._identify_worker = None
+
+    def _on_identify_finished(self, passed, message):
+
+        if not passed:
+            self.ui.labelBatchStatus.setText(
+                "No ECU detected on the bus."
+            )
+            self.ui.labelBatchStatusCaption.setText(
+                "Check connection and try again — not logged, "
+                "does not count against the batch."
+            )
+            self.ui.buttonStopBatch.setEnabled(False)
+            return
+
+        serial = self._batch_identify_ecu_info.get(
+            "ECU Serial Number", "UNKNOWN"
+        )
+        # Task 4 replaces this stub with a call to
+        # self._start_flash_for_current_ecu(serial).
+        self.ui.labelBatchStatus.setText(
+            f"Identified ECU (Serial {serial}) — flash not "
+            "yet wired (Task 4)."
+        )

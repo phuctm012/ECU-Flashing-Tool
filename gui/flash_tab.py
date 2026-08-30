@@ -182,6 +182,10 @@ class FlashTabMixin:
 
     def flash_button_clicked(self):
 
+        if getattr(self, '_batch_mode_active', False):
+            self._batch_main_button_clicked()
+            return
+
         if (self.thread is not None
                 and self.thread.isRunning()):
 
