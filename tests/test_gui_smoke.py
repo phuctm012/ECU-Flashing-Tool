@@ -21,7 +21,7 @@ sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
 
-from PySide6.QtWidgets import QLabel, QTableWidgetItem, QMessageBox
+from PySide6.QtWidgets import QApplication, QLabel, QTableWidgetItem, QMessageBox
 from PySide6.QtCore import Qt, QPoint
 
 from tests.qt_test_utils import get_app
@@ -978,6 +978,81 @@ class TestEmptyDatablocksGuard(unittest.TestCase):
             self.window.flash_button_clicked()
 
         mock_warning.assert_called_once()
+        self.assertIsNone(self.window.thread)
+
+
+class TestFlashButtonCanConflictFeedback(unittest.TestCase):
+    """
+    Covers flash_button_clicked()'s immediate feedback before the
+    real-hardware CAN conflict check — a real user on Windows
+    reported a perceived 1-2s unresponsive pause after clicking
+    Flash. Root cause: detect_can_conflict_warning() spawns
+    `tasklist` and re-enumerates Vector channels via the XL Driver,
+    real synchronous OS/driver work, and it runs before
+    prepare_flash_ui() (so the button hasn't even changed to
+    "Abort" yet) — nothing visibly changes during that window.
+    These tests only cover that the log line + busy cursor appear
+    before the check runs and get cleaned up correctly; the actual
+    OS/driver call latency isn't reproducible on this test machine.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+        combo = self.window.ui.comboBoxHardware
+        combo.addItem(
+            "VN1640A - Channel 1",
+            userData={
+                "label": "VN1640A - Channel 1",
+                "channel": 0, "hw_channel": 0,
+                "serial": None, "is_on_bus": False,
+            },
+        )
+        combo.setCurrentIndex(combo.count() - 1)
+
+    def test_log_message_and_busy_cursor_appear_before_the_check_runs(self):
+        seen = {}
+
+        def fake_check():
+            seen["log_text"] = self.window.ui.informationText.toPlainText()
+            seen["cursor_set"] = QApplication.overrideCursor() is not None
+            return None  # no conflict — flash proceeds
+
+        with unittest.mock.patch.object(
+            self.window, 'detect_can_conflict_warning', side_effect=fake_check,
+        ), unittest.mock.patch(
+            "gui.flash_tab.QThread"
+        ), unittest.mock.patch(
+            "gui.flash_tab.FlashWorker"
+        ):
+            self.window.flash_button_clicked()
+
+        self.assertIn(
+            "Checking for CAN bus conflicts before starting...",
+            seen["log_text"],
+        )
+        self.assertTrue(
+            seen["cursor_set"],
+            "busy cursor was not set before the conflict check ran",
+        )
+        self.assertIsNone(
+            QApplication.overrideCursor(),
+            "busy cursor was not restored after the conflict check",
+        )
+
+    def test_busy_cursor_restored_even_when_user_declines_to_proceed(self):
+        with unittest.mock.patch.object(
+            self.window, 'detect_can_conflict_warning',
+            return_value="Something is on the bus",
+        ), unittest.mock.patch(
+            "gui.flash_tab.QMessageBox.warning",
+            return_value=QMessageBox.No,
+        ):
+            self.window.flash_button_clicked()
+
+        self.assertIsNone(QApplication.overrideCursor())
         self.assertIsNone(self.window.thread)
 
 

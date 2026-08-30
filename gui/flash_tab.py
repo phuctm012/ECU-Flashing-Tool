@@ -12,7 +12,7 @@
 import time
 from datetime import datetime
 
-from PySide6.QtWidgets import QTableWidgetItem, QMessageBox
+from PySide6.QtWidgets import QApplication, QTableWidgetItem, QMessageBox
 from PySide6.QtGui import QColor
 from PySide6.QtCore import QThread, Qt, QPropertyAnimation, QEasingCurve
 
@@ -207,7 +207,27 @@ class FlashTabMixin:
             # Simulator. User can still choose to proceed.
             if (not use_virtual
                     and hasattr(self, 'detect_can_conflict_warning')):
-                warning = self.detect_can_conflict_warning()
+                # detect_can_conflict_warning() spawns `tasklist`
+                # and re-enumerates Vector channels via the XL
+                # Driver — real, synchronous OS/driver work that
+                # can take a perceptible 1-2s on some Windows
+                # machines, during which nothing else has run yet
+                # (prepare_flash_ui() hasn't fired, so the button
+                # hasn't even changed to "Abort"). Without this,
+                # a real-hardware Flash click looks unresponsive
+                # for that whole window. A busy cursor +
+                # immediate log line make it visibly "doing
+                # something" instead — they don't shorten the
+                # actual OS/driver call.
+                self.log_information(
+                    "Checking for CAN bus conflicts before starting..."
+                )
+                QApplication.setOverrideCursor(Qt.WaitCursor)
+                QApplication.processEvents()
+                try:
+                    warning = self.detect_can_conflict_warning()
+                finally:
+                    QApplication.restoreOverrideCursor()
                 if warning:
                     choice = QMessageBox.warning(
                         self,
