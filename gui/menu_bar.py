@@ -380,14 +380,21 @@ class MenuBarMixin:
         Enable exactly one of Tools > Flash / Abort at a time,
         matching whichever action flashButton itself currently
         represents (same button, same flash_button_clicked()
-        toggle — see gui/flash_tab.py). Read-only check against
-        self.thread; never touches it, so this can't interact
-        with the QThread lifecycle rules documented on
-        flash_button_clicked()/on_flash_finished().
+        toggle — see gui/flash_tab.py). Also disables Tools >
+        Mode while either a Flash or an Identify QThread is
+        alive, so switching modes can't happen out from under a
+        running batch unit. Read-only checks against
+        self.thread/self._identify_thread; never touches them,
+        so this can't interact with the QThread lifecycle rules
+        documented on flash_button_clicked()/on_flash_finished().
         """
 
         running = (
             self.thread is not None and self.thread.isRunning()
+        )
+        identifying = (
+            getattr(self, '_identify_thread', None) is not None
+            and self._identify_thread.isRunning()
         )
 
         if hasattr(self.ui, 'actionFlash'):
@@ -395,6 +402,14 @@ class MenuBarMixin:
 
         if hasattr(self.ui, 'actionAbort'):
             self.ui.actionAbort.setEnabled(running)
+
+        busy = running or identifying
+
+        if hasattr(self.ui, 'actionModeFlash'):
+            self.ui.actionModeFlash.setEnabled(not busy)
+
+        if hasattr(self.ui, 'actionModeBatchFlash'):
+            self.ui.actionModeBatchFlash.setEnabled(not busy)
 
     def action_test_connection(self):
 

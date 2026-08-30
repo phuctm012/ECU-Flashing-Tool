@@ -279,5 +279,36 @@ class TestStopBatchRealThread(unittest.TestCase):
         self.assertFalse(self.window.ui.buttonStopBatch.isEnabled())
 
 
+class TestModeActionsDisabledWhileRunningRealThread(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.window.ui.actionModeBatchFlash.setChecked(True)
+
+    def test_mode_actions_disabled_during_identify(self):
+        db = Datablock(file_path="synthetic_batch.bin")
+        db.segments.append(
+            Segment(start_address=0x1000, data=bytes([0xAA]) * 1000)
+        )
+        self.window._loaded_datablocks = [db]
+
+        self.window.flash_button_clicked()  # Start Batch -> Identify
+        self.window._sync_flash_abort_menu_state()
+
+        self.assertFalse(self.window.ui.actionModeFlash.isEnabled())
+        self.assertFalse(self.window.ui.actionModeBatchFlash.isEnabled())
+
+        _run_until(
+            self.app,
+            lambda: self.window._identify_thread is None,
+        )
+        _run_until(self.app, lambda: self.window.thread is None)
+
+        self.window._sync_flash_abort_menu_state()
+        self.assertTrue(self.window.ui.actionModeFlash.isEnabled())
+        self.assertTrue(self.window.ui.actionModeBatchFlash.isEnabled())
+
+
 if __name__ == "__main__":
     unittest.main()
