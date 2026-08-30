@@ -3,7 +3,7 @@
 # ==================================================
 
 APP_NAME = "SFlash"
-APP_VERSION = "1.1"
+APP_VERSION = "2.0"
 APP_AUTHOR = "tranph9"
 APP_AUTHOR_NAME = "TRAN Phuc"
 

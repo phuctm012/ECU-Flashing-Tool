@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-SFlash (v1.1) — a PySide6 desktop app that flashes ECU firmware over CAN using UDS (ISO 14229). It can run against a fully-simulated Virtual ECU (no hardware) or real Vector VN1640A/VN1630 hardware via `python-can`.
+SFlash (v2.0) — a PySide6 desktop app that flashes ECU firmware over CAN using UDS (ISO 14229). It can run against a fully-simulated Virtual ECU (no hardware) or real Vector VN1640A/VN1630 hardware via `python-can`.
 
 ## Commands
 

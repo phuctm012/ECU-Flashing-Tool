@@ -1880,3 +1880,20 @@ User sau đó đề xuất hướng khác, không phải folder cố định: th
 - Test mới: `tests/test_gui_smoke.py` (`TestGitLabFetchDialogConnectionCard`, 6 test — field mặc định rỗng, persist qua `QSettings`, nút Browse set đúng field + lưu, hủy chọn (`QFileDialog` trả `""`) không ghi đè giá trị cũ, validate chặn Fetch khi folder không tồn tại + không chặn khi để trống); `tests/test_gitlab_dialog_threading.py` (`TestDownloadFolderRealThread`, 4 test QThread thật — file được copy đúng vào folder cấu hình, file copy sống sót qua bước `closeEvent()` tự xóa temp dir của chính dialog, trùng tên tự thêm hậu tố thời gian và không đè file cũ, để trống thì vẫn dùng temp dir như cũ không copy gì).
 - Verify thật bằng script headless: fetch với `downloadFolderEdit` đã set → xác nhận `_load_firmware_file()` nhận đúng path nằm trong folder output, file tồn tại thật trên đĩa, log ghi đủ "Saved firmware to ..."; fetch với folder không tồn tại → xác nhận `GitLabFetchWorker` không được tạo (chặn trước khi gọi mạng), `statusLabel` báo đúng lỗi.
 - Full test suite: 392 test (382 cũ + 10 mới) pass; chạy riêng `tests/test_flash_threading.py` (9 test) — không liên quan tính năng này nhưng theo đúng quy tắc CLAUDE.md khi có thay đổi GUI/threading.
+
+### Phase 4.85: Nâng Version Lên 2.0
+
+User yêu cầu đổi version app thành 2.0 (trước đó là 1.1, đặt từ Phase 4.25 lúc đổi tên FFlash → v1.1).
+
+### Thay đổi
+
+- **`config/settings.py`**: `APP_VERSION = "1.1"` → `"2.0"` — nguồn duy nhất, các chỗ dùng động (`gui/main_window.py`'s window title/`version_label` ở status bar, `gui/menu_bar.py`'s About dialog, `cli.py`'s `--version`/description) tự ăn theo, không cần sửa logic.
+- **Chuỗi cứng phải sửa tay** (không tự cascade theo `APP_VERSION`, đúng như nhóm chuỗi cứng đã liệt kê ở Phase đổi tên FFlash→SFlash): `README.md`'s tiêu đề (`# SFlash (v1.1)` → `v2.0`); `CLAUDE.md`'s dòng mô tả đầu file; `docs/user_guide.html` (header `<span class="version">` + footer); `docs/user_guide_ecu_flash_debug.html` (header + footer) — mỗi file 2 chỗ.
+- **Không đụng** `docs/walkthrough.md` — các dòng "v1.1" trong đó là log lịch sử ghi lại đúng trạng thái tại thời điểm đó (Phase 4.25 và các Phase sau), không phải trạng thái hiện tại, giữ nguyên theo đúng nguyên tắc "walkthrough là log, không viết lại lịch sử".
+
+### Đã kiểm tra
+
+- `grep` xác nhận không còn "v1.1"/"1.1" nào sót lại ở các file mô tả trạng thái hiện tại (`README.md`, `CLAUDE.md`, `config/settings.py`, 2 file `docs/user_guide*.html`).
+- `python cli.py --version` in đúng `"SFlash 2.0"`.
+- Test version-related (`tests/test_gui_smoke.py`, đọc `APP_VERSION` động thay vì hardcode "1.1") không cần sửa, vẫn pass nguyên trạng.
+- Full test suite: 392 test pass, không có test nào hardcode "1.1" nên không có gì phải cập nhật thêm.

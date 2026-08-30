@@ -1,4 +1,4 @@
-# SFlash (v1.1)
+# SFlash (v2.0)
 
 Ứng dụng desktop (PySide6) để **flash firmware ECU** qua giao thức **UDS (ISO 14229)** trên bus CAN — hỗ trợ chạy với **ECU giả lập** (không cần phần cứng) hoặc với thiết bị **Vector VN1640A / VN1630** thật.
 
