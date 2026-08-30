@@ -1101,6 +1101,35 @@ class TestSettingsProfile(unittest.TestCase):
         window2 = MainWindow()
         self.assertTrue(window2.ui.actionModeBatchFlash.isChecked())
         self.assertTrue(window2._batch_mode_active)
+        # actionModeFlash defaults to checked="true" in the .ui —
+        # if the QActionGroup built in setup_menu_bar() doesn't
+        # retroactively enforce exclusivity against the checked
+        # state load_profile() already restored (it runs first),
+        # both actions end up checked at once and Tools > Mode
+        # can never switch back to Flash (see the regression test
+        # below).
+        self.assertFalse(window2.ui.actionModeFlash.isChecked())
+
+    def test_restoring_batch_mode_does_not_wedge_switching_back_to_flash(self):
+        # Regression test: restoring a saved "batch" mode used to
+        # leave BOTH actionModeFlash and actionModeBatchFlash
+        # checked=true at once (the QActionGroup only enforces
+        # exclusivity for a checked-state *change*, and
+        # load_profile() sets actionModeBatchFlash's checked state
+        # before the group is even constructed). With both already
+        # checked, clicking actionModeFlash in the menu is a no-op
+        # (no toggled signal fires), permanently wedging the app in
+        # Batch Flash mode.
+        window1 = MainWindow()
+        window1.ui.actionModeBatchFlash.setChecked(True)
+
+        window2 = MainWindow()
+        self.assertTrue(window2._batch_mode_active)
+
+        window2.ui.actionModeFlash.setChecked(True)
+        self.assertFalse(window2.ui.actionModeBatchFlash.isChecked())
+        self.assertFalse(window2._batch_mode_active)
+        self.assertEqual(window2.ui.flashButton.text(), "Flash")
 
     def test_flash_mode_is_the_default(self):
         window = MainWindow()
@@ -1644,7 +1673,7 @@ class TestBatchModeToggle(unittest.TestCase):
         self.app.processEvents()
         self.window.ui.actionModeBatchFlash.setChecked(True)
         self.assertTrue(self.window.ui.groupBoxBatchFlash.isVisible())
-        self.assertEqual(self.window.ui.flashButton.text(), "Start Batch")
+        self.assertEqual(self.window.ui.flashButton.text(), "Start")
         self.assertTrue(self.window._batch_mode_active)
 
     def test_selecting_flash_hides_section_and_restores_button(self):

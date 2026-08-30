@@ -113,6 +113,23 @@ class MenuBarMixin:
             self._mode_action_group = QActionGroup(self)
             self._mode_action_group.addAction(self.ui.actionModeFlash)
             self._mode_action_group.addAction(self.ui.actionModeBatchFlash)
+            # load_profile() (in setup_settings_profile(), which
+            # runs before setup_menu_bar()) already set
+            # actionModeBatchFlash's checked state from the saved
+            # profile — but that happened before this group
+            # existed, so its exclusivity never fired. If the
+            # saved mode was "batch", both actions are left
+            # checked=true at once (actionModeFlash defaults to
+            # checked="true" in the .ui), which wedges Tools >
+            # Mode permanently: clicking either entry is then a
+            # no-op (already checked, so no toggled signal fires)
+            # and the menu can never switch back to Flash. Re-
+            # derive actionModeFlash's checked state now that the
+            # group exists, using actionModeBatchFlash's state as
+            # the authority.
+            self.ui.actionModeFlash.setChecked(
+                not self.ui.actionModeBatchFlash.isChecked()
+            )
 
         if hasattr(self.ui, 'actionModeBatchFlash'):
             self.ui.actionModeBatchFlash.toggled.connect(

@@ -113,7 +113,7 @@ class TestFullBatchCycleRealThread(unittest.TestCase):
         self.window._load_firmware_file(SAMPLE_HEX)
 
     def _run_full_cycle(self):
-        self.window.flash_button_clicked()  # Start Batch -> Identify
+        self.window.flash_button_clicked()  # Start -> Identify
         _run_until(
             self.app,
             lambda: self.window._identify_thread is None,
@@ -134,7 +134,7 @@ class TestFullBatchCycleRealThread(unittest.TestCase):
         self.assertEqual(table.item(0, 3).text(), "PASS")
 
         self.assertEqual(self.window._batch_counts["pass"], 1)
-        self.assertEqual(self.window.ui.flashButton.text(), "Next ECU")
+        self.assertEqual(self.window.ui.flashButton.text(), "Next")
         self.assertEqual(self.window.ui.labelEcuCounter.text(), "ECU #1")
 
     def test_operator_abort_mid_flash_logs_aborted_not_fail(self):
@@ -147,7 +147,7 @@ class TestFullBatchCycleRealThread(unittest.TestCase):
         )
         self.window._loaded_datablocks = [db]
 
-        self.window.flash_button_clicked()  # Start Batch -> Identify
+        self.window.flash_button_clicked()  # Start -> Identify
         _run_until(
             self.app,
             lambda: self.window._identify_thread is None,
@@ -217,7 +217,7 @@ class TestStopBatchRealThread(unittest.TestCase):
         with unittest.mock.patch.object(
             TestConnectionWorker, 'run', delayed_run
         ):
-            self.window.flash_button_clicked()  # Start Batch -> Identify
+            self.window.flash_button_clicked()  # Start -> Identify
             self.assertIsNotNone(self.window._identify_thread)
 
             self.window.stop_batch()
@@ -227,7 +227,7 @@ class TestStopBatchRealThread(unittest.TestCase):
             lambda: self.window._identify_thread is None,
         )
 
-        self.assertEqual(self.window.ui.flashButton.text(), "Start Batch")
+        self.assertEqual(self.window.ui.flashButton.text(), "Start")
         self.assertEqual(self.window.ui.tableWidgetBatchLog.rowCount(), 0)
 
     def test_close_window_mid_identify_does_not_crash(self):
@@ -237,7 +237,7 @@ class TestStopBatchRealThread(unittest.TestCase):
         )
         self.window._loaded_datablocks = [db]
 
-        self.window.flash_button_clicked()  # Start Batch -> Identify
+        self.window.flash_button_clicked()  # Start -> Identify
         self.window.close()
         self.app.processEvents()
 
@@ -247,16 +247,16 @@ class TestStopBatchRealThread(unittest.TestCase):
         # itself when a flash is in flight - flash_aborted's
         # queued delivery to _on_batch_unit_finished (which is
         # what actually appends the ABORTED row) hasn't run yet
-        # even after thread.wait() returns, so setting "Start
-        # Batch" too early gets silently overwritten back to
-        # "Next ECU" once that queued signal finally lands.
+        # even after thread.wait() returns, so setting "Start"
+        # too early gets silently overwritten back to
+        # "Next" once that queued signal finally lands.
         db = Datablock(file_path="synthetic_batch.bin")
         db.segments.append(
             Segment(start_address=0x1000, data=bytes([0xAA]) * 200_000)
         )
         self.window._loaded_datablocks = [db]
 
-        self.window.flash_button_clicked()  # Start Batch -> Identify
+        self.window.flash_button_clicked()  # Start -> Identify
         _run_until(
             self.app,
             lambda: self.window._identify_thread is None,
@@ -275,7 +275,7 @@ class TestStopBatchRealThread(unittest.TestCase):
         self.assertEqual(
             self.window.ui.tableWidgetBatchLog.item(0, 3).text(), "ABORTED"
         )
-        self.assertEqual(self.window.ui.flashButton.text(), "Start Batch")
+        self.assertEqual(self.window.ui.flashButton.text(), "Start")
         self.assertFalse(self.window.ui.buttonStopBatch.isEnabled())
 
 
@@ -293,7 +293,7 @@ class TestModeActionsDisabledWhileRunningRealThread(unittest.TestCase):
         )
         self.window._loaded_datablocks = [db]
 
-        self.window.flash_button_clicked()  # Start Batch -> Identify
+        self.window.flash_button_clicked()  # Start -> Identify
         self.window._sync_flash_abort_menu_state()
 
         self.assertFalse(self.window.ui.actionModeFlash.isEnabled())

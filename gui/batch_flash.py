@@ -92,7 +92,7 @@ class BatchFlashMixin:
 
         if hasattr(self.ui, 'flashButton'):
             self.ui.flashButton.setText(
-                "Start Batch" if is_batch else "Flash"
+                "Start" if is_batch else "Flash"
             )
 
     def _update_batch_tally_label(self):
@@ -103,7 +103,7 @@ class BatchFlashMixin:
         )
 
     # ==================================================
-    # Main button (Start Batch / Abort / Next ECU)
+    # Main button (Start / Abort / Next)
     # ==================================================
 
     def _batch_main_button_clicked(self):
@@ -147,7 +147,7 @@ class BatchFlashMixin:
 
         if self._batch_session_start_time is None:
             # Set once per session, on the very first Identify -
-            # a "Next ECU" retry after "No ECU detected" must
+            # a "Next" retry after "No ECU detected" must
             # not push this forward, and the batch report needs
             # this as a stable session-start marker, not a
             # per-unit timestamp.
@@ -258,11 +258,11 @@ class BatchFlashMixin:
             # pattern as _on_batch_unit_finished()'s own guard for
             # the mid-flash case.
             self._batch_stopping = False
-            self.ui.flashButton.setText("Start Batch")
+            self.ui.flashButton.setText("Start")
             self.ui.buttonStopBatch.setEnabled(False)
             self.ui.labelBatchStatus.setText(
                 "Batch stopped. Log kept below — click Start "
-                "Batch to begin a new session."
+                "to begin a new session."
             )
             self.ui.labelBatchStatusCaption.setText("")
             return
@@ -304,14 +304,14 @@ class BatchFlashMixin:
             # with no actual work done, corrupting the batch's
             # traceability report. Bail out the same way
             # _batch_main_button_clicked() already does for the
-            # "Start Batch" case.
+            # "Start" case.
             QMessageBox.warning(
                 self,
                 "No Firmware Loaded",
                 "No firmware file is loaded (or ticked) to "
                 "flash.\n\nLoad a datablock in the Data tab "
                 "first, or tick at least one row in the "
-                "Datablocks table, then click Next ECU again.",
+                "Datablocks table, then click Next again.",
             )
             self.ui.buttonStopBatch.setEnabled(False)
             return
@@ -506,14 +506,14 @@ class BatchFlashMixin:
             # stop_batch() requested this abort and is waiting
             # for it to actually land before touching button/
             # label state (see stop_batch()'s own comment) - this
-            # is that landing point. Do NOT set "Next ECU" here.
+            # is that landing point. Do NOT set "Next" here.
             self._batch_stopping = False
-            self.ui.flashButton.setText("Start Batch")
+            self.ui.flashButton.setText("Start")
             self.ui.buttonStopBatch.setEnabled(False)
             self.ui.labelBatchStatus.setText(
                 f"Batch stopped after ECU #{self._batch_ecu_index} "
                 f"({result_labels[result]}). Log kept below — "
-                "click Start Batch to begin a new session."
+                "click Start to begin a new session."
             )
             self.ui.labelBatchStatusCaption.setText("")
             return
@@ -523,9 +523,9 @@ class BatchFlashMixin:
             f"{result_labels[result]} ({serial}, {duration}s)."
         )
         self.ui.labelBatchStatusCaption.setText(
-            "Swap in the next ECU, then click Next ECU."
+            "Swap in the next ECU, then click Next."
         )
-        self.ui.flashButton.setText("Next ECU")
+        self.ui.flashButton.setText("Next")
 
     def _append_batch_log_row(self, index, serial, result, duration, reason):
 
@@ -570,8 +570,8 @@ class BatchFlashMixin:
             # *delivered* to _on_batch_flash_aborted - delivery
             # only happens once the GUI thread's event loop next
             # runs, which is after this method returns. Setting
-            # "Start Batch" here would just get silently
-            # overwritten back to "Next ECU" a moment later when
+            # "Start" here would just get silently
+            # overwritten back to "Next" a moment later when
             # _on_batch_unit_finished() (called from
             # _on_batch_flash_aborted) finally runs. Instead, set
             # this flag and let _on_batch_unit_finished() do the
@@ -602,10 +602,10 @@ class BatchFlashMixin:
 
         # Nothing was running - no queued completion signal to
         # wait out, safe to reset the UI immediately.
-        self.ui.flashButton.setText("Start Batch")
+        self.ui.flashButton.setText("Start")
         self.ui.buttonStopBatch.setEnabled(False)
         self.ui.labelBatchStatus.setText(
-            "Batch stopped. Log kept below — click Start Batch "
+            "Batch stopped. Log kept below — click Start "
             "to begin a new session."
         )
         self.ui.labelBatchStatusCaption.setText("")
