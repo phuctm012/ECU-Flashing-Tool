@@ -88,6 +88,100 @@ class TestIdentifyRealThread(unittest.TestCase):
         self.assertIsNone(self.window._identify_thread)
         self.assertIsNone(self.window._identify_worker)
 
+        # A successful Identify auto-starts a real Flash QThread
+        # (see Task 4) — wait for it too, or it's left running
+        # when this test method returns and MainWindow gets
+        # garbage-collected, which is exactly the historic
+        # "QThread: Destroyed while thread is still running"
+        # crash this codebase's tests exist to catch.
+        _run_until(self.app, lambda: self.window.thread is None)
+
+
+class TestFullBatchCycleRealThread(unittest.TestCase):
+    """
+    Identify -> Flash -> PASS/FAIL/ABORTED, end to end, against
+    the Virtual ECU Simulator. Real QThread throughout (both
+    the Identify probe and the flash itself).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.window.ui.actionModeBatchFlash.setChecked(True)
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+    def _run_full_cycle(self):
+        self.window.flash_button_clicked()  # Start Batch -> Identify
+        _run_until(
+            self.app,
+            lambda: self.window._identify_thread is None,
+        )
+        # Identify success auto-starts Flash - wait for that too.
+        _run_until(
+            self.app,
+            lambda: self.window.thread is None,
+        )
+
+    def test_full_cycle_logs_a_pass_row_and_advances_to_next_ecu(self):
+        self._run_full_cycle()
+
+        table = self.window.ui.tableWidgetBatchLog
+        self.assertEqual(table.rowCount(), 1)
+        self.assertEqual(table.item(0, 0).text(), "1")
+        self.assertTrue(len(table.item(0, 1).text()) > 0)  # Serial Number
+        self.assertEqual(table.item(0, 3).text(), "PASS")
+
+        self.assertEqual(self.window._batch_counts["pass"], 1)
+        self.assertEqual(self.window.ui.flashButton.text(), "Next ECU")
+        self.assertEqual(self.window.ui.labelEcuCounter.text(), "ECU #1")
+
+    def test_operator_abort_mid_flash_logs_aborted_not_fail(self):
+        # Large payload so there's still a step to abort
+        # partway through (Virtual ECU flashes fast otherwise) —
+        # same technique as tests/test_flash_threading.py.
+        db = Datablock(file_path="synthetic_batch.bin")
+        db.segments.append(
+            Segment(start_address=0x1000, data=bytes([0xAA]) * 200_000)
+        )
+        self.window._loaded_datablocks = [db]
+
+        self.window.flash_button_clicked()  # Start Batch -> Identify
+        _run_until(
+            self.app,
+            lambda: self.window._identify_thread is None,
+        )
+        # Now flashing - click again to Abort.
+        self.window.flash_button_clicked()
+
+        _run_until(self.app, lambda: self.window.thread is None)
+
+        table = self.window.ui.tableWidgetBatchLog
+        self.assertEqual(table.item(0, 3).text(), "ABORTED")
+        self.assertEqual(self.window._batch_counts["abort"], 1)
+        self.assertEqual(self.window._batch_counts["fail"], 0)
+
+    def test_step_failure_logs_fail_not_aborted_with_a_reason(self):
+        # Deterministic FAIL without needing the simulator to
+        # naturally reject anything: force the very first step to
+        # report failure, exactly like a real NRC/UDS error would
+        # (core/flash_controller.py's own "if not success:" branch
+        # - see FlashWorker.run()) - patched at the class level so
+        # it applies to the FlashWorker this test's own flash
+        # start-up creates.
+        with unittest.mock.patch.object(
+            FlashWorker, '_execute_step', return_value=False
+        ):
+            self._run_full_cycle()
+
+        table = self.window.ui.tableWidgetBatchLog
+        self.assertEqual(table.item(0, 3).text(), "FAIL")
+        self.assertEqual(self.window._batch_counts["fail"], 1)
+        self.assertEqual(self.window._batch_counts["abort"], 0)
+        self.assertIn(
+            "Step failed",
+            self.window._batch_records[0]["reason"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
