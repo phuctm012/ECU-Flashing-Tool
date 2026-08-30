@@ -50,10 +50,13 @@ class BatchFlashMixin:
         self._batch_last_information_message = ""
         self._reset_batch_session()
 
-        # buttonStopBatch/buttonExportBatchReport.clicked are
-        # wired further down in this method, once stop_batch()/
-        # export_batch_report() are defined below (they aren't
-        # yet at this point in the file — added incrementally).
+        if hasattr(self.ui, 'buttonStopBatch'):
+            self.ui.buttonStopBatch.clicked.connect(
+                self.stop_batch
+            )
+
+        # buttonExportBatchReport.clicked is wired once
+        # export_batch_report() is defined (Task 6).
 
     def _reset_batch_session(self):
 
@@ -237,6 +240,28 @@ class BatchFlashMixin:
         self._identify_worker = None
 
     def _on_identify_finished(self, passed, message):
+
+        if self._batch_stopping:
+            # stop_batch() requested this and is waiting for it
+            # to actually land: TestConnectionWorker.finished is
+            # a queued cross-thread signal, so it's still pending
+            # delivery even after _identify_thread.wait() returns
+            # in stop_batch() (that only proves the worker's OS
+            # thread stopped, not that this slot has run yet) -
+            # without this guard, a probe that succeeded right as
+            # Stop was clicked would still auto-start a real Flash
+            # here, silently defeating the Stop request. Same
+            # pattern as _on_batch_unit_finished()'s own guard for
+            # the mid-flash case.
+            self._batch_stopping = False
+            self.ui.flashButton.setText("Start Batch")
+            self.ui.buttonStopBatch.setEnabled(False)
+            self.ui.labelBatchStatus.setText(
+                "Batch stopped. Log kept below — click Start "
+                "Batch to begin a new session."
+            )
+            self.ui.labelBatchStatusCaption.setText("")
+            return
 
         if not passed:
             self.ui.labelBatchStatus.setText(
@@ -524,3 +549,59 @@ class BatchFlashMixin:
             table.item(row, 3).setToolTip(reason)
 
         table.scrollToBottom()
+
+    # ==================================================
+    # Stop Batch
+    # ==================================================
+
+    def stop_batch(self):
+
+        if self.thread is not None and self.thread.isRunning():
+            # Do NOT set flashButton/label state here. worker.
+            # flash_aborted is a queued cross-thread signal - by
+            # the time thread.wait() returns below, the worker's
+            # OS thread has genuinely stopped (it already called
+            # flash_aborted.emit() right before returning), but
+            # that queued signal has only been *posted*, not yet
+            # *delivered* to _on_batch_flash_aborted - delivery
+            # only happens once the GUI thread's event loop next
+            # runs, which is after this method returns. Setting
+            # "Start Batch" here would just get silently
+            # overwritten back to "Next ECU" a moment later when
+            # _on_batch_unit_finished() (called from
+            # _on_batch_flash_aborted) finally runs. Instead, set
+            # this flag and let _on_batch_unit_finished() do the
+            # actual UI update once it's really the one running.
+            self._batch_stopping = True
+            self._batch_operator_abort = True
+            self.worker.request_abort()
+            self.thread.quit()
+            self.thread.wait()
+            return
+
+        if (self._identify_thread is not None
+                and self._identify_thread.isRunning()):
+            # Same reasoning as the Flash branch above, not "no
+            # async completion pending" as originally assumed:
+            # TestConnectionWorker.finished is also a queued
+            # cross-thread signal, still undelivered even after
+            # _identify_thread.wait() returns - if the probe
+            # happened to succeed right as Stop was clicked,
+            # _on_identify_finished()'s success branch would
+            # still auto-start a real Flash once that queued
+            # signal lands, unless this flag heads it off (see
+            # its own guard).
+            self._batch_stopping = True
+            self._identify_thread.quit()
+            self._identify_thread.wait()
+            return
+
+        # Nothing was running - no queued completion signal to
+        # wait out, safe to reset the UI immediately.
+        self.ui.flashButton.setText("Start Batch")
+        self.ui.buttonStopBatch.setEnabled(False)
+        self.ui.labelBatchStatus.setText(
+            "Batch stopped. Log kept below — click Start Batch "
+            "to begin a new session."
+        )
+        self.ui.labelBatchStatusCaption.setText("")

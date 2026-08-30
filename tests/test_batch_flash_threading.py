@@ -10,6 +10,7 @@
 
 import os
 import sys
+import time
 import unittest
 import unittest.mock
 
@@ -23,6 +24,7 @@ from tests.qt_test_utils import get_app
 from gui.main_window import MainWindow
 from parsers.hex_parser import Segment, Datablock
 from core.flash_controller import FlashWorker
+from core.test_connection import TestConnectionWorker
 
 SAMPLE_HEX = os.path.join(os.path.dirname(__file__), "sample.hex")
 
@@ -181,6 +183,100 @@ class TestFullBatchCycleRealThread(unittest.TestCase):
             "Step failed",
             self.window._batch_records[0]["reason"],
         )
+
+
+class TestStopBatchRealThread(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.window.ui.actionModeBatchFlash.setChecked(True)
+
+    def test_stop_batch_mid_identify_logs_nothing_and_resets_button(self):
+        # The Virtual ECU answers the Identify probe's few DID
+        # reads almost instantly, so without an artificial delay
+        # this test races: Identify (and the Flash it auto-starts)
+        # can complete before stop_batch() below even runs,
+        # silently turning "stop mid-identify" into "stop
+        # mid-flash" (a different, already-covered scenario) or
+        # "stop after everything finished". Delaying
+        # TestConnectionWorker.run() on its own worker thread
+        # (not the GUI thread) makes the timing deterministic.
+        db = Datablock(file_path="synthetic_batch.bin")
+        db.segments.append(
+            Segment(start_address=0x1000, data=bytes([0xAA]) * 1000)
+        )
+        self.window._loaded_datablocks = [db]
+
+        original_run = TestConnectionWorker.run
+
+        def delayed_run(worker_self):
+            time.sleep(0.3)
+            original_run(worker_self)
+
+        with unittest.mock.patch.object(
+            TestConnectionWorker, 'run', delayed_run
+        ):
+            self.window.flash_button_clicked()  # Start Batch -> Identify
+            self.assertIsNotNone(self.window._identify_thread)
+
+            self.window.stop_batch()
+
+        _run_until(
+            self.app,
+            lambda: self.window._identify_thread is None,
+        )
+
+        self.assertEqual(self.window.ui.flashButton.text(), "Start Batch")
+        self.assertEqual(self.window.ui.tableWidgetBatchLog.rowCount(), 0)
+
+    def test_close_window_mid_identify_does_not_crash(self):
+        db = Datablock(file_path="synthetic_batch.bin")
+        db.segments.append(
+            Segment(start_address=0x1000, data=bytes([0xAA]) * 1000)
+        )
+        self.window._loaded_datablocks = [db]
+
+        self.window.flash_button_clicked()  # Start Batch -> Identify
+        self.window.close()
+        self.app.processEvents()
+
+    def test_stop_batch_mid_flash_logs_aborted_and_settles_on_start_batch(self):
+        # Regression test for an async-ordering bug caught during
+        # planning: stop_batch() must not set flashButton's text
+        # itself when a flash is in flight - flash_aborted's
+        # queued delivery to _on_batch_unit_finished (which is
+        # what actually appends the ABORTED row) hasn't run yet
+        # even after thread.wait() returns, so setting "Start
+        # Batch" too early gets silently overwritten back to
+        # "Next ECU" once that queued signal finally lands.
+        db = Datablock(file_path="synthetic_batch.bin")
+        db.segments.append(
+            Segment(start_address=0x1000, data=bytes([0xAA]) * 200_000)
+        )
+        self.window._loaded_datablocks = [db]
+
+        self.window.flash_button_clicked()  # Start Batch -> Identify
+        _run_until(
+            self.app,
+            lambda: self.window._identify_thread is None,
+        )
+        # Now flashing (large payload keeps it running long
+        # enough to Stop mid-way, same technique as
+        # tests/test_flash_threading.py's TestAbortMidFlash).
+        self.assertIsNotNone(self.window.thread)
+
+        self.window.stop_batch()
+
+        _run_until(self.app, lambda: self.window.thread is None)
+        self.app.processEvents()  # let the queued flash_aborted land
+
+        self.assertEqual(self.window.ui.tableWidgetBatchLog.rowCount(), 1)
+        self.assertEqual(
+            self.window.ui.tableWidgetBatchLog.item(0, 3).text(), "ABORTED"
+        )
+        self.assertEqual(self.window.ui.flashButton.text(), "Start Batch")
+        self.assertFalse(self.window.ui.buttonStopBatch.isEnabled())
 
 
 if __name__ == "__main__":

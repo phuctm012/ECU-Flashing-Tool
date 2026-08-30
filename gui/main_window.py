@@ -360,4 +360,31 @@ class MainWindow(
             self.thread.quit()
             self.thread.wait()
 
+        if (getattr(self, '_identify_thread', None) is not None
+                and self._identify_thread.isRunning()):
+
+            # Same reasoning as the Flash thread above and as
+            # gui/test_connection_dialog.py's closeEvent(): quit()
+            # is thread-safe to call directly and doesn't need to
+            # wait for a queued signal, so call it before wait()
+            # rather than relying on TestConnectionWorker.finished
+            # -> thread.quit (which wouldn't be delivered until
+            # this very event loop runs again).
+            #
+            # _batch_stopping guards against a second, sneakier
+            # problem: TestConnectionWorker.finished is itself a
+            # queued signal, still undelivered even after wait()
+            # returns below (that only proves the worker's OS
+            # thread stopped). If it later delivers with
+            # passed=True, _on_identify_finished()'s success
+            # branch would start a brand-new Flash QThread on a
+            # window that's closing, and nothing would ever wait
+            # for it — exactly the kind of dangling thread
+            # CLAUDE.md's "Threading model" warns about. Setting
+            # this flag makes that handler settle instead (same
+            # guard stop_batch() already relies on).
+            self._batch_stopping = True
+            self._identify_thread.quit()
+            self._identify_thread.wait()
+
         event.accept()
