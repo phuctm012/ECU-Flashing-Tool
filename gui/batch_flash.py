@@ -480,12 +480,7 @@ class BatchFlashMixin:
         row = self.ui.stepsTable.rowCount() - 1
         if row < 0:
             return
-        bg, fg = self._status_colors(kind)
-        for col in range(2):
-            item = self.ui.stepsTable.item(row, col)
-            if item:
-                item.setBackground(QColor(bg))
-                item.setForeground(QColor(fg))
+        self._apply_status_color(self.ui.stepsTable, row, kind)
 
     def _batch_elapsed_seconds(self):
         return int(

@@ -35,6 +35,7 @@ from config.settings import (
     APP_VERSION,
     STATUS_COLOR_DONE,
     STATUS_COLOR_DONE_DARK,
+    STATUS_COLOR_RUNNING_DARK,
     STATUS_TEXT_COLOR,
     STATUS_TEXT_COLOR_DARK,
 )
@@ -720,6 +721,81 @@ class TestStatusColorsFollowLiveTheme(unittest.TestCase):
         dark_item = self.window.ui.stepsTable.item(1, 1)
         self.assertEqual(
             dark_item.background().color().name(), STATUS_COLOR_DONE_DARK
+        )
+
+
+class TestStatusTableRecolorsOnThemeToggle(unittest.TestCase):
+    """
+    Covers _apply_status_color()/_recolor_status_table()
+    (gui/flash_tab.py), wired into gui/menu_bar.py's
+    action_toggle_dark_mode(). Real user report: a batch run
+    toggled Light/Dark Mode several times mid-session, and
+    stepsTable/segmentsTable rows logged before a toggle stayed
+    stuck in their original theme's colors — unlike
+    TestStatusColorsFollowLiveTheme's
+    test_toggling_theme_mid_session_recolors_new_rows, which only
+    covers *newly added* rows picking up the live theme.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def tearDown(self):
+        # Restore Light Mode so a failed assertion here can't leak
+        # a dark stylesheet into unrelated tests run afterward.
+        self.window.ui.actionDarkMode.setChecked(False)
+
+    def test_toggling_dark_recolors_existing_steps_table_rows(self):
+        self.window._dark_mode_active = False
+        self.window.add_step("Step A")  # becomes "done" below
+        self.window.add_step("Step B")  # stays "running"
+
+        self.window.ui.actionDarkMode.setChecked(True)
+
+        table = self.window.ui.stepsTable
+        done_item = table.item(0, 1)
+        running_item = table.item(1, 1)
+        self.assertEqual(
+            done_item.background().color().name(), STATUS_COLOR_DONE_DARK
+        )
+        self.assertEqual(
+            done_item.foreground().color().name(), STATUS_TEXT_COLOR_DARK
+        )
+        self.assertEqual(
+            running_item.background().color().name(),
+            STATUS_COLOR_RUNNING_DARK,
+        )
+
+    def test_toggling_light_recolors_steps_table_rows_logged_in_dark(self):
+        self.window.ui.actionDarkMode.setChecked(True)
+        self.window.add_step("Step A")  # becomes "done" below
+        self.window.add_step("Step B")  # stays "running"
+
+        self.window.ui.actionDarkMode.setChecked(False)
+
+        item = self.window.ui.stepsTable.item(0, 1)
+        self.assertEqual(
+            item.background().color().name(), STATUS_COLOR_DONE.lower()
+        )
+        self.assertEqual(item.foreground().color().name(), STATUS_TEXT_COLOR)
+
+    def test_toggling_dark_recolors_existing_segments_table_rows(self):
+        db = parse_firmware_file(SAMPLE_HEX)  # 2 segments
+        self.window.add_segments_from_datablocks([db])
+        self.window._dark_mode_active = False
+        self.window.update_segments(50)  # segment 0 done, 1 running
+
+        self.window.ui.actionDarkMode.setChecked(True)
+
+        table = self.window.ui.segmentsTable
+        self.assertEqual(
+            table.item(0, 0).background().color().name(),
+            STATUS_COLOR_DONE_DARK,
+        )
+        self.assertEqual(
+            table.item(1, 0).background().color().name(),
+            STATUS_COLOR_RUNNING_DARK,
         )
 
 

@@ -1987,4 +1987,19 @@ Nguyên nhân: `_status_colors()` (`gui/flash_tab.py`) chọn màu theo `self._d
 - Test mới `tests/test_gui_smoke.py::TestBatchLogRecolorsOnThemeToggle` (2 test): mô phỏng đúng kịch bản user báo — log dòng lúc Light, đổi Dark, log tiếp, đổi lại Light, log tiếp, rồi đổi lại Dark lần cuối — assert cả 4 dòng đều đúng màu Dark Mode (không chỉ dòng thêm gần nhất); test ngược lại xác nhận đổi về Light cũng tô lại đúng dòng đã log lúc Dark.
 - Verify thủ công bằng script headless riêng, đúng kịch bản rút gọn của screenshot — xác nhận cả 2 dòng PASS/FAIL đều về đúng màu Light sau lần toggle cuối.
 - Full suite: 418 test pass (416 cũ + 2 mới); `tests/test_flash_threading.py` (9 test) chạy riêng không bị ảnh hưởng.
-- Full test suite cuối cùng: 415 test pass (không skip nào mới, 2 skip cũ không liên quan — thiếu C compiler cho Security DLL).
+
+### Phase 4.91: Mở Rộng Fix Đổi Theme Cho `stepsTable`/`segmentsTable` — Giả Định Ở Phase 4.90 Sai
+
+Phase 4.90 giả định "chấp nhận được vì `stepsTable`/`segmentsTable` bị xoá mỗi lần flash mới nên màu cũ không tồn tại lâu" — user gửi thêm 2 screenshot (Light Mode và Dark Mode) chứng minh giả định này sai: bảng steps của lần flash **gần nhất** vẫn đứng yên trên màn hình đến tận khi ECU tiếp theo bắt đầu (`prepare_flash_ui()` mới thật sự xoá nó), và trong lúc batch chạy, quãng nghỉ giữa 2 ECU (đợi operator tráo ECU, bấm Next) là chính lúc user hay đổi theme — screenshot Light Mode cho thấy `stepsTable` của ECU #5 toàn màu xanh đậm (tô lúc đang Dark), còn screenshot Dark Mode cho thấy `stepsTable` của ECU #6 toàn màu xanh nhạt (tô lúc đang Light) — ngược hẳn với theme đang hiển thị.
+
+### Thay đổi
+
+- **`gui/flash_tab.py`**: thêm 2 hàm dùng chung mới — `_apply_status_color(table, row, kind)` (tô màu 1 dòng theo `_status_colors(kind)` **và** lưu lại `kind` vào `Qt.UserRole` của item cột 0, để sau này biết lại được dòng đó thuộc loại gì) và `_recolor_status_table(table)` (duyệt lại mọi dòng, đọc `kind` đã lưu, tô lại theo theme hiện tại — dòng chưa từng được tô qua `_apply_status_color()`, như dòng placeholder hay segment "Waiting", không có `kind` nên bị bỏ qua, đúng ý). Thay toàn bộ các chỗ tô màu thủ công lặp lại trước đó (`add_step()`, `on_flash_finished()`, `on_flash_aborted()`, `on_progress_changed()`'s active-segment coloring, `update_segments()`) bằng lệnh gọi `_apply_status_color()` — vừa dọn code trùng lặp, vừa đảm bảo không sót chỗ nào không lưu `kind`.
+- **`gui/batch_flash.py`**: `_color_last_step_row()` (tô dòng cuối `stepsTable` cho luồng batch — PASS/FAIL/ABORTED) đổi sang gọi `_apply_status_color()` thay vì tự tô tay — cùng 1 bảng `stepsTable` được cả luồng flash đơn lẫn batch dùng chung nên phải nhất quán.
+- **`gui/menu_bar.py`**: `action_toggle_dark_mode()` gọi thêm `self._recolor_status_table(self.ui.stepsTable)` và `self._recolor_status_table(self.ui.segmentsTable)` (cạnh `_recolor_batch_log_table()` đã có từ Phase 4.90) — mỗi lần đổi theme, cả 2 bảng steps/segments cũng được tô lại đồng nhất, không chỉ dòng thêm sau đó.
+
+### Đã kiểm tra
+
+- Test mới `tests/test_gui_smoke.py::TestStatusTableRecolorsOnThemeToggle` (3 test): steps table đổi Light→Dark tô lại đúng cả dòng "done" lẫn "running"; steps table đổi Dark→Light tô lại đúng dòng đã log lúc Dark; segments table đổi Light→Dark tô lại đúng cả segment "done" lẫn "running". 1 lỗi tự viết test sai lúc đầu (test Dark→Light chỉ thêm 1 step nên dòng đó vẫn ở trạng thái "running", không phải "done" như assertion mong đợi) — tự phát hiện lúc chạy, sửa lại theo đúng pattern "Step A"/"Step B" của test kia.
+- Verify thủ công bằng script headless — tô steps+segments lúc Light, đổi Dark, xác nhận cả 2 bảng đều chuyển đúng màu Dark ("done" `#1f3a2c`, "running" `#4a3d1f`).
+- Full suite: 421 test pass (418 cũ + 3 mới); `tests/test_flash_threading.py` (9 test) chạy riêng không bị ảnh hưởng dù không đụng gì tới threading. App headless khởi động/đóng sạch không lỗi.

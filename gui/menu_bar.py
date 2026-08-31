@@ -345,11 +345,18 @@ class MenuBarMixin:
             load_stylesheet(dark=checked)
         )
 
-        # tableWidgetBatchLog persists across a whole batch
-        # session (unlike stepsTable/segmentsTable, which reset
-        # on every new flash run) - without this, rows logged
-        # before this toggle would keep their old-theme colors
-        # forever, next to new rows in the new theme's colors.
+        # Every status-colored table stays on screen after its
+        # last update (stepsTable/segmentsTable until the next
+        # flash starts; tableWidgetBatchLog for the whole batch
+        # session) - without this, rows colored before this toggle
+        # keep their old-theme colors forever, next to any new rows
+        # in the new theme's colors (user report: a real batch run
+        # toggled Light/Dark several times mid-session, leaving
+        # both tables visibly inconsistent).
+        if hasattr(self, '_recolor_status_table'):
+            self._recolor_status_table(self.ui.stepsTable)
+            self._recolor_status_table(self.ui.segmentsTable)
+
         if hasattr(self, '_recolor_batch_log_table'):
             self._recolor_batch_log_table()
 
