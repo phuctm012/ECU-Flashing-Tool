@@ -1694,6 +1694,70 @@ class TestBatchModeToggle(unittest.TestCase):
         self.assertFalse(self.window.ui.actionModeFlash.isChecked())
 
 
+class TestBatchLogRecolorsOnThemeToggle(unittest.TestCase):
+    """
+    Covers gui/batch_flash.py's _recolor_batch_log_table(), wired
+    into gui/menu_bar.py's action_toggle_dark_mode(). Unlike
+    stepsTable/segmentsTable (which reset on every new flash run,
+    so a stale color never lingers), tableWidgetBatchLog persists
+    for the whole batch session - real user report: rows logged
+    across several Light/Dark Mode toggles ended up a visibly
+    inconsistent mix of old- and new-theme colors, because only
+    newly appended rows picked up the live theme.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def tearDown(self):
+        # Restore Light Mode so a failed assertion here can't leak
+        # a dark stylesheet into unrelated tests run afterward
+        # (same precaution as TestMenuBar's dark-mode test).
+        self.window.ui.actionDarkMode.setChecked(False)
+
+    def test_toggling_theme_recolors_rows_logged_in_the_other_theme(self):
+        self.window._on_batch_unit_finished("pass", "SN-1", 1)
+        self.window._on_batch_unit_finished("pass", "SN-2", 1)
+
+        self.window.ui.actionDarkMode.setChecked(True)
+        self.window._on_batch_unit_finished("pass", "SN-3", 1)
+
+        self.window.ui.actionDarkMode.setChecked(False)
+        self.window._on_batch_unit_finished("pass", "SN-4", 1)
+
+        # Final toggle back to Dark Mode - every row logged so far
+        # (2 from Light, 1 from Dark, 1 from Light again) must now
+        # be recolored to Dark Mode's colors, not just the one row
+        # that happened to already be dark.
+        self.window.ui.actionDarkMode.setChecked(True)
+
+        table = self.window.ui.tableWidgetBatchLog
+        self.assertEqual(table.rowCount(), 4)
+        for row in range(4):
+            item = table.item(row, 0)
+            self.assertEqual(
+                item.background().color().name(), STATUS_COLOR_DONE_DARK,
+                f"row {row} was not recolored to Dark Mode",
+            )
+            self.assertEqual(
+                item.foreground().color().name(), STATUS_TEXT_COLOR_DARK,
+                f"row {row} was not recolored to Dark Mode",
+            )
+
+    def test_toggling_back_to_light_recolors_rows_logged_in_dark(self):
+        self.window.ui.actionDarkMode.setChecked(True)
+        self.window._on_batch_unit_finished("pass", "SN-1", 1)
+
+        self.window.ui.actionDarkMode.setChecked(False)
+
+        item = self.window.ui.tableWidgetBatchLog.item(0, 0)
+        self.assertEqual(
+            item.background().color().name(), STATUS_COLOR_DONE.lower()
+        )
+        self.assertEqual(item.foreground().color().name(), STATUS_TEXT_COLOR)
+
+
 class TestBatchReportExport(unittest.TestCase):
     """
     Covers gui/batch_flash.py's export — mirrors

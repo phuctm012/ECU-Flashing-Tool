@@ -345,6 +345,14 @@ class MenuBarMixin:
             load_stylesheet(dark=checked)
         )
 
+        # tableWidgetBatchLog persists across a whole batch
+        # session (unlike stepsTable/segmentsTable, which reset
+        # on every new flash run) - without this, rows logged
+        # before this toggle would keep their old-theme colors
+        # forever, next to new rows in the new theme's colors.
+        if hasattr(self, '_recolor_batch_log_table'):
+            self._recolor_batch_log_table()
+
         # self._settings only exists once setup_settings_profile()
         # has run — guaranteed by the time a user can actually
         # click this menu item, since MainWindow.__init__() fully

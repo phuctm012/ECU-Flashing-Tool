@@ -1969,4 +1969,22 @@ User chạy thử tính năng Batch Flash (Phase 4.88) trên app thật, gửi 2
 - Verify trực tiếp bằng script headless đọc đúng file settings thật trên máy (không phải settings giả trong test) — xác nhận trước fix: cả 2 action cùng checked, bấm Flash không đổi gì; sau fix: chỉ `actionModeBatchFlash` checked đúng, bấm Flash chuyển đúng về `"Flash"`.
 - `tests/test_gui_smoke.py::TestBatchFlashScaffolding::test_batch_log_table_has_four_columns` (đổi tên + số cột từ test cũ `test_batch_log_table_has_five_columns`) — xác nhận đúng 4 header, đúng thứ tự. Verify headless riêng: `verticalHeader().isHidden()` là `False` (số dòng mặc định của Qt vẫn hiện, không bị ẩn nhầm) và `sectionResizeMode()` của cả 4 cột đều là `Stretch`.
 - Full suite: 416 test pass; `tests/test_flash_threading.py` (9 test) chạy riêng không bị ảnh hưởng dù không đụng gì tới `flash_button_clicked()`. App headless khởi động/đóng sạch không lỗi.
+
+### Phase 4.90: Fix Màu Không Đồng Nhất Trong Bảng Batch Log Khi Đổi Theme Giữa Session
+
+User chạy 1 batch dài, đổi qua lại giữa Light/Dark Mode nhiều lần trong lúc batch vẫn đang chạy (ECU #1,2 lúc Light, #3 lúc Dark, #4,5 lúc Light lại), rồi chuyển về Dark Mode — gửi screenshot: các dòng trong `tableWidgetBatchLog` màu không đồng nhất (dòng thêm lúc Light vẫn giữ màu sáng dù app đang ở Dark Mode).
+
+Nguyên nhân: `_status_colors()` (`gui/flash_tab.py`) chọn màu theo `self._dark_mode_active` **tại thời điểm tô màu**, không phải theo theme hiện tại mỗi lần render — đây là hành vi đã biết và có chủ đích cho `stepsTable`/`segmentsTable` (xem test `test_toggling_theme_mid_session_recolors_new_rows`: chỉ dòng **mới thêm sau khi đổi theme** mới đúng màu, dòng cũ giữ nguyên) — chấp nhận được vì 2 bảng đó bị xoá sạch (`setRowCount(0)`) mỗi lần bắt đầu 1 lần flash mới nên màu cũ không tồn tại lâu. `tableWidgetBatchLog` thì khác hẳn: được thiết kế **giữ nguyên xuyên suốt cả session batch** ("Log kept below"), nên cùng hành vi "chỉ tô màu đúng lúc thêm mới" biến thành lỗi hiển thị thấy rõ mỗi khi đổi theme giữa batch dài.
+
+### Thay đổi
+
+- **`gui/batch_flash.py`**: thêm `_recolor_batch_log_table()` — duyệt lại toàn bộ `self._batch_records` (nguồn dữ liệu gốc đã lưu `result` từng dòng), tô lại màu `_status_colors()` cho **mọi** dòng đang có trong bảng theo đúng theme hiện tại, không chỉ dòng mới. Nhân tiện gom 2 dict cục bộ bị lặp lại 2 lần (`result_labels`, `color_kind` trong `_on_batch_unit_finished()`/`_append_batch_log_row()`) thành hằng số module-level `RESULT_LABELS`/`RESULT_COLOR_KIND` dùng chung cho cả 3 hàm.
+- **`gui/menu_bar.py`**: `action_toggle_dark_mode()` gọi `self._recolor_batch_log_table()` (qua `hasattr()` guard, đúng convention cross-mixin sẵn có) ngay sau khi đổi stylesheet — mỗi lần bấm View > Dark Mode, cả bảng Batch Log được tô lại đồng nhất theo theme mới, không chỉ dòng thêm sau đó.
+- Chủ động **không** áp dụng cách này cho `stepsTable`/`segmentsTable` — 2 bảng đó bị xoá mỗi lần flash mới nên vấn đề không thật sự tồn tại ở đó, đổi hành vi không cần thiết đi ngược lại test đã có sẵn (`test_toggling_theme_mid_session_recolors_new_rows`) mà không giải quyết thêm gì.
+
+### Đã kiểm tra
+
+- Test mới `tests/test_gui_smoke.py::TestBatchLogRecolorsOnThemeToggle` (2 test): mô phỏng đúng kịch bản user báo — log dòng lúc Light, đổi Dark, log tiếp, đổi lại Light, log tiếp, rồi đổi lại Dark lần cuối — assert cả 4 dòng đều đúng màu Dark Mode (không chỉ dòng thêm gần nhất); test ngược lại xác nhận đổi về Light cũng tô lại đúng dòng đã log lúc Dark.
+- Verify thủ công bằng script headless riêng, đúng kịch bản rút gọn của screenshot — xác nhận cả 2 dòng PASS/FAIL đều về đúng màu Light sau lần toggle cuối.
+- Full suite: 418 test pass (416 cũ + 2 mới); `tests/test_flash_threading.py` (9 test) chạy riêng không bị ảnh hưởng.
 - Full test suite cuối cùng: 415 test pass (không skip nào mới, 2 skip cũ không liên quan — thiếu C compiler cho Security DLL).

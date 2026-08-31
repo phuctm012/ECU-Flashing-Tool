@@ -40,6 +40,13 @@ from core.flash_sequence import (
 )
 from config.settings import APP_NAME, APP_VERSION
 
+# Batch unit result ("pass"/"fail"/"abort", as stored in
+# self._batch_records) -> its display label and its
+# _status_colors() kind. Shared by _on_batch_unit_finished(),
+# _append_batch_log_row(), and _recolor_batch_log_table().
+RESULT_LABELS = {"pass": "PASS", "fail": "FAIL", "abort": "ABORTED"}
+RESULT_COLOR_KIND = {"pass": "done", "fail": "error", "abort": "running"}
+
 
 class BatchFlashMixin:
     """Mixin adding Batch Flash mode to MainWindow's Flash tab."""
@@ -508,10 +515,6 @@ class BatchFlashMixin:
         self.ui.labelEcuCounter.setText(f"ECU #{self._batch_ecu_index}")
         self.ui.buttonExportBatchReport.setEnabled(True)
 
-        result_labels = {
-            "pass": "PASS", "fail": "FAIL", "abort": "ABORTED",
-        }
-
         if self._batch_stopping:
             # stop_batch() requested this abort and is waiting
             # for it to actually land before touching button/
@@ -522,7 +525,7 @@ class BatchFlashMixin:
             self.ui.buttonStopBatch.setEnabled(False)
             self.ui.labelBatchStatus.setText(
                 f"Batch stopped after ECU #{self._batch_ecu_index} "
-                f"({result_labels[result]}). Log kept below — "
+                f"({RESULT_LABELS[result]}). Log kept below — "
                 "click Start to begin a new session."
             )
             self.ui.labelBatchStatusCaption.setText("")
@@ -530,7 +533,7 @@ class BatchFlashMixin:
 
         self.ui.labelBatchStatus.setText(
             f"ECU #{self._batch_ecu_index} — "
-            f"{result_labels[result]} ({serial}, {duration}s)."
+            f"{RESULT_LABELS[result]} ({serial}, {duration}s)."
         )
         self.ui.labelBatchStatusCaption.setText(
             "Swap in the next ECU, then click Next."
@@ -543,18 +546,13 @@ class BatchFlashMixin:
         row = table.rowCount()
         table.insertRow(row)
 
-        result_labels = {
-            "pass": "PASS", "fail": "FAIL", "abort": "ABORTED",
-        }
-        color_kind = {"pass": "done", "fail": "error", "abort": "running"}
-
         cells = [
             serial, datetime.now().strftime("%H:%M:%S"),
-            result_labels[result], f"{duration}s",
+            RESULT_LABELS[result], f"{duration}s",
         ]
+        bg, fg = self._status_colors(RESULT_COLOR_KIND[result])
         for col, text in enumerate(cells):
             item = QTableWidgetItem(text)
-            bg, fg = self._status_colors(color_kind[result])
             item.setBackground(QColor(bg))
             item.setForeground(QColor(fg))
             table.setItem(row, col, item)
@@ -563,6 +561,35 @@ class BatchFlashMixin:
             table.item(row, 2).setToolTip(reason)
 
         table.scrollToBottom()
+
+    def _recolor_batch_log_table(self):
+        """
+        Re-apply _status_colors() to every existing row in
+        tableWidgetBatchLog against the *current* theme. Unlike
+        stepsTable/segmentsTable (which reset on every new flash
+        run, so a stale color never lingers long),
+        tableWidgetBatchLog explicitly persists for the whole
+        batch session ("Log kept below") - without this, rows
+        logged before a Dark Mode toggle keep their old-theme
+        colors forever, next to new rows in the current theme's
+        colors, producing a visibly inconsistent table. Called
+        from gui/menu_bar.py's action_toggle_dark_mode() on every
+        toggle.
+        """
+
+        if not hasattr(self.ui, 'tableWidgetBatchLog'):
+            return
+
+        table = self.ui.tableWidgetBatchLog
+        for row, record in enumerate(self._batch_records):
+            if row >= table.rowCount():
+                break
+            bg, fg = self._status_colors(RESULT_COLOR_KIND[record["result"]])
+            for col in range(table.columnCount()):
+                item = table.item(row, col)
+                if item is not None:
+                    item.setBackground(QColor(bg))
+                    item.setForeground(QColor(fg))
 
     # ==================================================
     # Stop Batch
