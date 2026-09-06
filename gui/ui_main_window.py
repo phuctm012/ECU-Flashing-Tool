@@ -198,16 +198,6 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_batchFlash.addLayout(self.horizontalLayout_batchControls)
 
-        self.labelBatchStatus = QLabel(self.groupBoxBatchFlash)
-        self.labelBatchStatus.setObjectName(u"labelBatchStatus")
-
-        self.verticalLayout_batchFlash.addWidget(self.labelBatchStatus)
-
-        self.labelBatchStatusCaption = QLabel(self.groupBoxBatchFlash)
-        self.labelBatchStatusCaption.setObjectName(u"labelBatchStatusCaption")
-
-        self.verticalLayout_batchFlash.addWidget(self.labelBatchStatusCaption)
-
         self.tableWidgetBatchLog = QTableWidget(self.groupBoxBatchFlash)
         if (self.tableWidgetBatchLog.columnCount() < 4):
             self.tableWidgetBatchLog.setColumnCount(4)
@@ -810,8 +800,6 @@ class Ui_MainWindow(object):
         self.labelBatchTally.setText(QCoreApplication.translate("MainWindow", u"0 PASS \u00b7 0 FAIL \u00b7 0 ABORTED", None))
         self.buttonStopBatch.setText(QCoreApplication.translate("MainWindow", u"Stop Batch", None))
         self.buttonExportBatchReport.setText(QCoreApplication.translate("MainWindow", u"Export Report", None))
-        self.labelBatchStatus.setText("")
-        self.labelBatchStatusCaption.setText("")
         ___qtablewidgetitem8 = self.tableWidgetBatchLog.horizontalHeaderItem(0)
         ___qtablewidgetitem8.setText(QCoreApplication.translate("MainWindow", u"Serial Number", None))
         ___qtablewidgetitem9 = self.tableWidgetBatchLog.horizontalHeaderItem(1)

@@ -173,13 +173,9 @@ class BatchFlashMixin:
             self._batch_session_start_time = datetime.now()
 
         self.ui.buttonStopBatch.setEnabled(True)
-        self.ui.labelBatchStatus.setText(
-            "Identifying ECU — reading Serial Number..."
-        )
-        self.ui.labelBatchStatusCaption.setText(
-            "Reads DID 0xF18C via the same probe as Tools > "
-            "Test Connection — independent of the flash "
-            "sequence itself."
+        self.log_information(
+            "Identifying ECU — reading Serial Number (DID 0xF18C, "
+            "same probe as Tools > Test Connection)..."
         )
 
         use_virtual = True
@@ -279,20 +275,14 @@ class BatchFlashMixin:
             self._batch_stopping = False
             self.ui.flashButton.setText("Start")
             self.ui.buttonStopBatch.setEnabled(False)
-            self.ui.labelBatchStatus.setText(
-                "Batch stopped. Log kept below — click Start "
-                "to begin a new session."
-            )
-            self.ui.labelBatchStatusCaption.setText("")
+            self.log_information("Batch stopped.")
             return
 
         if not passed:
-            self.ui.labelBatchStatus.setText(
-                "No ECU detected on the bus."
-            )
-            self.ui.labelBatchStatusCaption.setText(
-                "Check connection and try again — not logged, "
-                "does not count against the batch."
+            self.log_information(
+                "No ECU detected on the bus — check connection and "
+                "try again (not logged, does not count against the "
+                "batch)."
             )
             self.ui.buttonStopBatch.setEnabled(False)
             return
@@ -518,19 +508,15 @@ class BatchFlashMixin:
             self._batch_stopping = False
             self.ui.flashButton.setText("Start")
             self.ui.buttonStopBatch.setEnabled(False)
-            self.ui.labelBatchStatus.setText(
+            self.log_information(
                 f"Batch stopped after ECU #{self._batch_ecu_index} "
-                f"({RESULT_LABELS[result]}). Log kept below — "
-                "click Start to begin a new session."
+                f"({RESULT_LABELS[result]})."
             )
-            self.ui.labelBatchStatusCaption.setText("")
             return
 
-        self.ui.labelBatchStatus.setText(
+        self.log_information(
             f"ECU #{self._batch_ecu_index} — "
-            f"{RESULT_LABELS[result]} ({serial}, {duration}s)."
-        )
-        self.ui.labelBatchStatusCaption.setText(
+            f"{RESULT_LABELS[result]} ({serial}, {duration}s). "
             "Swap in the next ECU, then click Next."
         )
         self.ui.flashButton.setText("Next")
@@ -636,11 +622,7 @@ class BatchFlashMixin:
         # wait out, safe to reset the UI immediately.
         self.ui.flashButton.setText("Start")
         self.ui.buttonStopBatch.setEnabled(False)
-        self.ui.labelBatchStatus.setText(
-            "Batch stopped. Log kept below — click Start "
-            "to begin a new session."
-        )
-        self.ui.labelBatchStatusCaption.setText("")
+        self.log_information("Batch stopped.")
 
     # ==================================================
     # Batch report export (HTML)

@@ -2003,3 +2003,17 @@ Phase 4.90 giả định "chấp nhận được vì `stepsTable`/`segmentsTable
 - Test mới `tests/test_gui_smoke.py::TestStatusTableRecolorsOnThemeToggle` (3 test): steps table đổi Light→Dark tô lại đúng cả dòng "done" lẫn "running"; steps table đổi Dark→Light tô lại đúng dòng đã log lúc Dark; segments table đổi Light→Dark tô lại đúng cả segment "done" lẫn "running". 1 lỗi tự viết test sai lúc đầu (test Dark→Light chỉ thêm 1 step nên dòng đó vẫn ở trạng thái "running", không phải "done" như assertion mong đợi) — tự phát hiện lúc chạy, sửa lại theo đúng pattern "Step A"/"Step B" của test kia.
 - Verify thủ công bằng script headless — tô steps+segments lúc Light, đổi Dark, xác nhận cả 2 bảng đều chuyển đúng màu Dark ("done" `#1f3a2c`, "running" `#4a3d1f`).
 - Full suite: 421 test pass (418 cũ + 3 mới); `tests/test_flash_threading.py` (9 test) chạy riêng không bị ảnh hưởng dù không đụng gì tới threading. App headless khởi động/đóng sạch không lỗi.
+
+### Phase 4.92: Bỏ 2 Dòng Trạng Thái Riêng Của Batch Flash, Dồn Về Tab Information
+
+User xem screenshot 2 dòng `labelBatchStatus`/`labelBatchStatusCaption` (vd. "ECU #22 — PASS (SN-SIM-001-2026, 1s)." + "Swap in the next ECU, then click Next.") và hỏi có thể bỏ 2 dòng riêng này, hiện thông tin tương đương ngay trong tab Information (`informationText`, kênh log đã có sẵn cho toàn bộ app) được không — thay vì duy trì 1 khu vực hiển thị trạng thái riêng chỉ cho Batch Flash.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: xoá hẳn 2 widget `labelBatchStatus`/`labelBatchStatusCaption` khỏi `verticalLayout_batchFlash` (nằm giữa hàng nút điều khiển và `tableWidgetBatchLog`). Regenerate `gui/ui_main_window.py` bằng `pyside6-uic`.
+- **`gui/batch_flash.py`**: mọi chỗ trước đây gọi `.setText(...)` lên 2 label này (`_start_identify()`, `_on_identify_finished()` — cả nhánh "No ECU detected" lẫn nhánh `_batch_stopping`, `_on_batch_unit_finished()` — cả nhánh bình thường lẫn nhánh `_batch_stopping`, `stop_batch()`) đổi sang gọi `self.log_information(...)` (kênh đã có sẵn, dùng chung với mọi log narrative khác trong app — xem CLAUDE.md "Trace/logging: two parallel channels"), gộp nội dung 2 dòng caption+status cũ thành 1 câu log duy nhất cho mỗi trường hợp thay vì giữ 2 câu tách rời (không cần thiết một khi hiển thị dạng log tuần tự thay vì 2 label cố định).
+
+### Đã kiểm tra
+
+- Không có test nào tham chiếu trực tiếp `labelBatchStatus`/`labelBatchStatusCaption` (`grep` xác nhận trước khi xoá) nên không có test nào cần sửa.
+- Full suite: 421 test pass; `tests/test_flash_threading.py` (9 test) chạy riêng không bị ảnh hưởng. App headless khởi động/đóng sạch không lỗi.
