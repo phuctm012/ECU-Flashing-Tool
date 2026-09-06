@@ -2051,3 +2051,27 @@ Thử sửa bằng `self.sender()` (đọc lại panel qua tham số ẩn trong 
 - Repro tối giản độc lập (ngoài app thật) xác nhận cả 2 nguyên nhân trước khi sửa: bound-method chạy đúng `MainThread` + `sender()` đúng object khi không có `deleteLater()`; lambda luôn chạy trong luồng emit; `sender()` trả `None` khi có `deleteLater()` cạnh tranh.
 - Sau khi sửa bằng `_PanelSignalRouter`: script headless chạy Identify → Flash thật (firmware `tests/sample.hex`, Virtual ECU) qua 15s, in `isRunning()` mỗi 200ms — xác nhận `flash_thread` chuyển `None` ngay sau khi `phase` thành `"pass"`, thoát process sạch (exit code 0), không còn `QThread: Destroyed while thread is still running`.
 - `tests/test_parallel_flash_threading.py` (4 test: Task 5 + Task 6) pass. `tests/test_flash_threading.py` (9 test) pass riêng. Full suite: 434 test pass (skipped=2).
+
+### Phase 4.95: Hoàn Thành Parallel Flash (Task 7-11) — Stress Test Cuối
+
+Tiếp tục thực thi plan `docs/superpowers/plans/2026-09-06-parallel-flash.md` từ Task 7 tới hết Task 11, theo đúng skill `executing-plans` (inline, không dùng subagent theo lựa chọn của user). Task 7 thêm `_abort_panel()`/`parallel_start_all()`/`parallel_abort_all()` và trạng thái enable cho `buttonParallelAbortAll`. Task 8 viết test xác nhận 2 panel chạy `QThread` thật đồng thời không đụng nhau, và abort 1 panel không ảnh hưởng panel khác — đúng như dự đoán trong plan, việc này lộ ra 2 lỗi test tự viết (không phải lỗi code thật), cả 2 đều do hiểu sai timing:
+
+1. `test_start_all_only_starts_panels_with_a_channel_selected` (Task 7) chờ nhầm điều kiện `flash_thread is None` ngay từ đầu — biến này vốn đã là `None` TRƯỚC khi flash bắt đầu (chỉ được gán sau khi Identify xong), nên `_run_until()` thoát ngay ở tick đầu tiên, trước khi Identify kịp chạy. Sửa bằng cách chờ `identify_thread is None` trước (đảm bảo `_start_flash_for_panel()` đã chạy), giống đúng pattern 2 bước `TestPerPanelFlash` đã dùng.
+2. `test_aborting_one_panel_does_not_affect_the_other` (Task 8) giả định panel 1 "dùng firmware nhỏ đã nạp sẵn, độc lập với panel 0" — sai, vì cả 4 panel dùng chung đúng 1 danh sách `_loaded_datablocks` toàn cục (đúng thiết kế: "cùng 1 firmware cho mọi panel" trong Global Constraints), nên khi test gán `_loaded_datablocks = [db_200KB]` cho panel 0, panel 1 CŨNG tải đúng payload 200.000 byte đó — mất ~46 giây để tải xong thật sự (đo trực tiếp), vượt xa timeout 15s mặc định của `_run_until()`. Giảm payload xuống 20.000 byte (~6 giây, đủ lâu để panel 0 vẫn đang "flashing" lúc gọi abort, đủ ngắn để panel 1 tải xong tự nhiên trong thời gian chờ hợp lý).
+
+Task 9 thêm vòng lặp `_parallel_panels` vào `closeEvent()` (cùng pattern `request_abort()` + `quit()` + `wait()` đã có cho single-flash/batch-flash) — thiếu bước này thì đóng cửa sổ giữa lúc 2 panel đang chạy khiến process crash lúc thoát (`QThread: Destroyed while thread is still running`), dù bản thân unit test vẫn báo "OK" (lỗi chỉ lộ ra ở exit code, không phải ở assertion) — đúng loại lỗi "ẩn" CLAUDE.md's stress-test rule tồn tại để bắt. Task 10 lưu channel đã chọn của từng panel qua `QSettings` (`parallel/panel{1..4}/selected|isVirtual|channel|serial`), cùng khuôn với `hardware/channel`+`hardware/serial` đã có.
+
+### Thay đổi
+
+- **`gui/parallel_flash.py`**: `_abort_panel()`, `parallel_start_all()`, `parallel_abort_all()`, `_update_parallel_abort_all_state()` (gọi ở mọi điểm chuyển trạng thái panel: bắt đầu Identify, `_reset_panel_to_idle()`, Identify thất bại, Flash xong/abort).
+- **`gui/main_window.py`**: `closeEvent()` thêm vòng lặp dừng an toàn mọi panel đang Identify/Flash trước `event.accept()`.
+- **`gui/settings_profile.py`**: `save_profile()`/`load_profile()` thêm vòng lặp lưu/khôi phục channel của từng panel.
+- **`tests/test_parallel_flash_threading.py`**: thêm `TestAbortAndStartAll` (2 test), `TestGenuineConcurrency` (2 test), `TestCloseWindowMidParallelFlash` (1 test) — tổng 9 test riêng cho Parallel Flash.
+- **`tests/test_gui_smoke.py`**: thêm `TestParallelPanelChannelPersistence` (1 test).
+
+### Đã kiểm tra
+
+- Full suite pass ở từng task (427 → 440 test qua Task 7-10, `skipped=2` không đổi — 2 test Security DLL cần compiler C không có trên máy này). `tests/test_flash_threading.py` (9 test) pass riêng sau mỗi task.
+- **Stress test cuối (Task 11, theo đúng protocol `CLAUDE.md`)**: full suite (440 test, `OK skipped=2`), `tests/test_flash_threading.py` riêng (9 test, `OK`), và 1 script headless thật (`QT_QPA_PLATFORM=offscreen`, không gọi `window.show()` — tránh đúng lỗi môi trường đã gặp ở Phase trước đó của Sequential Batch Flash) nối tiếp 8 bước trong cùng 1 process: nạp firmware thật → chọn Virtual ECU cho panel 1+2, bấm Start All, chờ cả 2 PASS → panel 3 nhận payload 20.000 byte, abort giữa chừng lúc đang "flashing", xác nhận về `idle`/`fail` sạch → Dark Mode bật/tắt → resize 2 lần → mở/đóng dialog Test Connection thật (Virtual ECU) → đóng cửa sổ chính, `isHidden()` đúng — không exception, in "Parallel Flash stress test PASSED", exit code 0.
+- Trong lúc chạy full suite ở Task 9 và Task 11, gặp 2 lần máy dev bị "treo" giả (CPU gần 0%, không tiến triển suốt 15-20 phút) không rõ nguyên nhân (không phát hiện tiến trình nặng nào khác cạnh tranh) — cả 2 lần đều tự phục hồi sau khi kill và chạy lại y hệt lệnh cũ, không đổi code gì; xác nhận đây là vấn đề môi trường/máy, không phải bug do thay đổi trong session.
+
