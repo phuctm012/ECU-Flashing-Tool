@@ -2017,3 +2017,18 @@ User xem screenshot 2 dòng `labelBatchStatus`/`labelBatchStatusCaption` (vd. "E
 
 - Không có test nào tham chiếu trực tiếp `labelBatchStatus`/`labelBatchStatusCaption` (`grep` xác nhận trước khi xoá) nên không có test nào cần sửa.
 - Full suite: 421 test pass; `tests/test_flash_threading.py` (9 test) chạy riêng không bị ảnh hưởng. App headless khởi động/đóng sạch không lỗi.
+
+### Phase 4.93: Thêm Màu Cho 2 Nút "Stop Batch" / "Export Report"
+
+User gửi screenshot 2 nút "Stop Batch"/"Export Report" đang dùng style `QPushButton` mặc định (trắng/xám, không nổi bật) và yêu cầu thêm màu làm đẹp UI, áp dụng cho cả Light lẫn Dark Mode.
+
+### Thay đổi
+
+- **`resources/style.qss`/`resources/style_dark.qss`**: thêm rule `QPushButton#buttonStopBatch`/`QPushButton#buttonExportBatchReport` (mỗi file, đúng cặp light/dark song song đã có sẵn cho `#flashButton`) — nền đỏ (`#b23b3b` light / `#a8453f` dark) cho Stop Batch (ngữ nghĩa "dừng/kết thúc"), nền xanh lá (`#3f8f5f` light / `#3a8a5c` dark) cho Export Report (ngữ nghĩa "hoàn tất/xuất thành công"), chữ trắng, không border — cùng "tier" nút phụ (dùng font-size/padding mặc định của `QPushButton`, không to/đậm như `#flashButton` vốn là nút chính). Mỗi màu có thêm state `:hover` (tông sáng hơn, cùng công thức với `#flashButton:hover`) và `:disabled` (quay về nền trắng/xám trung tính giống `QPushButton` mặc định — cả 2 nút này khởi tạo `enabled=false` cho tới khi có phiên batch đang chạy, nên cần rõ ràng phân biệt trạng thái chưa dùng được, tránh trông "có màu nhưng bấm không được" gây hiểu lầm).
+- Test mới `tests/test_style.py::TestShippedDarkStylesheetContent::test_both_themes_style_batch_flash_buttons` — theo đúng pattern string-check đã có sẵn cho các rule QSS khác trong file này (`test_shipped_file_styles_flash_button_and_hover_states`, ...).
+
+### Đã kiểm tra
+
+- Verify bằng screenshot headless (`QT_QPA_PLATFORM=offscreen`, `grab()`) ở Light Mode: cả 2 nút hiện đúng màu đỏ/xanh lá, chữ trắng dễ đọc; trạng thái disabled hiện đúng màu xám trung tính.
+- **Không verify được bằng screenshot ở Dark Mode**: `app.setStyleSheet()`/`action_toggle_dark_mode()` xác nhận đúng nội dung CSS dark (`app.styleSheet()` chứa đúng `#a8453f`/`#3a8a5c` sau khi bật Dark Mode, kể cả dựng cửa sổ mới với Dark Mode bật sẵn từ đầu) nhưng `grab()` dưới `QT_QPA_PLATFORM=offscreen` không thật sự repaint lại nền/toàn bộ widget sau khi đổi stylesheet toàn cục trong môi trường headless này (pixel không đổi dù CSS đã đổi) — hạn chế riêng của môi trường test, không phải lỗi code; xác nhận gián tiếp qua string-check test ở trên và qua việc màu dark được xây theo đúng công thức (màu nền tối hơn + hover sáng hơn) đã dùng thành công cho `#flashButton` từ trước.
+- `tests/test_style.py` (17 test, có 1 test mới) pass; full suite pass; `tests/test_flash_threading.py` (9 test) chạy riêng không bị ảnh hưởng (không đụng gì tới threading).

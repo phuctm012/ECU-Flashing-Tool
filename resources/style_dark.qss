@@ -35,6 +35,39 @@ QPushButton#flashButton:hover {
     background-color: #5b8fd9;
 }
 
+/* Batch Flash controls (gui/main_window.ui, Batch Flash section) —
+   solid accent buttons like #flashButton, but a lower visual tier
+   (base font-size/padding) since they're secondary to the main
+   Start/Abort/Next button: red for "Stop Batch" (ends the batch
+   session), green for "Export Report" (successful completion). */
+QPushButton#buttonStopBatch {
+    background-color: #a8453f;
+    color: white;
+    border: none;
+}
+QPushButton#buttonStopBatch:hover {
+    background-color: #c96058;
+}
+QPushButton#buttonStopBatch:disabled {
+    background-color: #2a2f38;
+    color: #5a6472;
+    border: 1px solid #3a4048;
+}
+
+QPushButton#buttonExportBatchReport {
+    background-color: #3a8a5c;
+    color: white;
+    border: none;
+}
+QPushButton#buttonExportBatchReport:hover {
+    background-color: #4fac76;
+}
+QPushButton#buttonExportBatchReport:disabled {
+    background-color: #2a2f38;
+    color: #5a6472;
+    border: 1px solid #3a4048;
+}
+
 QTabWidget::pane {
     border: 1px solid #3a4048;
     border-radius: 6px;

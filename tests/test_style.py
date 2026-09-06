@@ -135,6 +135,20 @@ class TestShippedDarkStylesheetContent(unittest.TestCase):
             self.assertIn("QHeaderView {", css)
             self.assertIn("QTableCornerButton::section", css)
 
+    def test_both_themes_style_batch_flash_buttons(self):
+        # Stop Batch / Export Report (gui/main_window.ui, Batch
+        # Flash section) used to fall back to the plain default
+        # QPushButton look — user asked for color to make them
+        # stand out, plus a distinct :disabled look since both
+        # start disabled until a batch session begins.
+        for css in (load_stylesheet(dark=False), load_stylesheet(dark=True)):
+            self.assertIn("QPushButton#buttonStopBatch", css)
+            self.assertIn("QPushButton#buttonStopBatch:hover", css)
+            self.assertIn("QPushButton#buttonStopBatch:disabled", css)
+            self.assertIn("QPushButton#buttonExportBatchReport", css)
+            self.assertIn("QPushButton#buttonExportBatchReport:hover", css)
+            self.assertIn("QPushButton#buttonExportBatchReport:disabled", css)
+
     def test_both_themes_style_text_edit(self):
         # informationText (QTextEdit) had no QSS selector at all —
         # harmless in light mode (default white bg + near-black
