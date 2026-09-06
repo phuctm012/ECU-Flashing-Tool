@@ -237,5 +237,28 @@ class TestGenuineConcurrency(unittest.TestCase):
         self.assertEqual(panels[1]["phase"], "pass")
 
 
+class TestCloseWindowMidParallelFlash(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        ok = self.window._load_firmware_file(
+            os.path.join(os.path.dirname(__file__), "sample.hex")
+        )
+        assert ok
+
+    def test_close_window_with_two_panels_running_does_not_crash(self):
+        panels = self.window._parallel_panels
+        panels[0]["combo"].setCurrentIndex(1)
+        panels[1]["combo"].setCurrentIndex(1)
+        self.window._start_identify_for_panel(panels[0])
+        self.window._start_identify_for_panel(panels[1])
+
+        self.window.close()
+        self.app.processEvents()
+        # No crash/hang reaching this line is the assertion - matches
+        # tests/test_flash_threading.py's TestCloseWindowMidFlash style.
+
+
 if __name__ == "__main__":
     unittest.main()

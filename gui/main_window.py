@@ -402,4 +402,18 @@ class MainWindow(
             self._identify_thread.quit()
             self._identify_thread.wait()
 
+        for panel in getattr(self, '_parallel_panels', []):
+            if (panel["flash_thread"] is not None
+                    and panel["flash_thread"].isRunning()):
+                panel["stopping"] = True
+                panel["flash_worker"].request_abort()
+                panel["flash_thread"].quit()
+                panel["flash_thread"].wait()
+
+            if (panel["identify_thread"] is not None
+                    and panel["identify_thread"].isRunning()):
+                panel["stopping"] = True
+                panel["identify_thread"].quit()
+                panel["identify_thread"].wait()
+
         event.accept()
