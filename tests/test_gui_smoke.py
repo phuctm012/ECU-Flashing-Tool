@@ -234,6 +234,36 @@ class TestParallelFlashTabScaffolding(unittest.TestCase):
             )
 
 
+class TestParallelFlashPanelScaffolding(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_four_panels_created_with_expected_widgets(self):
+        self.assertEqual(len(self.window._parallel_panels), 4)
+        for panel in self.window._parallel_panels:
+            self.assertIn(panel["combo"].count(), range(1, 10))
+            self.assertEqual(panel["phase"], "idle")
+            self.assertFalse(panel["flash_button"].isEnabled())
+            self.assertIsNone(panel["identify_thread"])
+            self.assertIsNone(panel["flash_thread"])
+
+    def test_panel_combo_starts_on_not_selected_and_flash_disabled(self):
+        panel = self.window._parallel_panels[0]
+        # "Not Selected" is a distinct first entry, ahead of Virtual —
+        # see Step 3's combo item order. Panels default to no channel
+        # picked, unlike the global comboBoxHardware.
+        self.assertEqual(panel["combo"].currentData(), "not-selected")
+        self.assertEqual(panel["combo"].currentIndex(), 0)
+        self.assertFalse(panel["flash_button"].isEnabled())
+
+    def test_selecting_a_channel_enables_that_panels_flash_button(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        self.assertTrue(panel["flash_button"].isEnabled())
+
+
 class TestCanConfig(unittest.TestCase):
 
     def setUp(self):
@@ -2047,8 +2077,14 @@ class TestMenuBar(unittest.TestCase):
         self.window.ui.actionResizeMedium.trigger()
 
         self.assertFalse(self.window.isFullScreen())
+        # 800, not 789 -- going full screen fully activates every
+        # tab's layout (including the not-yet-shown Parallel Flash
+        # tab added in Phase 4.92), revealing its true minimum
+        # height; test_resize_medium_sets_exact_size measures a
+        # never-shown window, where that layout stays lazily
+        # unactivated and still reports the smaller 789.
         self.assertEqual(
-            self.window.size().toTuple(), (1366, 789)
+            self.window.size().toTuple(), (1366, 800)
         )
 
     def test_export_report_action_calls_export_report(self):
