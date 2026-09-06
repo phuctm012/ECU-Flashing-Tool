@@ -634,7 +634,28 @@ class ConfigureTabMixin:
         # otherwise catch a Refresh — do it explicitly here too.
         self._reset_test_connection_button_status()
 
-        combo = self.ui.comboBoxHardware
+        error = self.populate_hardware_combo_widget(
+            self.ui.comboBoxHardware
+        )
+
+        if error and hasattr(self, 'log_information'):
+            self.log_information(
+                f"No real Vector hardware detected: {error}"
+            )
+
+    def populate_hardware_combo_widget(self, combo):
+        """
+        Fills `combo` with "Virtual ECU Simulator" plus one entry
+        per real Vector channel detected right now — the same
+        enumeration populate_hardware_combo() uses for the global
+        comboBoxHardware, factored out so gui/parallel_flash.py's
+        4 per-panel combos can share it instead of duplicating the
+        detection call 5 times.
+
+        Returns the error string from detect_vector_channels_with_error()
+        (None if detection succeeded, even if it found 0 channels).
+        """
+
         combo.blockSignals(True)
 
         combo.clear()
@@ -654,10 +675,7 @@ class ConfigureTabMixin:
         combo.setCurrentIndex(0)
         combo.blockSignals(False)
 
-        if error and hasattr(self, 'log_information'):
-            self.log_information(
-                f"No real Vector hardware detected: {error}"
-            )
+        return error
 
     # ==================================================
     # Test Connection button (Communication page)

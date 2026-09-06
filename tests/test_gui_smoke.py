@@ -516,6 +516,21 @@ class TestFingerprintConfig(unittest.TestCase):
         )
 
 
+class TestPopulateHardwareComboWidget(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_populates_an_arbitrary_combo_with_virtual_entry(self):
+        from PySide6.QtWidgets import QComboBox
+        combo = QComboBox()
+        self.window.populate_hardware_combo_widget(combo)
+        self.assertGreaterEqual(combo.count(), 1)
+        self.assertIsNone(combo.itemData(0))
+        self.assertIn("Virtual ECU Simulator", combo.itemText(0))
+
+
 class TestHardwareComboDetectionError(unittest.TestCase):
     """
     Covers populate_hardware_combo() logging the real reason to
