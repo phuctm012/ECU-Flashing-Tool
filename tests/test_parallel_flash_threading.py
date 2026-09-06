@@ -93,5 +93,69 @@ class TestPerPanelFlash(unittest.TestCase):
                 self.assertEqual(other["phase"], "idle")
 
 
+class TestAbortAndStartAll(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        ok = self.window._load_firmware_file(
+            os.path.join(os.path.dirname(__file__), "sample.hex")
+        )
+        assert ok
+
+    def test_abort_mid_flash_settles_panel_without_crash(self):
+        from parsers.hex_parser import Segment, Datablock
+        db = Datablock(file_path="synthetic_parallel.bin")
+        db.segments.append(
+            Segment(start_address=0x1000, data=bytes([0xAA]) * 200_000)
+        )
+        self.window._loaded_datablocks = [db]
+
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)
+        self.window._start_identify_for_panel(panel)
+        _run_until(self.app, lambda: panel["identify_thread"] is None)
+        self.assertEqual(panel["phase"], "flashing")
+
+        self.window._abort_panel(panel)
+        _run_until(self.app, lambda: panel["flash_thread"] is None)
+        self.app.processEvents()
+
+        self.assertIn(panel["phase"], ("fail", "idle"))
+        self.assertEqual(panel["flash_button"].text(), "Flash")
+
+    def test_start_all_only_starts_panels_with_a_channel_selected(self):
+        panels = self.window._parallel_panels
+        panels[0]["combo"].setCurrentIndex(1)  # Virtual
+        panels[1]["combo"].setCurrentIndex(1)  # Virtual
+        # panels[2], panels[3] left on "Not Selected"
+
+        self.window.parallel_start_all()
+
+        self.assertEqual(panels[0]["phase"], "identifying")
+        self.assertEqual(panels[1]["phase"], "identifying")
+        self.assertEqual(panels[2]["phase"], "idle")
+        self.assertEqual(panels[3]["phase"], "idle")
+
+        # flash_thread starts out None before flashing even begins,
+        # so waiting on it alone could return immediately, on the
+        # very first tick, before Identify has even run - wait for
+        # both Identify threads to finish first (guaranteeing
+        # _start_flash_for_panel() has already run, same as
+        # TestPerPanelFlash's two-step wait).
+        _run_until(
+            self.app,
+            lambda: panels[0]["identify_thread"] is None
+            and panels[1]["identify_thread"] is None,
+        )
+        _run_until(
+            self.app,
+            lambda: panels[0]["flash_thread"] is None
+            and panels[1]["flash_thread"] is None,
+        )
+        self.assertEqual(panels[0]["phase"], "pass")
+        self.assertEqual(panels[1]["phase"], "pass")
+
+
 if __name__ == "__main__":
     unittest.main()

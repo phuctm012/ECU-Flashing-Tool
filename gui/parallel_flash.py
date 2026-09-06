@@ -318,6 +318,7 @@ class ParallelFlashMixin:
         )
 
         panel["identify_thread"].start()
+        self._update_parallel_abort_all_state()
 
     def _cleanup_identify_thread_for_panel(self, panel):
 
@@ -349,6 +350,7 @@ class ParallelFlashMixin:
             )
             panel["flash_button"].setText("Flash")
             panel["combo"].setEnabled(True)
+            self._update_parallel_abort_all_state()
             return
 
         ecu_info = getattr(self, '_parallel_last_ecu_info', {}).get(
@@ -367,6 +369,7 @@ class ParallelFlashMixin:
         panel["flash_button"].setText("Flash")
         panel["combo"].setEnabled(True)
         panel["status_label"].setText("Idle — ready to flash.")
+        self._update_parallel_abort_all_state()
 
     def _log_parallel_panel(self, panel, message):
         panel["log_widget"].append(message)
@@ -532,6 +535,7 @@ class ParallelFlashMixin:
         panel["combo"].setEnabled(True)
         panel["status_label"].setText("PASS.")
         self._log_parallel_panel(panel, "Flash completed successfully.")
+        self._update_parallel_abort_all_state()
 
     def _on_panel_flash_aborted(self, panel):
 
@@ -545,9 +549,44 @@ class ParallelFlashMixin:
         panel["combo"].setEnabled(True)
         panel["status_label"].setText("FAIL / ABORTED.")
         self._log_parallel_panel(panel, "Flash aborted.")
+        self._update_parallel_abort_all_state()
+
+    def _abort_panel(self, panel):
+
+        if panel["phase"] == "flashing" and panel["flash_thread"] is not None:
+            panel["stopping"] = True
+            panel["flash_worker"].request_abort()
+            panel["flash_thread"].quit()
+            panel["flash_thread"].wait()
+            return
+
+        if (panel["phase"] == "identifying"
+                and panel["identify_thread"] is not None):
+            panel["stopping"] = True
+            panel["identify_thread"].quit()
+            panel["identify_thread"].wait()
+            return
 
     def parallel_start_all(self):
-        pass
+
+        for panel in self._parallel_panels:
+            if panel["phase"] in ("identifying", "flashing"):
+                continue
+            if panel["combo"].currentData() == "not-selected":
+                continue
+            self._start_identify_for_panel(panel)
 
     def parallel_abort_all(self):
-        pass
+
+        for panel in self._parallel_panels:
+            if panel["phase"] in ("identifying", "flashing"):
+                self._abort_panel(panel)
+
+    def _update_parallel_abort_all_state(self):
+        if not hasattr(self.ui, 'buttonParallelAbortAll'):
+            return
+        any_busy = any(
+            p["phase"] in ("identifying", "flashing")
+            for p in self._parallel_panels
+        )
+        self.ui.buttonParallelAbortAll.setEnabled(any_busy)
