@@ -166,6 +166,25 @@ class SettingsProfileMixin:
                 else "flash",
             )
 
+        for i, panel in enumerate(
+            getattr(self, '_parallel_panels', []), start=1
+        ):
+            data = panel["combo"].currentData()
+            if data == "not-selected":
+                s.setValue(f"parallel/panel{i}/selected", False)
+                continue
+            s.setValue(f"parallel/panel{i}/selected", True)
+            s.setValue(f"parallel/panel{i}/isVirtual", data is None)
+            s.setValue(
+                f"parallel/panel{i}/channel",
+                data.get("hw_channel", data.get("channel", -1))
+                if data is not None else -1
+            )
+            s.setValue(
+                f"parallel/panel{i}/serial",
+                (data.get("serial") or -1) if data is not None else -1
+            )
+
         # Force an immediate flush to disk/registry rather than
         # relying on Qt's internal deferred sync — save_profile()
         # runs on every change specifically so a crash/force-quit
@@ -206,6 +225,39 @@ class SettingsProfileMixin:
             # plugged in this run) — combo already defaults to
             # "Virtual ECU Simulator" (index 0), so just leave
             # it there rather than erroring out.
+
+        for i, panel in enumerate(
+            getattr(self, '_parallel_panels', []), start=1
+        ):
+            selected = s.value(f"parallel/panel{i}/selected", False, type=bool)
+            if not selected:
+                continue
+            is_virtual = s.value(
+                f"parallel/panel{i}/isVirtual", True, type=bool
+            )
+            channel = s.value(f"parallel/panel{i}/channel", -1, type=int)
+            serial = s.value(f"parallel/panel{i}/serial", -1, type=int)
+            target = None if is_virtual else (channel, serial)
+
+            combo = panel["combo"]
+            for idx in range(combo.count()):
+                item_data = combo.itemData(idx)
+                if item_data == "not-selected":
+                    continue
+                key = (
+                    None if item_data is None
+                    else (
+                        item_data.get(
+                            "hw_channel", item_data.get("channel")
+                        ),
+                        item_data.get("serial") or -1,
+                    )
+                )
+                if key == target:
+                    combo.setCurrentIndex(idx)
+                    break
+            # No matching entry — combo stays on "Not Selected"
+            # (index 0), same reasoning as comboBoxHardware above.
 
         if hasattr(self.ui, 'comboBoxRadarSide'):
             index = s.value("radarSide/index", 0, type=int)

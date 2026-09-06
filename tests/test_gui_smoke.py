@@ -1388,6 +1388,22 @@ class TestSettingsProfile(unittest.TestCase):
         )
 
 
+class TestParallelPanelChannelPersistence(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+
+    def test_panel_channel_selection_persists_across_restart(self):
+        window1 = MainWindow()
+        window1._parallel_panels[0]["combo"].setCurrentIndex(1)  # Virtual
+        window1.save_profile()
+
+        window2 = MainWindow()
+        self.assertEqual(
+            window2._parallel_panels[0]["combo"].currentData(), None
+        )
+
+
 class TestReportExport(unittest.TestCase):
     """
     Covers ReportExportMixin (gui/report_export.py) — the
