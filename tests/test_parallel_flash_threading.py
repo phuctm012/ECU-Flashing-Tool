@@ -53,5 +53,45 @@ class TestPerPanelIdentify(unittest.TestCase):
         self.assertNotEqual(panel["phase"], "identifying")
 
 
+class TestPerPanelFlash(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        ok = self.window._load_firmware_file(
+            os.path.join(
+                os.path.dirname(__file__), "sample.hex"
+            )
+        )
+        assert ok
+
+    def test_full_identify_then_flash_reaches_pass(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+
+        self.window._start_identify_for_panel(panel)
+        _run_until(self.app, lambda: panel["identify_thread"] is None)
+        _run_until(self.app, lambda: panel["flash_thread"] is None)
+
+        self.assertEqual(panel["phase"], "pass")
+        self.assertEqual(panel["progress_bar"].value(), 100)
+
+    def test_second_panel_can_flash_independently(self):
+        # Only this panel gets a channel selected/started - proves
+        # a single panel's flow doesn't depend on any other panel's
+        # state existing.
+        panel = self.window._parallel_panels[2]
+        panel["combo"].setCurrentIndex(1)
+
+        self.window._start_identify_for_panel(panel)
+        _run_until(self.app, lambda: panel["identify_thread"] is None)
+        _run_until(self.app, lambda: panel["flash_thread"] is None)
+
+        self.assertEqual(panel["phase"], "pass")
+        for other in self.window._parallel_panels:
+            if other is not panel:
+                self.assertEqual(other["phase"], "idle")
+
+
 if __name__ == "__main__":
     unittest.main()
