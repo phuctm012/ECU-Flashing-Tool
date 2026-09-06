@@ -55,6 +55,7 @@ class FlashWorker(QObject):
         uds_client=None,
         use_virtual=True,
         security_dll_path=None,
+        security_lock=None,
         keepalive_functional=False,
         can_channel=0,
         can_serial=None,
@@ -74,6 +75,7 @@ class FlashWorker(QObject):
         self._uds_client = uds_client
         self._use_virtual = use_virtual
         self._security_dll_path = security_dll_path
+        self._security_lock = security_lock
         self._keepalive_functional = keepalive_functional
 
         # RequestDownload dataFormatIdentifier nibbles (ISO
@@ -573,6 +575,7 @@ class FlashWorker(QObject):
         self._uds_client.security_access(
             level=level,
             key_function=key_func,
+            key_lock=self._security_lock,
         )
 
         self.information_message.emit(

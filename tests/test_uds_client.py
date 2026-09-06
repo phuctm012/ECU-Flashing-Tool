@@ -14,6 +14,8 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 sys.path.insert(
@@ -505,6 +507,68 @@ class TestVariableLengthSeed(unittest.TestCase):
 
         self.assertEqual(resp[0], 0x67)
         self.assertEqual(len(can.sent), 1)
+
+
+class TestSecurityAccessKeyLock(unittest.TestCase):
+
+    def test_key_lock_serializes_concurrent_dll_style_calls(self):
+        # Build 2 UdsClients against 2 independent Virtual buses,
+        # both with a key_function slow enough that overlapping
+        # calls would show up as overlapping windows. key_function
+        # is invoked as func(seed_int) -> key_int (the legacy
+        # uint32->uint32 convention _call_key_func uses for the
+        # explicit key_function branch) - not (seed_bytes, level).
+        calls = []
+        lock = threading.Lock()
+
+        def slow_key_function(seed_int):
+            calls.append(("start", time.time()))
+            time.sleep(0.05)
+            calls.append(("end", time.time()))
+            return 0
+
+        def make_client():
+            bus = VirtualCanInterface(response_delay_ms=1, error_rate=0.0)
+            bus.connect(tx_id=0x778, rx_id=0x788)
+            return UdsClient(bus)
+
+        client_a = make_client()
+        client_b = make_client()
+
+        def run(client):
+            # SecurityAccess requires Programming session, and this
+            # simulator requires Extended before Programming is
+            # accepted (Programming from Default is Conditions Not
+            # Correct) - both hops needed to reach a real, non-zero
+            # seed.
+            client.diagnostic_session_control(0x03)
+            client.diagnostic_session_control(0x02)
+            try:
+                # slow_key_function's returned key won't match
+                # what the simulator actually expects - a
+                # resulting UdsNegativeResponse on SendKey is
+                # expected and irrelevant here; the assertions
+                # only care about slow_key_function's own call
+                # timing, captured before SendKey is even sent.
+                client.security_access(
+                    level=1, key_function=slow_key_function, key_lock=lock,
+                )
+            except Exception:
+                pass
+
+        t1 = threading.Thread(target=run, args=(client_a,))
+        t2 = threading.Thread(target=run, args=(client_b,))
+        t1.start(); t2.start()
+        t1.join(timeout=5); t2.join(timeout=5)
+
+        # Serialized: the 2nd "start" must come after the 1st "end".
+        starts = [t for kind, t in calls if kind == "start"]
+        ends = [t for kind, t in calls if kind == "end"]
+        self.assertEqual(len(starts), 2)
+        self.assertTrue(
+            max(starts) >= min(ends),
+            "key_function calls overlapped despite key_lock",
+        )
 
 
 if __name__ == "__main__":

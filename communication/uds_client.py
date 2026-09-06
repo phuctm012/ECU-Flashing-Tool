@@ -635,6 +635,7 @@ class UdsClient:
         self,
         level=1,
         key_function=None,
+        key_lock=None,
     ) -> bytes:
         """
         Perform Security Access (Seed & Key).
@@ -654,6 +655,13 @@ class UdsClient:
                 for 4-byte seeds, or
                 Function(seed_bytes) -> key_bytes
                 for arbitrary length.
+            key_lock: optional threading.Lock, acquired only around
+                the actual key-computation call — passed by
+                gui/parallel_flash.py so concurrently-running
+                FlashWorkers sharing one Security DLL don't call into
+                it from multiple threads at once (unknown DLL
+                thread-safety). Never required for a single-flash
+                caller; defaults to None (no locking).
 
         Returns:
             Response payload from SendKey.
@@ -673,7 +681,7 @@ class UdsClient:
 
         # Step 2: Calculate Key (priority order)
         key_bytes = self._compute_security_key(
-            seed_bytes, level, key_function
+            seed_bytes, level, key_function, key_lock
         )
 
         # Step 3: Send Key
@@ -683,30 +691,34 @@ class UdsClient:
         )
 
     def _compute_security_key(
-        self, seed_bytes, level, key_function
+        self, seed_bytes, level, key_function, key_lock=None
     ):
         """Resolve and call the right key algorithm."""
 
         seed_len = len(seed_bytes)
 
-        # 1) Explicit key_function parameter
+        # 1) Explicit key_function parameter — locked too when a
+        # lock is given, since the test above (and a real Security
+        # DLL wrapped as a key_function by a caller) exercises
+        # exactly this path; pure-Python callers (e.g.
+        # EcuSimulator.compute_key) pay a negligible uncontended
+        # lock cost.
         if key_function is not None:
+            if key_lock is not None:
+                with key_lock:
+                    return self._call_key_func(
+                        key_function, seed_bytes, level, "key_function"
+                    )
             return self._call_key_func(
-                key_function, seed_bytes, level,
-                "key_function"
+                key_function, seed_bytes, level, "key_function"
             )
 
         # 2) Loaded Security DLL
         if self._security_dll_func is not None:
-            if self._security_dll_is_bytes:
-                return self._security_dll_func(
-                    seed_bytes, level
-                )
-            return self._call_key_func(
-                self._security_dll_func,
-                seed_bytes, level,
-                "Security DLL"
-            )
+            if key_lock is not None:
+                with key_lock:
+                    return self._call_dll_key_func(seed_bytes, level)
+            return self._call_dll_key_func(seed_bytes, level)
 
         # 3) Built-in dummy algorithm — process in
         #    4-byte chunks so any seed length works
@@ -722,6 +734,13 @@ class UdsClient:
             key_int = EcuSimulator.compute_key(seed_int)
             key_buf += struct.pack(">I", key_int)
         return bytes(key_buf[:seed_len])
+
+    def _call_dll_key_func(self, seed_bytes, level):
+        if self._security_dll_is_bytes:
+            return self._security_dll_func(seed_bytes, level)
+        return self._call_key_func(
+            self._security_dll_func, seed_bytes, level, "Security DLL"
+        )
 
     @staticmethod
     def _call_key_func(func, seed_bytes, level, name):
