@@ -28,7 +28,7 @@
        </property>
        <widget class="QWidget" name="flashTab">
         <attribute name="title">
-         <string>Flash</string>
+         <string>Single Flash</string>
         </attribute>
         <layout class="QVBoxLayout" name="verticalLayout_flashTab" stretch="0,0,0">
           <item>
@@ -216,6 +216,137 @@
            </widget>
           </item>
          </layout>
+       </widget>
+       <widget class="QWidget" name="parallelFlashTab">
+        <attribute name="title">
+         <string>Parallel Flash</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="verticalLayout_parallelFlashTab">
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayout_parallelGlobalControls">
+           <item>
+            <widget class="QPushButton" name="buttonParallelStartAll">
+             <property name="text">
+              <string>Start All</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="buttonParallelAbortAll">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Abort All</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_parallelGlobalControls">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QGridLayout" name="gridLayout_parallelChannels">
+           <item row="0" column="0">
+            <widget class="QGroupBox" name="groupBoxParallelChannel1">
+             <property name="title">
+              <string>Channel 1</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_parallelChannel1"/>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QGroupBox" name="groupBoxParallelChannel2">
+             <property name="title">
+              <string>Channel 2</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_parallelChannel2"/>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QGroupBox" name="groupBoxParallelChannel3">
+             <property name="title">
+              <string>Channel 3</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_parallelChannel3"/>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QGroupBox" name="groupBoxParallelChannel4">
+             <property name="title">
+              <string>Channel 4</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_parallelChannel4"/>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QTabWidget" name="tabWidgetParallelDetail">
+           <widget class="QWidget" name="tabParallelChannel1Log">
+            <attribute name="title">
+             <string>Channel 1</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="verticalLayout_parallelChannel1Log">
+             <item>
+              <widget class="QTextEdit" name="textEditParallelChannel1Log">
+               <property name="readOnly">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="tabParallelChannel2Log">
+            <attribute name="title">
+             <string>Channel 2</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="verticalLayout_parallelChannel2Log">
+             <item>
+              <widget class="QTextEdit" name="textEditParallelChannel2Log">
+               <property name="readOnly">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="tabParallelChannel3Log">
+            <attribute name="title">
+             <string>Channel 3</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="verticalLayout_parallelChannel3Log">
+             <item>
+              <widget class="QTextEdit" name="textEditParallelChannel3Log">
+               <property name="readOnly">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="tabParallelChannel4Log">
+            <attribute name="title">
+             <string>Channel 4</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="verticalLayout_parallelChannel4Log">
+             <item>
+              <widget class="QTextEdit" name="textEditParallelChannel4Log">
+               <property name="readOnly">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+        </layout>
        </widget>
        <widget class="QWidget" name="configureTab">
         <attribute name="title">

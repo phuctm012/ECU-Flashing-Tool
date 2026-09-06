@@ -16,13 +16,13 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
     QIcon, QImage, QKeySequence, QLinearGradient,
     QPainter, QPalette, QPixmap, QRadialGradient,
     QTransform)
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QGroupBox,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMainWindow, QMenu,
-    QMenuBar, QProgressBar, QPushButton, QSizePolicy,
-    QSpacerItem, QSpinBox, QStackedWidget, QStatusBar,
-    QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QGridLayout,
+    QGroupBox, QHBoxLayout, QHeaderView, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QMenu, QMenuBar, QProgressBar, QPushButton,
+    QSizePolicy, QSpacerItem, QSpinBox, QStackedWidget,
+    QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
+    QTextEdit, QVBoxLayout, QWidget)
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -217,6 +217,113 @@ class Ui_MainWindow(object):
         self.verticalLayout_flashTab.addWidget(self.groupBoxBatchFlash)
 
         self.tabWidget.addTab(self.flashTab, "")
+        self.parallelFlashTab = QWidget()
+        self.parallelFlashTab.setObjectName(u"parallelFlashTab")
+        self.verticalLayout_parallelFlashTab = QVBoxLayout(self.parallelFlashTab)
+        self.verticalLayout_parallelFlashTab.setObjectName(u"verticalLayout_parallelFlashTab")
+        self.horizontalLayout_parallelGlobalControls = QHBoxLayout()
+        self.horizontalLayout_parallelGlobalControls.setObjectName(u"horizontalLayout_parallelGlobalControls")
+        self.buttonParallelStartAll = QPushButton(self.parallelFlashTab)
+        self.buttonParallelStartAll.setObjectName(u"buttonParallelStartAll")
+
+        self.horizontalLayout_parallelGlobalControls.addWidget(self.buttonParallelStartAll)
+
+        self.buttonParallelAbortAll = QPushButton(self.parallelFlashTab)
+        self.buttonParallelAbortAll.setObjectName(u"buttonParallelAbortAll")
+        self.buttonParallelAbortAll.setEnabled(False)
+
+        self.horizontalLayout_parallelGlobalControls.addWidget(self.buttonParallelAbortAll)
+
+        self.horizontalSpacer_parallelGlobalControls = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_parallelGlobalControls.addItem(self.horizontalSpacer_parallelGlobalControls)
+
+
+        self.verticalLayout_parallelFlashTab.addLayout(self.horizontalLayout_parallelGlobalControls)
+
+        self.gridLayout_parallelChannels = QGridLayout()
+        self.gridLayout_parallelChannels.setObjectName(u"gridLayout_parallelChannels")
+        self.groupBoxParallelChannel1 = QGroupBox(self.parallelFlashTab)
+        self.groupBoxParallelChannel1.setObjectName(u"groupBoxParallelChannel1")
+        self.verticalLayout_parallelChannel1 = QVBoxLayout(self.groupBoxParallelChannel1)
+        self.verticalLayout_parallelChannel1.setObjectName(u"verticalLayout_parallelChannel1")
+
+        self.gridLayout_parallelChannels.addWidget(self.groupBoxParallelChannel1, 0, 0, 1, 1)
+
+        self.groupBoxParallelChannel2 = QGroupBox(self.parallelFlashTab)
+        self.groupBoxParallelChannel2.setObjectName(u"groupBoxParallelChannel2")
+        self.verticalLayout_parallelChannel2 = QVBoxLayout(self.groupBoxParallelChannel2)
+        self.verticalLayout_parallelChannel2.setObjectName(u"verticalLayout_parallelChannel2")
+
+        self.gridLayout_parallelChannels.addWidget(self.groupBoxParallelChannel2, 0, 1, 1, 1)
+
+        self.groupBoxParallelChannel3 = QGroupBox(self.parallelFlashTab)
+        self.groupBoxParallelChannel3.setObjectName(u"groupBoxParallelChannel3")
+        self.verticalLayout_parallelChannel3 = QVBoxLayout(self.groupBoxParallelChannel3)
+        self.verticalLayout_parallelChannel3.setObjectName(u"verticalLayout_parallelChannel3")
+
+        self.gridLayout_parallelChannels.addWidget(self.groupBoxParallelChannel3, 1, 0, 1, 1)
+
+        self.groupBoxParallelChannel4 = QGroupBox(self.parallelFlashTab)
+        self.groupBoxParallelChannel4.setObjectName(u"groupBoxParallelChannel4")
+        self.verticalLayout_parallelChannel4 = QVBoxLayout(self.groupBoxParallelChannel4)
+        self.verticalLayout_parallelChannel4.setObjectName(u"verticalLayout_parallelChannel4")
+
+        self.gridLayout_parallelChannels.addWidget(self.groupBoxParallelChannel4, 1, 1, 1, 1)
+
+
+        self.verticalLayout_parallelFlashTab.addLayout(self.gridLayout_parallelChannels)
+
+        self.tabWidgetParallelDetail = QTabWidget(self.parallelFlashTab)
+        self.tabWidgetParallelDetail.setObjectName(u"tabWidgetParallelDetail")
+        self.tabParallelChannel1Log = QWidget()
+        self.tabParallelChannel1Log.setObjectName(u"tabParallelChannel1Log")
+        self.verticalLayout_parallelChannel1Log = QVBoxLayout(self.tabParallelChannel1Log)
+        self.verticalLayout_parallelChannel1Log.setObjectName(u"verticalLayout_parallelChannel1Log")
+        self.textEditParallelChannel1Log = QTextEdit(self.tabParallelChannel1Log)
+        self.textEditParallelChannel1Log.setObjectName(u"textEditParallelChannel1Log")
+        self.textEditParallelChannel1Log.setReadOnly(True)
+
+        self.verticalLayout_parallelChannel1Log.addWidget(self.textEditParallelChannel1Log)
+
+        self.tabWidgetParallelDetail.addTab(self.tabParallelChannel1Log, "")
+        self.tabParallelChannel2Log = QWidget()
+        self.tabParallelChannel2Log.setObjectName(u"tabParallelChannel2Log")
+        self.verticalLayout_parallelChannel2Log = QVBoxLayout(self.tabParallelChannel2Log)
+        self.verticalLayout_parallelChannel2Log.setObjectName(u"verticalLayout_parallelChannel2Log")
+        self.textEditParallelChannel2Log = QTextEdit(self.tabParallelChannel2Log)
+        self.textEditParallelChannel2Log.setObjectName(u"textEditParallelChannel2Log")
+        self.textEditParallelChannel2Log.setReadOnly(True)
+
+        self.verticalLayout_parallelChannel2Log.addWidget(self.textEditParallelChannel2Log)
+
+        self.tabWidgetParallelDetail.addTab(self.tabParallelChannel2Log, "")
+        self.tabParallelChannel3Log = QWidget()
+        self.tabParallelChannel3Log.setObjectName(u"tabParallelChannel3Log")
+        self.verticalLayout_parallelChannel3Log = QVBoxLayout(self.tabParallelChannel3Log)
+        self.verticalLayout_parallelChannel3Log.setObjectName(u"verticalLayout_parallelChannel3Log")
+        self.textEditParallelChannel3Log = QTextEdit(self.tabParallelChannel3Log)
+        self.textEditParallelChannel3Log.setObjectName(u"textEditParallelChannel3Log")
+        self.textEditParallelChannel3Log.setReadOnly(True)
+
+        self.verticalLayout_parallelChannel3Log.addWidget(self.textEditParallelChannel3Log)
+
+        self.tabWidgetParallelDetail.addTab(self.tabParallelChannel3Log, "")
+        self.tabParallelChannel4Log = QWidget()
+        self.tabParallelChannel4Log.setObjectName(u"tabParallelChannel4Log")
+        self.verticalLayout_parallelChannel4Log = QVBoxLayout(self.tabParallelChannel4Log)
+        self.verticalLayout_parallelChannel4Log.setObjectName(u"verticalLayout_parallelChannel4Log")
+        self.textEditParallelChannel4Log = QTextEdit(self.tabParallelChannel4Log)
+        self.textEditParallelChannel4Log.setObjectName(u"textEditParallelChannel4Log")
+        self.textEditParallelChannel4Log.setReadOnly(True)
+
+        self.verticalLayout_parallelChannel4Log.addWidget(self.textEditParallelChannel4Log)
+
+        self.tabWidgetParallelDetail.addTab(self.tabParallelChannel4Log, "")
+
+        self.verticalLayout_parallelFlashTab.addWidget(self.tabWidgetParallelDetail)
+
+        self.tabWidget.addTab(self.parallelFlashTab, "")
         self.configureTab = QWidget()
         self.configureTab.setObjectName(u"configureTab")
         self.horizontalLayout_configureTab = QHBoxLayout(self.configureTab)
@@ -808,7 +915,18 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem10.setText(QCoreApplication.translate("MainWindow", u"Result", None))
         ___qtablewidgetitem11 = self.tableWidgetBatchLog.horizontalHeaderItem(3)
         ___qtablewidgetitem11.setText(QCoreApplication.translate("MainWindow", u"Duration", None))
-        self.tabWidget.setTabText(self.tabWidget.indexOf(self.flashTab), QCoreApplication.translate("MainWindow", u"Flash", None))
+        self.tabWidget.setTabText(self.tabWidget.indexOf(self.flashTab), QCoreApplication.translate("MainWindow", u"Single Flash", None))
+        self.buttonParallelStartAll.setText(QCoreApplication.translate("MainWindow", u"Start All", None))
+        self.buttonParallelAbortAll.setText(QCoreApplication.translate("MainWindow", u"Abort All", None))
+        self.groupBoxParallelChannel1.setTitle(QCoreApplication.translate("MainWindow", u"Channel 1", None))
+        self.groupBoxParallelChannel2.setTitle(QCoreApplication.translate("MainWindow", u"Channel 2", None))
+        self.groupBoxParallelChannel3.setTitle(QCoreApplication.translate("MainWindow", u"Channel 3", None))
+        self.groupBoxParallelChannel4.setTitle(QCoreApplication.translate("MainWindow", u"Channel 4", None))
+        self.tabWidgetParallelDetail.setTabText(self.tabWidgetParallelDetail.indexOf(self.tabParallelChannel1Log), QCoreApplication.translate("MainWindow", u"Channel 1", None))
+        self.tabWidgetParallelDetail.setTabText(self.tabWidgetParallelDetail.indexOf(self.tabParallelChannel2Log), QCoreApplication.translate("MainWindow", u"Channel 2", None))
+        self.tabWidgetParallelDetail.setTabText(self.tabWidgetParallelDetail.indexOf(self.tabParallelChannel3Log), QCoreApplication.translate("MainWindow", u"Channel 3", None))
+        self.tabWidgetParallelDetail.setTabText(self.tabWidgetParallelDetail.indexOf(self.tabParallelChannel4Log), QCoreApplication.translate("MainWindow", u"Channel 4", None))
+        self.tabWidget.setTabText(self.tabWidget.indexOf(self.parallelFlashTab), QCoreApplication.translate("MainWindow", u"Parallel Flash", None))
 
         __sortingEnabled = self.navListWidget.isSortingEnabled()
         self.navListWidget.setSortingEnabled(False)

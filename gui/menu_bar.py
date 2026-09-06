@@ -231,8 +231,10 @@ class MenuBarMixin:
         # Jump to Configure -> Data first so the newly loaded
         # row is actually visible instead of landing silently
         # on whatever tab/page the user was on.
-        if hasattr(self.ui, 'tabWidget'):
-            self.ui.tabWidget.setCurrentIndex(1)
+        if hasattr(self.ui, 'tabWidget') and hasattr(self.ui, 'configureTab'):
+            self.ui.tabWidget.setCurrentIndex(
+                self.ui.tabWidget.indexOf(self.ui.configureTab)
+            )
         if hasattr(self.ui, 'navListWidget'):
             self.ui.navListWidget.setCurrentRow(0)
 
@@ -248,8 +250,10 @@ class MenuBarMixin:
         if not self._load_firmware_file(file_path):
             return
 
-        if hasattr(self.ui, 'tabWidget'):
-            self.ui.tabWidget.setCurrentIndex(1)
+        if hasattr(self.ui, 'tabWidget') and hasattr(self.ui, 'configureTab'):
+            self.ui.tabWidget.setCurrentIndex(
+                self.ui.tabWidget.indexOf(self.ui.configureTab)
+            )
         if hasattr(self.ui, 'navListWidget'):
             self.ui.navListWidget.setCurrentRow(0)
 

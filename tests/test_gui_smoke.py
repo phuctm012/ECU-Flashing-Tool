@@ -203,6 +203,37 @@ class TestMainWindowConstruction(unittest.TestCase):
             self.assertEqual(stacked.currentIndex(), row)
 
 
+class TestParallelFlashTabScaffolding(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_tab_order_is_single_flash_parallel_configure(self):
+        tw = self.window.ui.tabWidget
+        self.assertEqual(tw.tabText(0), "Single Flash")
+        self.assertEqual(tw.tabText(1), "Parallel Flash")
+        self.assertEqual(tw.tabText(2), "Configure")
+
+    def test_four_channel_panel_shells_exist(self):
+        for i in range(1, 5):
+            self.assertTrue(
+                hasattr(self.window.ui, f"groupBoxParallelChannel{i}")
+            )
+
+    def test_start_all_abort_all_buttons_exist(self):
+        self.assertTrue(hasattr(self.window.ui, "buttonParallelStartAll"))
+        self.assertTrue(hasattr(self.window.ui, "buttonParallelAbortAll"))
+
+    def test_four_detail_log_tabs_exist(self):
+        tabs = self.window.ui.tabWidgetParallelDetail
+        self.assertEqual(tabs.count(), 4)
+        for i in range(1, 5):
+            self.assertTrue(
+                hasattr(self.window.ui, f"textEditParallelChannel{i}Log")
+            )
+
+
 class TestCanConfig(unittest.TestCase):
 
     def setUp(self):
@@ -1907,7 +1938,10 @@ class TestMenuBar(unittest.TestCase):
         ) as mock_add:
             self.window.ui.actionLoadFirmware.trigger()
 
-        self.assertEqual(self.window.ui.tabWidget.currentIndex(), 1)
+        self.assertEqual(
+            self.window.ui.tabWidget.currentIndex(),
+            self.window.ui.tabWidget.indexOf(self.window.ui.configureTab),
+        )
         self.assertEqual(self.window.ui.navListWidget.currentRow(), 0)
         mock_add.assert_called_once()
 
@@ -2357,7 +2391,10 @@ class TestRecentFiles(unittest.TestCase):
 
         self.window.load_recent_file(SAMPLE_HEX)
 
-        self.assertEqual(self.window.ui.tabWidget.currentIndex(), 1)
+        self.assertEqual(
+            self.window.ui.tabWidget.currentIndex(),
+            self.window.ui.tabWidget.indexOf(self.window.ui.configureTab),
+        )
         self.assertEqual(self.window.ui.navListWidget.currentRow(), 0)
         self.assertEqual(len(self.window._loaded_datablocks), 1)
 
