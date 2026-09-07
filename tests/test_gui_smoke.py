@@ -38,6 +38,12 @@ from config.settings import (
     STATUS_COLOR_RUNNING_DARK,
     STATUS_TEXT_COLOR,
     STATUS_TEXT_COLOR_DARK,
+    ACCENT_COLOR,
+    ACCENT_COLOR_DARK,
+    DANGER_COLOR,
+    DANGER_COLOR_DARK,
+    SUCCESS_COLOR,
+    SUCCESS_COLOR_DARK,
 )
 from parsers.auto_parser import parse_firmware_file
 
@@ -262,6 +268,80 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
         panel = self.window._parallel_panels[0]
         panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
         self.assertTrue(panel["flash_button"].isEnabled())
+
+    def test_view_log_button_switches_the_shared_detail_tab(self):
+        panel = self.window._parallel_panels[2]
+        panel["view_log_button"].click()
+        self.assertEqual(
+            self.window.ui.tabWidgetParallelDetail.currentIndex(), 2
+        )
+
+    def test_flash_button_starts_styled_as_accent(self):
+        panel = self.window._parallel_panels[0]
+        self.assertIn(ACCENT_COLOR, panel["flash_button"].styleSheet())
+
+    def test_flash_button_turns_danger_while_running(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        self.window._start_identify_for_panel(panel)
+        self.assertIn(DANGER_COLOR, panel["flash_button"].styleSheet())
+        # _start_identify_for_panel() starts a real QThread - abort
+        # it (handles either the identify or a since-auto-started
+        # flash stage) so nothing is left dangling in the background
+        # when the test ends (see tests/test_flash_threading.py's
+        # module docstring on why that's never just harmless leakage).
+        self.window._abort_panel(panel)
+        self.app.processEvents()
+
+    def test_progress_bar_turns_success_green_on_pass(self):
+        panel = self.window._parallel_panels[0]
+        self.window._on_panel_flash_finished(panel)
+        self.assertIn(SUCCESS_COLOR, panel["progress_bar"].styleSheet())
+        self.assertIn(ACCENT_COLOR, panel["flash_button"].styleSheet())
+
+    def test_progress_bar_turns_danger_red_on_fail(self):
+        panel = self.window._parallel_panels[0]
+        self.window._on_panel_flash_aborted(panel)
+        self.assertIn(DANGER_COLOR, panel["progress_bar"].styleSheet())
+
+
+class TestParallelPanelRecolorsOnThemeToggle(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def tearDown(self):
+        # Same precaution as the other recolor tests — don't leak a
+        # dark stylesheet into unrelated tests run afterward.
+        self.window.ui.actionDarkMode.setChecked(False)
+
+    def test_toggling_dark_recolors_a_running_panels_button(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)
+        self.window._start_identify_for_panel(panel)
+        self.assertIn(DANGER_COLOR, panel["flash_button"].styleSheet())
+
+        self.window.ui.actionDarkMode.setChecked(True)
+
+        self.assertIn(DANGER_COLOR_DARK, panel["flash_button"].styleSheet())
+        self.assertNotIn(DANGER_COLOR, panel["flash_button"].styleSheet())
+
+        # _start_identify_for_panel() starts a real QThread - clean
+        # it up rather than leaving it dangling in the background
+        # when the test ends.
+        self.window._abort_panel(panel)
+        self.app.processEvents()
+
+    def test_toggling_dark_recolors_a_passed_panels_progress_bar(self):
+        panel = self.window._parallel_panels[0]
+        self.window._on_panel_flash_finished(panel)
+        self.assertIn(SUCCESS_COLOR, panel["progress_bar"].styleSheet())
+
+        self.window.ui.actionDarkMode.setChecked(True)
+
+        self.assertIn(SUCCESS_COLOR_DARK, panel["progress_bar"].styleSheet())
+        self.assertNotIn(SUCCESS_COLOR, panel["progress_bar"].styleSheet())
 
 
 class TestCanConfig(unittest.TestCase):
@@ -2093,14 +2173,17 @@ class TestMenuBar(unittest.TestCase):
         self.window.ui.actionResizeMedium.trigger()
 
         self.assertFalse(self.window.isFullScreen())
-        # 800, not 789 -- going full screen fully activates every
-        # tab's layout (including the not-yet-shown Parallel Flash
-        # tab added in Phase 4.92), revealing its true minimum
-        # height; test_resize_medium_sets_exact_size measures a
-        # never-shown window, where that layout stays lazily
-        # unactivated and still reports the smaller 789.
+        # Back to 789 (not the 800 introduced in Phase 4.92, when
+        # each Parallel Flash panel first stacked 5 separate widget
+        # rows). The Phase 4.96 visual-parity fix paired combo +
+        # View Log and Flash/Abort + progress bar into 2 horizontal
+        # rows each, dropping each panel to 4 rows total and
+        # shrinking the tab's true (fully-activated) minimum height
+        # back down — see the sibling comment in
+        # test_resize_medium_sets_exact_size for why a never-shown
+        # window reports this same 789 regardless.
         self.assertEqual(
-            self.window.size().toTuple(), (1366, 800)
+            self.window.size().toTuple(), (1366, 789)
         )
 
     def test_export_report_action_calls_export_report(self):

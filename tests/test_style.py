@@ -149,6 +149,22 @@ class TestShippedDarkStylesheetContent(unittest.TestCase):
             self.assertIn("QPushButton#buttonExportBatchReport:hover", css)
             self.assertIn("QPushButton#buttonExportBatchReport:disabled", css)
 
+    def test_both_themes_style_parallel_flash_buttons(self):
+        # Start All / Abort All (gui/main_window.ui, Parallel Flash
+        # tab) and each panel's View Log pill used to fall back to
+        # the plain default QPushButton look, unlike the approved
+        # design mockup — see docs/walkthrough.md's Parallel Flash
+        # visual-parity fix entry.
+        for css in (load_stylesheet(dark=False), load_stylesheet(dark=True)):
+            self.assertIn("QPushButton#buttonParallelStartAll", css)
+            self.assertIn("QPushButton#buttonParallelStartAll:hover", css)
+            self.assertIn("QPushButton#buttonParallelStartAll:disabled", css)
+            self.assertIn("QPushButton#buttonParallelAbortAll", css)
+            self.assertIn("QPushButton#buttonParallelAbortAll:hover", css)
+            self.assertIn("QPushButton#buttonParallelAbortAll:disabled", css)
+            self.assertIn("QPushButton#buttonParallelViewLog", css)
+            self.assertIn("QPushButton#buttonParallelViewLog:hover", css)
+
     def test_both_themes_style_text_edit(self):
         # informationText (QTextEdit) had no QSS selector at all —
         # harmless in light mode (default white bg + near-black

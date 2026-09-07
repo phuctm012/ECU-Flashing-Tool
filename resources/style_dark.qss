@@ -68,6 +68,51 @@ QPushButton#buttonExportBatchReport:disabled {
     border: 1px solid #3a4048;
 }
 
+/* Parallel Flash controls (gui/main_window.ui, Parallel Flash tab) —
+   see resources/style.qss's matching light-theme comment. */
+QPushButton#buttonParallelStartAll {
+    background-color: #3f6cb0;
+    color: white;
+    font-weight: 600;
+    border: none;
+}
+QPushButton#buttonParallelStartAll:hover {
+    background-color: #5b8fd9;
+}
+QPushButton#buttonParallelStartAll:disabled {
+    background-color: #2a2f38;
+    color: #5a6472;
+    border: 1px solid #3a4048;
+}
+
+QPushButton#buttonParallelAbortAll {
+    background-color: #a8453f;
+    color: white;
+    border: none;
+}
+QPushButton#buttonParallelAbortAll:hover {
+    background-color: #c96058;
+}
+QPushButton#buttonParallelAbortAll:disabled {
+    background-color: #2a2f38;
+    color: #5a6472;
+    border: 1px solid #3a4048;
+}
+
+QPushButton#buttonParallelViewLog {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 10px;
+    border: 1px solid #3a4048;
+    background: transparent;
+    color: #9aa4b2;
+}
+QPushButton#buttonParallelViewLog:hover {
+    border-color: #5b8fd9;
+    color: #5b8fd9;
+    background: transparent;
+}
+
 QTabWidget::pane {
     border: 1px solid #3a4048;
     border-radius: 6px;

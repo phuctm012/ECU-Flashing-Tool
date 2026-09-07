@@ -364,6 +364,9 @@ class MenuBarMixin:
         if hasattr(self, '_recolor_batch_log_table'):
             self._recolor_batch_log_table()
 
+        if hasattr(self, '_recolor_parallel_panels'):
+            self._recolor_parallel_panels()
+
         # self._settings only exists once setup_settings_profile()
         # has run — guaranteed by the time a user can actually
         # click this menu item, since MainWindow.__init__() fully

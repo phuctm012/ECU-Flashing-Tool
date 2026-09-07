@@ -123,3 +123,41 @@ STATUS_COLOR_RUNNING_DARK = "#4a3d1f"  # dark amber — step/segment in progress
 STATUS_COLOR_DONE_DARK = "#1f3a2c"     # dark green — step/segment finished
 STATUS_COLOR_ERROR_DARK = "#3d2226"    # dark red — step/segment aborted/failed
 STATUS_TEXT_COLOR_DARK = "#f0f3f7"     # bright text paired with the 3 colors above
+
+# Solid "action button" accent colors — the exact hex values behind
+# resources/style.qss / style_dark.qss's #flashButton (accent),
+# #buttonStopBatch (danger), and #buttonExportBatchReport (success)
+# rules. Those 3 are static, ID-scoped QSS rules since each names a
+# single, unique .ui widget. gui/parallel_flash.py's per-panel
+# Flash/Abort button and progress bar are built at runtime (4 of
+# each, no unique object name) and need to switch between these
+# colors dynamically as a panel's phase changes — an ID-scoped QSS
+# rule can't express that, so these constants exist for that code to
+# build a per-instance stylesheet directly, the same way
+# STATUS_COLOR_* above lets gui/flash_tab.py color table rows
+# directly instead of through static QSS.
+ACCENT_COLOR = "#2b579a"          # blue — default/idle Flash button
+ACCENT_HOVER_COLOR = "#4a7fd6"
+ACCENT_COLOR_DARK = "#3f6cb0"
+ACCENT_HOVER_COLOR_DARK = "#5b8fd9"
+
+DANGER_COLOR = "#b23b3b"          # red — Abort-state button, FAIL progress
+DANGER_HOVER_COLOR = "#d1574f"
+DANGER_COLOR_DARK = "#a8453f"
+DANGER_HOVER_COLOR_DARK = "#c96058"
+
+SUCCESS_COLOR = "#3f8f5f"         # green — PASS progress
+SUCCESS_HOVER_COLOR = "#56b378"
+SUCCESS_COLOR_DARK = "#3a8a5c"
+SUCCESS_HOVER_COLOR_DARK = "#4fac76"
+
+# "Disabled action button" look — same neutral fallback
+# #buttonStopBatch:disabled/#buttonExportBatchReport:disabled
+# already use, reused here for the same reason (Flash button starts
+# disabled with no channel selected).
+DISABLED_BUTTON_BG = "#ffffff"
+DISABLED_BUTTON_FG = "#9aa4b2"
+DISABLED_BUTTON_BORDER = "#d7dde5"
+DISABLED_BUTTON_BG_DARK = "#2a2f38"
+DISABLED_BUTTON_FG_DARK = "#5a6472"
+DISABLED_BUTTON_BORDER_DARK = "#3a4048"

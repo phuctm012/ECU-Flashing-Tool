@@ -54,6 +54,7 @@ import threading
 from PySide6.QtCore import QObject, QThread
 from PySide6.QtWidgets import (
     QComboBox,
+    QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
@@ -65,8 +66,45 @@ from core.flash_sequence import (
     build_flash_sequence,
     build_suzuki_slp1_flash_sequence,
 )
+from config.settings import (
+    ACCENT_COLOR,
+    ACCENT_HOVER_COLOR,
+    ACCENT_COLOR_DARK,
+    ACCENT_HOVER_COLOR_DARK,
+    DANGER_COLOR,
+    DANGER_HOVER_COLOR,
+    DANGER_COLOR_DARK,
+    DANGER_HOVER_COLOR_DARK,
+    SUCCESS_COLOR,
+    SUCCESS_COLOR_DARK,
+    DISABLED_BUTTON_BG,
+    DISABLED_BUTTON_FG,
+    DISABLED_BUTTON_BORDER,
+    DISABLED_BUTTON_BG_DARK,
+    DISABLED_BUTTON_FG_DARK,
+    DISABLED_BUTTON_BORDER_DARK,
+)
 
 _PANEL_COUNT = 4
+
+# (background, hover) pairs for the per-panel Flash/Abort button,
+# keyed by semantic "kind" — see this module's docstring for why
+# these are applied as a per-instance stylesheet rather than a
+# static QSS #id rule.
+_BUTTON_COLOR_PAIRS = {
+    "accent": (ACCENT_COLOR, ACCENT_HOVER_COLOR),
+    "danger": (DANGER_COLOR, DANGER_HOVER_COLOR),
+}
+_BUTTON_COLOR_PAIRS_DARK = {
+    "accent": (ACCENT_COLOR_DARK, ACCENT_HOVER_COLOR_DARK),
+    "danger": (DANGER_COLOR_DARK, DANGER_HOVER_COLOR_DARK),
+}
+
+# Progress bar chunk color overrides — None means "no override",
+# falling back to the app-wide QProgressBar::chunk rule (already
+# themed blue in both resources/style.qss and style_dark.qss).
+_PROGRESS_COLORS = {"success": SUCCESS_COLOR, "danger": DANGER_COLOR}
+_PROGRESS_COLORS_DARK = {"success": SUCCESS_COLOR_DARK, "danger": DANGER_COLOR_DARK}
 
 
 class _PanelSignalRouter(QObject):
@@ -158,6 +196,9 @@ class ParallelFlashMixin:
         combo.addItem("Not Selected", userData="not-selected")
         self.populate_hardware_combo_widget_append(combo)
 
+        view_log_button = QPushButton("View Log")
+        view_log_button.setObjectName("buttonParallelViewLog")
+
         serial_label = QLabel("SN: —")
         flash_button = QPushButton("Flash")
         flash_button.setEnabled(False)
@@ -166,15 +207,28 @@ class ParallelFlashMixin:
         progress_bar.setValue(0)
         status_label = QLabel("No channel selected.")
 
-        group_box.layout().addWidget(combo)
+        # Combo + View Log side by side, and Flash/Abort + progress
+        # bar side by side — matches the approved mockup
+        # (docs/superpowers/specs/2026-09-06-parallel-flash-design.md's
+        # interactive draft), rather than stacking every widget in
+        # one plain vertical column.
+        header_row = QHBoxLayout()
+        header_row.addWidget(combo, 1)
+        header_row.addWidget(view_log_button)
+
+        controls_row = QHBoxLayout()
+        controls_row.addWidget(flash_button)
+        controls_row.addWidget(progress_bar, 1)
+
+        group_box.layout().addLayout(header_row)
         group_box.layout().addWidget(serial_label)
-        group_box.layout().addWidget(flash_button)
-        group_box.layout().addWidget(progress_bar)
+        group_box.layout().addLayout(controls_row)
         group_box.layout().addWidget(status_label)
 
         panel = {
             "index": index,
             "combo": combo,
+            "view_log_button": view_log_button,
             "serial_label": serial_label,
             "flash_button": flash_button,
             "progress_bar": progress_bar,
@@ -187,6 +241,8 @@ class ParallelFlashMixin:
             "identify_worker": None,
             "flash_thread": None,
             "flash_worker": None,
+            "_button_kind": "accent",
+            "_progress_kind": None,
         }
 
         panel["router"] = _PanelSignalRouter(self, panel)
@@ -197,8 +253,86 @@ class ParallelFlashMixin:
         flash_button.clicked.connect(
             lambda _, p=panel: self._on_parallel_flash_clicked(p)
         )
+        view_log_button.clicked.connect(
+            lambda _, idx=index: self._view_parallel_panel_log(idx)
+        )
+
+        self._apply_panel_button_style(panel, "accent")
 
         return panel
+
+    def _view_parallel_panel_log(self, index):
+        if hasattr(self.ui, 'tabWidgetParallelDetail'):
+            self.ui.tabWidgetParallelDetail.setCurrentIndex(index)
+
+    # ==================================================
+    # Dynamic per-panel coloring (theme-aware)
+    #
+    # The Flash/Abort button and progress bar are built at runtime
+    # (4 of each, no unique object name), so — unlike #flashButton/
+    # #buttonStopBatch/#buttonExportBatchReport — they can't be
+    # colored with a static QSS #id rule. Each panel's current
+    # "kind" is stashed (_button_kind/_progress_kind) so a later
+    # Dark Mode toggle can re-derive the right color instead of the
+    # widget staying stuck in whichever theme was active when it
+    # was last colored — the exact same staleness bug already fixed
+    # for stepsTable/segmentsTable/the Batch Log table (see
+    # docs/walkthrough.md Phase 4.90/4.91).
+    # ==================================================
+
+    def _apply_panel_button_style(self, panel, kind):
+        pairs = (
+            _BUTTON_COLOR_PAIRS_DARK
+            if getattr(self, '_dark_mode_active', False)
+            else _BUTTON_COLOR_PAIRS
+        )
+        bg, hover = pairs[kind]
+        disabled_bg, disabled_fg, disabled_border = (
+            (DISABLED_BUTTON_BG_DARK, DISABLED_BUTTON_FG_DARK,
+             DISABLED_BUTTON_BORDER_DARK)
+            if getattr(self, '_dark_mode_active', False)
+            else (DISABLED_BUTTON_BG, DISABLED_BUTTON_FG,
+                  DISABLED_BUTTON_BORDER)
+        )
+        panel["flash_button"].setStyleSheet(
+            "QPushButton {"
+            f" background-color: {bg}; color: white; border: none;"
+            " border-radius: 6px; padding: 6px 14px; font-weight: 600;"
+            " }"
+            f"QPushButton:hover:!disabled {{ background-color: {hover}; }}"
+            "QPushButton:disabled {"
+            f" background-color: {disabled_bg}; color: {disabled_fg};"
+            f" border: 1px solid {disabled_border}; }}"
+        )
+        panel["_button_kind"] = kind
+
+    def _apply_panel_progress_style(self, panel, kind):
+        if kind is None:
+            # No override — falls back to the app-wide themed
+            # QProgressBar::chunk rule (already blue in both
+            # resources/style.qss and style_dark.qss).
+            panel["progress_bar"].setStyleSheet("")
+        else:
+            colors = (
+                _PROGRESS_COLORS_DARK
+                if getattr(self, '_dark_mode_active', False)
+                else _PROGRESS_COLORS
+            )
+            panel["progress_bar"].setStyleSheet(
+                "QProgressBar::chunk {"
+                f" background-color: {colors[kind]}; border-radius: 6px;"
+                " }"
+            )
+        panel["_progress_kind"] = kind
+
+    def _recolor_parallel_panels(self):
+        for panel in getattr(self, '_parallel_panels', []):
+            self._apply_panel_button_style(
+                panel, panel.get("_button_kind", "accent")
+            )
+            self._apply_panel_progress_style(
+                panel, panel.get("_progress_kind")
+            )
 
     def populate_hardware_combo_widget_append(self, combo):
         """
@@ -253,6 +387,8 @@ class ParallelFlashMixin:
         panel["status_label"].setText(
             "Identifying ECU — reading Serial Number (DID 0xF18C)..."
         )
+        self._apply_panel_button_style(panel, "danger")
+        self._apply_panel_progress_style(panel, None)
         self._log_parallel_panel(
             panel, "Identify: reading Serial Number (DID 0xF18C)..."
         )
@@ -350,6 +486,8 @@ class ParallelFlashMixin:
             )
             panel["flash_button"].setText("Flash")
             panel["combo"].setEnabled(True)
+            self._apply_panel_button_style(panel, "accent")
+            self._apply_panel_progress_style(panel, "danger")
             self._update_parallel_abort_all_state()
             return
 
@@ -369,6 +507,8 @@ class ParallelFlashMixin:
         panel["flash_button"].setText("Flash")
         panel["combo"].setEnabled(True)
         panel["status_label"].setText("Idle — ready to flash.")
+        self._apply_panel_button_style(panel, "accent")
+        self._apply_panel_progress_style(panel, None)
         self._update_parallel_abort_all_state()
 
     def _log_parallel_panel(self, panel, message):
@@ -535,6 +675,8 @@ class ParallelFlashMixin:
         panel["combo"].setEnabled(True)
         panel["status_label"].setText("PASS.")
         self._log_parallel_panel(panel, "Flash completed successfully.")
+        self._apply_panel_button_style(panel, "accent")
+        self._apply_panel_progress_style(panel, "success")
         self._update_parallel_abort_all_state()
 
     def _on_panel_flash_aborted(self, panel):
@@ -549,6 +691,8 @@ class ParallelFlashMixin:
         panel["combo"].setEnabled(True)
         panel["status_label"].setText("FAIL / ABORTED.")
         self._log_parallel_panel(panel, "Flash aborted.")
+        self._apply_panel_button_style(panel, "accent")
+        self._apply_panel_progress_style(panel, "danger")
         self._update_parallel_abort_all_state()
 
     def _abort_panel(self, panel):
