@@ -66,6 +66,9 @@ from core.flash_sequence import (
     build_flash_sequence,
     build_suzuki_slp1_flash_sequence,
 )
+from gui.parallel_channel_settings_dialog import (
+    ParallelChannelSettingsDialog,
+)
 from config.settings import (
     ACCENT_COLOR,
     ACCENT_HOVER_COLOR,
@@ -83,6 +86,8 @@ from config.settings import (
     DISABLED_BUTTON_BG_DARK,
     DISABLED_BUTTON_FG_DARK,
     DISABLED_BUTTON_BORDER_DARK,
+    HIGHLIGHT_BG_COLOR,
+    HIGHLIGHT_BG_COLOR_DARK,
 )
 
 _PANEL_COUNT = 4
@@ -199,6 +204,9 @@ class ParallelFlashMixin:
         view_log_button = QPushButton("View Log")
         view_log_button.setObjectName("buttonParallelViewLog")
 
+        settings_button = QPushButton("Settings")
+        settings_button.setObjectName("buttonParallelChannelSettings")
+
         serial_label = QLabel("SN: —")
         flash_button = QPushButton("Flash")
         flash_button.setEnabled(False)
@@ -207,14 +215,15 @@ class ParallelFlashMixin:
         progress_bar.setValue(0)
         status_label = QLabel("No channel selected.")
 
-        # Combo + View Log side by side, and Flash/Abort + progress
-        # bar side by side — matches the approved mockup
+        # Combo + View Log + Settings side by side, and Flash/Abort
+        # + progress bar side by side — matches the approved mockup
         # (docs/superpowers/specs/2026-09-06-parallel-flash-design.md's
         # interactive draft), rather than stacking every widget in
         # one plain vertical column.
         header_row = QHBoxLayout()
         header_row.addWidget(combo, 1)
         header_row.addWidget(view_log_button)
+        header_row.addWidget(settings_button)
 
         controls_row = QHBoxLayout()
         controls_row.addWidget(flash_button)
@@ -229,6 +238,7 @@ class ParallelFlashMixin:
             "index": index,
             "combo": combo,
             "view_log_button": view_log_button,
+            "settings_button": settings_button,
             "serial_label": serial_label,
             "flash_button": flash_button,
             "progress_bar": progress_bar,
@@ -241,6 +251,7 @@ class ParallelFlashMixin:
             "identify_worker": None,
             "flash_thread": None,
             "flash_worker": None,
+            "comm_settings": None,
             "_button_kind": "accent",
             "_progress_kind": None,
         }
@@ -256,10 +267,72 @@ class ParallelFlashMixin:
         view_log_button.clicked.connect(
             lambda _, idx=index: self._view_parallel_panel_log(idx)
         )
+        settings_button.clicked.connect(
+            lambda _, p=panel: self._open_parallel_channel_settings(p)
+        )
 
         self._apply_panel_button_style(panel, "accent")
 
         return panel
+
+    def _resolve_panel_comm_ids(self, panel, can_config):
+        """
+        Returns (tx_id, rx_id, functional_id) for a panel: its own
+        Basic Communication override
+        (gui/parallel_channel_settings_dialog.py) if it has one,
+        otherwise the shared Configure tab values plus the
+        hardcoded 0x700 functional default (Functional Request CAN
+        ID has no global UI field of its own — only per-panel
+        overrides exist).
+        """
+
+        if panel["comm_settings"]:
+            return (
+                panel["comm_settings"]["tx_id"],
+                panel["comm_settings"]["rx_id"],
+                panel["comm_settings"]["functional_id"],
+            )
+        return (
+            can_config.get("tx_id", 0x778),
+            can_config.get("rx_id", 0x788),
+            0x700,
+        )
+
+    def _open_parallel_channel_settings(self, panel):
+
+        can_config = (
+            self.get_can_config() if hasattr(self, 'get_can_config') else {}
+        )
+        tx_id, rx_id, functional_id = self._resolve_panel_comm_ids(
+            panel, can_config
+        )
+
+        dialog = ParallelChannelSettingsDialog(
+            self,
+            f"Channel {panel['index'] + 1}",
+            tx_id,
+            rx_id,
+            functional_id,
+            bool(panel["comm_settings"]),
+        )
+        dialog.exec()
+
+        if not dialog.result():
+            return
+
+        if dialog.reset_requested():
+            panel["comm_settings"] = None
+        else:
+            tx_id, rx_id, functional_id = dialog.result_values()
+            panel["comm_settings"] = {
+                "tx_id": tx_id,
+                "rx_id": rx_id,
+                "functional_id": functional_id,
+            }
+
+        self._apply_settings_button_style(
+            panel, bool(panel["comm_settings"])
+        )
 
     def _view_parallel_panel_log(self, index):
         if hasattr(self.ui, 'tabWidgetParallelDetail'):
@@ -325,6 +398,32 @@ class ParallelFlashMixin:
             )
         panel["_progress_kind"] = kind
 
+    def _apply_settings_button_style(self, panel, customized):
+        if not customized:
+            # No override — falls back to the static
+            # #buttonParallelChannelSettings QSS pill rule (already
+            # themed in both resources/style.qss and style_dark.qss).
+            panel["settings_button"].setStyleSheet("")
+            return
+
+        bg = (
+            HIGHLIGHT_BG_COLOR_DARK
+            if getattr(self, '_dark_mode_active', False)
+            else HIGHLIGHT_BG_COLOR
+        )
+        accent = (
+            ACCENT_COLOR_DARK
+            if getattr(self, '_dark_mode_active', False)
+            else ACCENT_COLOR
+        )
+        panel["settings_button"].setStyleSheet(
+            "QPushButton {"
+            f" background-color: {bg}; color: {accent};"
+            f" border: 1px solid {accent}; border-radius: 10px;"
+            " font-size: 11px; padding: 4px 9px; font-weight: 600;"
+            " }"
+        )
+
     def _recolor_parallel_panels(self):
         for panel in getattr(self, '_parallel_panels', []):
             self._apply_panel_button_style(
@@ -332,6 +431,9 @@ class ParallelFlashMixin:
             )
             self._apply_panel_progress_style(
                 panel, panel.get("_progress_kind")
+            )
+            self._apply_settings_button_style(
+                panel, bool(panel["comm_settings"])
             )
 
     def populate_hardware_combo_widget_append(self, combo):
@@ -384,6 +486,7 @@ class ParallelFlashMixin:
         panel["serial_label"].setText("SN: —")
         panel["flash_button"].setText("Abort")
         panel["combo"].setEnabled(False)
+        panel["settings_button"].setEnabled(False)
         panel["status_label"].setText(
             "Identifying ECU — reading Serial Number (DID 0xF18C)..."
         )
@@ -413,6 +516,10 @@ class ParallelFlashMixin:
                 "Suzuki" in self.ui.comboBoxFlashSequence.currentText()
             )
 
+        tx_id, rx_id, functional_id = self._resolve_panel_comm_ids(
+            panel, can_config
+        )
+
         panel["identify_thread"] = QThread()
         panel["identify_worker"] = TestConnectionWorker(
             use_virtual=use_virtual,
@@ -420,11 +527,12 @@ class ParallelFlashMixin:
             functional=use_suzuki_sequence,
             can_channel=channel,
             can_serial=serial_hw,
-            can_tx_id=can_config.get("tx_id", 0x778),
-            can_rx_id=can_config.get("rx_id", 0x788),
+            can_tx_id=tx_id,
+            can_rx_id=rx_id,
             can_bitrate=can_config.get("bitrate", 500000),
             can_fd=can_config.get("fd", False),
             can_data_bitrate=can_config.get("data_bitrate", 2000000),
+            functional_id=functional_id,
         )
         panel["identify_worker"].moveToThread(panel["identify_thread"])
 
@@ -486,6 +594,7 @@ class ParallelFlashMixin:
             )
             panel["flash_button"].setText("Flash")
             panel["combo"].setEnabled(True)
+            panel["settings_button"].setEnabled(True)
             self._apply_panel_button_style(panel, "accent")
             self._apply_panel_progress_style(panel, "danger")
             self._update_parallel_abort_all_state()
@@ -506,6 +615,7 @@ class ParallelFlashMixin:
         panel["phase"] = "idle"
         panel["flash_button"].setText("Flash")
         panel["combo"].setEnabled(True)
+        panel["settings_button"].setEnabled(True)
         panel["status_label"].setText("Idle — ready to flash.")
         self._apply_panel_button_style(panel, "accent")
         self._apply_panel_progress_style(panel, None)
@@ -579,6 +689,10 @@ class ParallelFlashMixin:
             else {}
         )
 
+        tx_id, rx_id, functional_id = self._resolve_panel_comm_ids(
+            panel, can_config
+        )
+
         panel["flash_thread"] = QThread()
         panel["flash_worker"] = FlashWorker(
             steps=steps,
@@ -589,11 +703,12 @@ class ParallelFlashMixin:
             keepalive_functional=use_suzuki_sequence,
             can_channel=channel,
             can_serial=serial_hw,
-            can_tx_id=can_config.get("tx_id", 0x778),
-            can_rx_id=can_config.get("rx_id", 0x788),
+            can_tx_id=tx_id,
+            can_rx_id=rx_id,
             can_bitrate=can_config.get("bitrate", 500000),
             can_fd=can_config.get("fd", False),
             can_data_bitrate=can_config.get("data_bitrate", 2000000),
+            functional_id=functional_id,
             download_compression=data_format_config.get(
                 "compression", 0x00
             ),
@@ -673,6 +788,7 @@ class ParallelFlashMixin:
         panel["phase"] = "pass"
         panel["flash_button"].setText("Flash")
         panel["combo"].setEnabled(True)
+        panel["settings_button"].setEnabled(True)
         panel["status_label"].setText("PASS.")
         self._log_parallel_panel(panel, "Flash completed successfully.")
         self._apply_panel_button_style(panel, "accent")
@@ -689,6 +805,7 @@ class ParallelFlashMixin:
         panel["phase"] = "fail"
         panel["flash_button"].setText("Flash")
         panel["combo"].setEnabled(True)
+        panel["settings_button"].setEnabled(True)
         panel["status_label"].setText("FAIL / ABORTED.")
         self._log_parallel_panel(panel, "Flash aborted.")
         self._apply_panel_button_style(panel, "accent")

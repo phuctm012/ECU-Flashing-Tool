@@ -169,6 +169,21 @@ class SettingsProfileMixin:
         for i, panel in enumerate(
             getattr(self, '_parallel_panels', []), start=1
         ):
+            # comm_settings (Basic Communication overrides from
+            # gui/parallel_channel_settings_dialog.py) is independent
+            # of channel selection — a panel can be customized while
+            # still "Not Selected" — so this is saved before the
+            # selected/not-selected branch below, not nested inside it.
+            comm = panel["comm_settings"]
+            s.setValue(f"parallel/panel{i}/commCustomized", comm is not None)
+            if comm is not None:
+                s.setValue(f"parallel/panel{i}/commTxId", comm["tx_id"])
+                s.setValue(f"parallel/panel{i}/commRxId", comm["rx_id"])
+                s.setValue(
+                    f"parallel/panel{i}/commFunctionalId",
+                    comm["functional_id"],
+                )
+
             data = panel["combo"].currentData()
             if data == "not-selected":
                 s.setValue(f"parallel/panel{i}/selected", False)
@@ -229,6 +244,27 @@ class SettingsProfileMixin:
         for i, panel in enumerate(
             getattr(self, '_parallel_panels', []), start=1
         ):
+            # See save_profile()'s matching comment — comm_settings
+            # is independent of channel selection, so restored
+            # before the selected/not-selected branch below.
+            comm_customized = s.value(
+                f"parallel/panel{i}/commCustomized", False, type=bool
+            )
+            if comm_customized:
+                panel["comm_settings"] = {
+                    "tx_id": s.value(
+                        f"parallel/panel{i}/commTxId", 0x778, type=int
+                    ),
+                    "rx_id": s.value(
+                        f"parallel/panel{i}/commRxId", 0x788, type=int
+                    ),
+                    "functional_id": s.value(
+                        f"parallel/panel{i}/commFunctionalId",
+                        0x700, type=int,
+                    ),
+                }
+                self._apply_settings_button_style(panel, True)
+
             selected = s.value(f"parallel/panel{i}/selected", False, type=bool)
             if not selected:
                 continue

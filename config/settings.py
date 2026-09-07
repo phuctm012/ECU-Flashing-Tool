@@ -161,3 +161,13 @@ DISABLED_BUTTON_BORDER = "#d7dde5"
 DISABLED_BUTTON_BG_DARK = "#2a2f38"
 DISABLED_BUTTON_FG_DARK = "#5a6472"
 DISABLED_BUTTON_BORDER_DARK = "#3a4048"
+
+# Same "selected/active" tint already used for QTabBar::tab:selected
+# and combo-box selection-background-color in resources/style.qss /
+# style_dark.qss — reused for the Parallel Flash panel's Settings
+# button when that channel has customized Basic Communication
+# settings (see gui/parallel_channel_settings_dialog.py), so the
+# highlight reads as "this app's existing active/selected color"
+# rather than an unrelated new shade.
+HIGHLIGHT_BG_COLOR = "#eef3fa"
+HIGHLIGHT_BG_COLOR_DARK = "#2a3a52"

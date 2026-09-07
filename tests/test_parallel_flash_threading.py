@@ -52,6 +52,23 @@ class TestPerPanelIdentify(unittest.TestCase):
         self.assertIsNotNone(panel["serial"])
         self.assertNotEqual(panel["phase"], "identifying")
 
+    def test_identify_uses_panels_own_comm_settings_when_customized(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        panel["comm_settings"] = {
+            "tx_id": 0x7A0, "rx_id": 0x7A8, "functional_id": 0x710,
+        }
+
+        self.window._start_identify_for_panel(panel)
+
+        worker = panel["identify_worker"]
+        self.assertEqual(worker._can_tx_id, 0x7A0)
+        self.assertEqual(worker._can_rx_id, 0x7A8)
+        self.assertEqual(worker._functional_id, 0x710)
+
+        self.window._abort_panel(panel)
+        self.app.processEvents()
+
 
 class TestPerPanelFlash(unittest.TestCase):
 
@@ -91,6 +108,23 @@ class TestPerPanelFlash(unittest.TestCase):
         for other in self.window._parallel_panels:
             if other is not panel:
                 self.assertEqual(other["phase"], "idle")
+
+    def test_flash_uses_panels_own_comm_settings_when_customized(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        panel["comm_settings"] = {
+            "tx_id": 0x7A0, "rx_id": 0x7A8, "functional_id": 0x710,
+        }
+
+        self.window._start_flash_for_panel(panel, "SN-TEST")
+
+        worker = panel["flash_worker"]
+        self.assertEqual(worker._can_tx_id, 0x7A0)
+        self.assertEqual(worker._can_rx_id, 0x7A8)
+        self.assertEqual(worker._functional_id, 0x710)
+
+        self.window._abort_panel(panel)
+        self.app.processEvents()
 
 
 class TestAbortAndStartAll(unittest.TestCase):

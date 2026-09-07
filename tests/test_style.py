@@ -164,6 +164,10 @@ class TestShippedDarkStylesheetContent(unittest.TestCase):
             self.assertIn("QPushButton#buttonParallelAbortAll:disabled", css)
             self.assertIn("QPushButton#buttonParallelViewLog", css)
             self.assertIn("QPushButton#buttonParallelViewLog:hover", css)
+            self.assertIn("QPushButton#buttonParallelChannelSettings", css)
+            self.assertIn(
+                "QPushButton#buttonParallelChannelSettings:hover", css
+            )
 
     def test_both_themes_style_text_edit(self):
         # informationText (QTextEdit) had no QSS selector at all —

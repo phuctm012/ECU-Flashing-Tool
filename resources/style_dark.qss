@@ -113,6 +113,21 @@ QPushButton#buttonParallelViewLog:hover {
     background: transparent;
 }
 
+/* See resources/style.qss's matching light-theme comment. */
+QPushButton#buttonParallelChannelSettings {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 10px;
+    border: 1px solid #3a4048;
+    background: transparent;
+    color: #9aa4b2;
+}
+QPushButton#buttonParallelChannelSettings:hover {
+    border-color: #5b8fd9;
+    color: #5b8fd9;
+    background: transparent;
+}
+
 QTabWidget::pane {
     border: 1px solid #3a4048;
     border-radius: 6px;

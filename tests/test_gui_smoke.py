@@ -44,6 +44,8 @@ from config.settings import (
     DANGER_COLOR_DARK,
     SUCCESS_COLOR,
     SUCCESS_COLOR_DARK,
+    HIGHLIGHT_BG_COLOR,
+    HIGHLIGHT_BG_COLOR_DARK,
 )
 from parsers.auto_parser import parse_firmware_file
 
@@ -342,6 +344,137 @@ class TestParallelPanelRecolorsOnThemeToggle(unittest.TestCase):
 
         self.assertIn(SUCCESS_COLOR_DARK, panel["progress_bar"].styleSheet())
         self.assertNotIn(SUCCESS_COLOR, panel["progress_bar"].styleSheet())
+
+    def test_toggling_dark_recolors_a_customized_settings_button(self):
+        panel = self.window._parallel_panels[0]
+        with unittest.mock.patch(
+            "gui.parallel_flash.ParallelChannelSettingsDialog"
+        ) as MockDialog:
+            instance = MockDialog.return_value
+            instance.result.return_value = True
+            instance.reset_requested.return_value = False
+            instance.result_values.return_value = (0x7A0, 0x7A8, 0x710)
+            panel["settings_button"].click()
+        self.assertIn(
+            HIGHLIGHT_BG_COLOR, panel["settings_button"].styleSheet()
+        )
+
+        self.window.ui.actionDarkMode.setChecked(True)
+
+        self.assertIn(
+            HIGHLIGHT_BG_COLOR_DARK, panel["settings_button"].styleSheet()
+        )
+        self.assertNotIn(
+            HIGHLIGHT_BG_COLOR, panel["settings_button"].styleSheet()
+        )
+
+
+class TestParallelChannelSettingsButton(unittest.TestCase):
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_settings_button_and_comm_settings_exist(self):
+        panel = self.window._parallel_panels[0]
+        self.assertIn("settings_button", panel)
+        self.assertIsNone(panel["comm_settings"])
+
+    def test_settings_button_opens_dialog_prefilled_with_shared_defaults(self):
+        panel = self.window._parallel_panels[0]
+        # Whatever the Configure tab's live tx_id/rx_id actually are
+        # right now (radar-side/Suzuki defaults, not necessarily the
+        # generic 0x778/0x788 pair) - the dialog must reflect the
+        # real shared config, not a hardcoded assumption.
+        shared = self.window.get_can_config()
+        with unittest.mock.patch(
+            "gui.parallel_flash.ParallelChannelSettingsDialog"
+        ) as MockDialog:
+            MockDialog.return_value.result.return_value = False
+            panel["settings_button"].click()
+
+        MockDialog.assert_called_once()
+        args = MockDialog.call_args[0]
+        # (parent, channel_label, tx_id, rx_id, functional_id, is_customized)
+        self.assertEqual(args[2], shared["tx_id"])
+        self.assertEqual(args[3], shared["rx_id"])
+        self.assertEqual(args[4], 0x700)
+        self.assertFalse(args[5])
+
+    def test_settings_button_opens_dialog_prefilled_with_existing_override(self):
+        panel = self.window._parallel_panels[0]
+        panel["comm_settings"] = {
+            "tx_id": 0x7A0, "rx_id": 0x7A8, "functional_id": 0x710,
+        }
+        with unittest.mock.patch(
+            "gui.parallel_flash.ParallelChannelSettingsDialog"
+        ) as MockDialog:
+            MockDialog.return_value.result.return_value = False
+            panel["settings_button"].click()
+
+        args = MockDialog.call_args[0]
+        self.assertEqual(args[2], 0x7A0)
+        self.assertEqual(args[3], 0x7A8)
+        self.assertEqual(args[4], 0x710)
+        self.assertTrue(args[5])
+
+    def test_saving_dialog_stores_custom_comm_settings_and_marks_button(self):
+        panel = self.window._parallel_panels[0]
+        with unittest.mock.patch(
+            "gui.parallel_flash.ParallelChannelSettingsDialog"
+        ) as MockDialog:
+            instance = MockDialog.return_value
+            instance.result.return_value = True
+            instance.reset_requested.return_value = False
+            instance.result_values.return_value = (0x7A0, 0x7A8, 0x710)
+            panel["settings_button"].click()
+
+        self.assertEqual(
+            panel["comm_settings"],
+            {"tx_id": 0x7A0, "rx_id": 0x7A8, "functional_id": 0x710},
+        )
+        self.assertIn(
+            HIGHLIGHT_BG_COLOR, panel["settings_button"].styleSheet()
+        )
+
+    def test_resetting_dialog_clears_comm_settings(self):
+        panel = self.window._parallel_panels[0]
+        panel["comm_settings"] = {
+            "tx_id": 0x7A0, "rx_id": 0x7A8, "functional_id": 0x710,
+        }
+        with unittest.mock.patch(
+            "gui.parallel_flash.ParallelChannelSettingsDialog"
+        ) as MockDialog:
+            instance = MockDialog.return_value
+            instance.result.return_value = True
+            instance.reset_requested.return_value = True
+            instance.result_values.return_value = None
+            panel["settings_button"].click()
+
+        self.assertIsNone(panel["comm_settings"])
+        self.assertNotIn(
+            HIGHLIGHT_BG_COLOR, panel["settings_button"].styleSheet()
+        )
+
+    def test_cancelling_dialog_leaves_comm_settings_unchanged(self):
+        panel = self.window._parallel_panels[0]
+        with unittest.mock.patch(
+            "gui.parallel_flash.ParallelChannelSettingsDialog"
+        ) as MockDialog:
+            MockDialog.return_value.result.return_value = False
+            panel["settings_button"].click()
+
+        self.assertIsNone(panel["comm_settings"])
+
+    def test_settings_button_disabled_while_panel_is_identifying(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)
+        self.window._start_identify_for_panel(panel)
+        self.assertFalse(panel["settings_button"].isEnabled())
+
+        self.window._abort_panel(panel)
+        self.app.processEvents()
+        self.assertTrue(panel["settings_button"].isEnabled())
 
 
 class TestCanConfig(unittest.TestCase):
@@ -1482,6 +1615,26 @@ class TestParallelPanelChannelPersistence(unittest.TestCase):
         self.assertEqual(
             window2._parallel_panels[0]["combo"].currentData(), None
         )
+
+    def test_panel_comm_settings_persist_across_restart(self):
+        window1 = MainWindow()
+        window1._parallel_panels[0]["comm_settings"] = {
+            "tx_id": 0x7A0, "rx_id": 0x7A8, "functional_id": 0x710,
+        }
+        window1.save_profile()
+
+        window2 = MainWindow()
+        self.assertEqual(
+            window2._parallel_panels[0]["comm_settings"],
+            {"tx_id": 0x7A0, "rx_id": 0x7A8, "functional_id": 0x710},
+        )
+
+    def test_panel_without_comm_settings_stays_none_across_restart(self):
+        window1 = MainWindow()
+        window1.save_profile()
+
+        window2 = MainWindow()
+        self.assertIsNone(window2._parallel_panels[0]["comm_settings"])
 
 
 class TestReportExport(unittest.TestCase):

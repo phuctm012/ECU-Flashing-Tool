@@ -118,6 +118,26 @@ QPushButton#buttonParallelViewLog:hover {
     background: transparent;
 }
 
+/* Default (not-customized) look, matching #buttonParallelViewLog's
+   pill shape — gui/parallel_flash.py's _apply_settings_button_style()
+   overrides this with a filled accent look via setStyleSheet() once
+   the channel has its own Basic Communication settings (see
+   config.settings.HIGHLIGHT_BG_COLOR/ACCENT_COLOR), same as the
+   Flash/Abort button and progress bar's dynamic per-state coloring. */
+QPushButton#buttonParallelChannelSettings {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 10px;
+    border: 1px solid #d7dde5;
+    background: transparent;
+    color: #5a6472;
+}
+QPushButton#buttonParallelChannelSettings:hover {
+    border-color: #4a7fd6;
+    color: #4a7fd6;
+    background: transparent;
+}
+
 QTabWidget::pane {
     border: 1px solid #d7dde5;
     border-radius: 6px;
