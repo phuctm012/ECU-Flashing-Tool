@@ -105,6 +105,29 @@ class TestFunctionalProbe(unittest.TestCase):
             pre_security_targets,
         )
 
+    def test_custom_functional_id_used_for_functional_targets(self):
+        # Parallel Flash's per-channel Basic Communication settings
+        # need Identify's probe to respect the same override the
+        # Flash phase uses — previously hardcoded to 0x700 with no
+        # way to change it at all (see
+        # TestSuzukiSequenceFlash.test_custom_functional_id_used_for_functional_targets
+        # in tests/test_flash_controller.py for the Flash-side
+        # equivalent).
+        worker = TestConnectionWorker(
+            use_virtual=True, functional=True, functional_id=0x710,
+        )
+        result = _run_worker(worker)
+
+        self.assertTrue(result["passed"])
+
+        pre_security_targets = [
+            row["req_target"] for row in result["trace_rows"][:3]
+        ]
+        self.assertTrue(
+            all(t == "FuncGroup-0x710" for t in pre_security_targets),
+            pre_security_targets,
+        )
+
     def test_restores_communication_and_dtc(self):
         worker = TestConnectionWorker(use_virtual=True, functional=True)
         result = _run_worker(worker)

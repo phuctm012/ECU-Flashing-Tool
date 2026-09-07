@@ -368,6 +368,38 @@ class TestSuzukiSequenceFlash(unittest.TestCase):
         for r in physical_rows:
             self.assertEqual(r.get("resp_source"), "0x78B")
 
+    def test_custom_functional_id_used_for_functional_targets(self):
+        # Parallel Flash's per-channel Basic Communication settings
+        # need to override the functional ID independently per
+        # panel — previously hardcoded to 0x700 with no way to
+        # change it at all.
+        db = _make_datablock()
+        steps = build_suzuki_slp1_flash_sequence([db])
+        worker = FlashWorker(
+            steps=steps,
+            datablocks=[db],
+            use_virtual=True,
+            can_tx_id=0x77B,
+            can_rx_id=0x78B,
+            keepalive_functional=True,
+            functional_id=0x710,
+        )
+
+        rows = []
+        worker.trace_row.connect(rows.append)
+        _run_worker(worker)
+
+        functional_rows = [
+            r for r in rows
+            if r.get("req_target") == "FuncGroup-0x710"
+            and not (r.get("req_data") or "").startswith("3E")
+        ]
+        stale_default_rows = [
+            r for r in rows if r.get("req_target") == "FuncGroup-0x700"
+        ]
+        self.assertEqual(len(functional_rows), 4)
+        self.assertEqual(len(stale_default_rows), 0)
+
 
 class TestAbort(unittest.TestCase):
 

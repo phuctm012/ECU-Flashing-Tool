@@ -60,6 +60,7 @@ class TestConnectionWorker(QObject):
         can_bitrate=500000,
         can_fd=False,
         can_data_bitrate=2000000,
+        functional_id=0x700,
     ):
         super().__init__()
 
@@ -73,6 +74,7 @@ class TestConnectionWorker(QObject):
         self._can_bitrate = can_bitrate
         self._can_fd = can_fd
         self._can_data_bitrate = can_data_bitrate
+        self._functional_id = functional_id
 
     # ==========================================
     # Run (called on the worker thread)
@@ -92,6 +94,7 @@ class TestConnectionWorker(QObject):
             can_bitrate=self._can_bitrate,
             can_fd=self._can_fd,
             can_data_bitrate=self._can_data_bitrate,
+            functional_id=self._functional_id,
         )
         worker.trace_message.connect(self.trace_message)
         worker.trace_row.connect(self.trace_row)

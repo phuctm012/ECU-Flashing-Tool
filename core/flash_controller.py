@@ -64,6 +64,7 @@ class FlashWorker(QObject):
         can_bitrate=500000,
         can_fd=False,
         can_data_bitrate=2000000,
+        functional_id=0x700,
         download_compression=0x00,
         download_encrypting=0x00,
     ):
@@ -100,8 +101,11 @@ class FlashWorker(QObject):
         # CAN interface reference (for cleanup)
         self._can_interface = None
 
-        # Structured trace row builder (see _on_uds_trace)
-        self._functional_id = 0x700
+        # Structured trace row builder (see _on_uds_trace) — from
+        # Configure -> Communication normally, or a per-panel
+        # override (gui/parallel_flash.py's Basic Communication
+        # settings popup).
+        self._functional_id = functional_id
         self._flash_start_time = None
         self._pending_trace_row = None
 
