@@ -286,66 +286,6 @@
            </item>
           </layout>
          </item>
-         <item>
-          <widget class="QTabWidget" name="tabWidgetParallelDetail">
-           <widget class="QWidget" name="tabParallelChannel1Log">
-            <attribute name="title">
-             <string>Channel 1</string>
-            </attribute>
-            <layout class="QVBoxLayout" name="verticalLayout_parallelChannel1Log">
-             <item>
-              <widget class="QTextEdit" name="textEditParallelChannel1Log">
-               <property name="readOnly">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-           <widget class="QWidget" name="tabParallelChannel2Log">
-            <attribute name="title">
-             <string>Channel 2</string>
-            </attribute>
-            <layout class="QVBoxLayout" name="verticalLayout_parallelChannel2Log">
-             <item>
-              <widget class="QTextEdit" name="textEditParallelChannel2Log">
-               <property name="readOnly">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-           <widget class="QWidget" name="tabParallelChannel3Log">
-            <attribute name="title">
-             <string>Channel 3</string>
-            </attribute>
-            <layout class="QVBoxLayout" name="verticalLayout_parallelChannel3Log">
-             <item>
-              <widget class="QTextEdit" name="textEditParallelChannel3Log">
-               <property name="readOnly">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-           <widget class="QWidget" name="tabParallelChannel4Log">
-            <attribute name="title">
-             <string>Channel 4</string>
-            </attribute>
-            <layout class="QVBoxLayout" name="verticalLayout_parallelChannel4Log">
-             <item>
-              <widget class="QTextEdit" name="textEditParallelChannel4Log">
-               <property name="readOnly">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </widget>
-         </item>
         </layout>
        </widget>
        <widget class="QWidget" name="configureTab">

@@ -274,55 +274,6 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_parallelFlashTab.addLayout(self.gridLayout_parallelChannels)
 
-        self.tabWidgetParallelDetail = QTabWidget(self.parallelFlashTab)
-        self.tabWidgetParallelDetail.setObjectName(u"tabWidgetParallelDetail")
-        self.tabParallelChannel1Log = QWidget()
-        self.tabParallelChannel1Log.setObjectName(u"tabParallelChannel1Log")
-        self.verticalLayout_parallelChannel1Log = QVBoxLayout(self.tabParallelChannel1Log)
-        self.verticalLayout_parallelChannel1Log.setObjectName(u"verticalLayout_parallelChannel1Log")
-        self.textEditParallelChannel1Log = QTextEdit(self.tabParallelChannel1Log)
-        self.textEditParallelChannel1Log.setObjectName(u"textEditParallelChannel1Log")
-        self.textEditParallelChannel1Log.setReadOnly(True)
-
-        self.verticalLayout_parallelChannel1Log.addWidget(self.textEditParallelChannel1Log)
-
-        self.tabWidgetParallelDetail.addTab(self.tabParallelChannel1Log, "")
-        self.tabParallelChannel2Log = QWidget()
-        self.tabParallelChannel2Log.setObjectName(u"tabParallelChannel2Log")
-        self.verticalLayout_parallelChannel2Log = QVBoxLayout(self.tabParallelChannel2Log)
-        self.verticalLayout_parallelChannel2Log.setObjectName(u"verticalLayout_parallelChannel2Log")
-        self.textEditParallelChannel2Log = QTextEdit(self.tabParallelChannel2Log)
-        self.textEditParallelChannel2Log.setObjectName(u"textEditParallelChannel2Log")
-        self.textEditParallelChannel2Log.setReadOnly(True)
-
-        self.verticalLayout_parallelChannel2Log.addWidget(self.textEditParallelChannel2Log)
-
-        self.tabWidgetParallelDetail.addTab(self.tabParallelChannel2Log, "")
-        self.tabParallelChannel3Log = QWidget()
-        self.tabParallelChannel3Log.setObjectName(u"tabParallelChannel3Log")
-        self.verticalLayout_parallelChannel3Log = QVBoxLayout(self.tabParallelChannel3Log)
-        self.verticalLayout_parallelChannel3Log.setObjectName(u"verticalLayout_parallelChannel3Log")
-        self.textEditParallelChannel3Log = QTextEdit(self.tabParallelChannel3Log)
-        self.textEditParallelChannel3Log.setObjectName(u"textEditParallelChannel3Log")
-        self.textEditParallelChannel3Log.setReadOnly(True)
-
-        self.verticalLayout_parallelChannel3Log.addWidget(self.textEditParallelChannel3Log)
-
-        self.tabWidgetParallelDetail.addTab(self.tabParallelChannel3Log, "")
-        self.tabParallelChannel4Log = QWidget()
-        self.tabParallelChannel4Log.setObjectName(u"tabParallelChannel4Log")
-        self.verticalLayout_parallelChannel4Log = QVBoxLayout(self.tabParallelChannel4Log)
-        self.verticalLayout_parallelChannel4Log.setObjectName(u"verticalLayout_parallelChannel4Log")
-        self.textEditParallelChannel4Log = QTextEdit(self.tabParallelChannel4Log)
-        self.textEditParallelChannel4Log.setObjectName(u"textEditParallelChannel4Log")
-        self.textEditParallelChannel4Log.setReadOnly(True)
-
-        self.verticalLayout_parallelChannel4Log.addWidget(self.textEditParallelChannel4Log)
-
-        self.tabWidgetParallelDetail.addTab(self.tabParallelChannel4Log, "")
-
-        self.verticalLayout_parallelFlashTab.addWidget(self.tabWidgetParallelDetail)
-
         self.tabWidget.addTab(self.parallelFlashTab, "")
         self.configureTab = QWidget()
         self.configureTab.setObjectName(u"configureTab")
@@ -922,10 +873,6 @@ class Ui_MainWindow(object):
         self.groupBoxParallelChannel2.setTitle(QCoreApplication.translate("MainWindow", u"Channel 2", None))
         self.groupBoxParallelChannel3.setTitle(QCoreApplication.translate("MainWindow", u"Channel 3", None))
         self.groupBoxParallelChannel4.setTitle(QCoreApplication.translate("MainWindow", u"Channel 4", None))
-        self.tabWidgetParallelDetail.setTabText(self.tabWidgetParallelDetail.indexOf(self.tabParallelChannel1Log), QCoreApplication.translate("MainWindow", u"Channel 1", None))
-        self.tabWidgetParallelDetail.setTabText(self.tabWidgetParallelDetail.indexOf(self.tabParallelChannel2Log), QCoreApplication.translate("MainWindow", u"Channel 2", None))
-        self.tabWidgetParallelDetail.setTabText(self.tabWidgetParallelDetail.indexOf(self.tabParallelChannel3Log), QCoreApplication.translate("MainWindow", u"Channel 3", None))
-        self.tabWidgetParallelDetail.setTabText(self.tabWidgetParallelDetail.indexOf(self.tabParallelChannel4Log), QCoreApplication.translate("MainWindow", u"Channel 4", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.parallelFlashTab), QCoreApplication.translate("MainWindow", u"Parallel Flash", None))
 
         __sortingEnabled = self.navListWidget.isSortingEnabled()

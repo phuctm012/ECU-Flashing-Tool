@@ -156,10 +156,18 @@ class MainWindow(
             "%H:%M:%S"
         )
 
-        self.ui.informationText.append(
-            f"[{timestamp}] {message}"
-        )
+        self._append_information_line(f"[{timestamp}] {message}")
 
+    def _append_information_line(self, formatted_line):
+        """
+        Low-level appender taking an already-timestamped line —
+        split out of log_information() so gui/parallel_flash.py can
+        replay a panel's buffered history (each line stamped with
+        when it actually happened) without every replay re-stamping
+        with "now", which log_information() itself always does.
+        """
+
+        self.ui.informationText.append(formatted_line)
         self.ui.informationText.ensureCursorVisible()
 
     # ==================================================

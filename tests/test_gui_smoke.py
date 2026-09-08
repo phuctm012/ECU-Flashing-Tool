@@ -233,15 +233,6 @@ class TestParallelFlashTabScaffolding(unittest.TestCase):
         self.assertTrue(hasattr(self.window.ui, "buttonParallelStartAll"))
         self.assertTrue(hasattr(self.window.ui, "buttonParallelAbortAll"))
 
-    def test_four_detail_log_tabs_exist(self):
-        tabs = self.window.ui.tabWidgetParallelDetail
-        self.assertEqual(tabs.count(), 4)
-        for i in range(1, 5):
-            self.assertTrue(
-                hasattr(self.window.ui, f"textEditParallelChannel{i}Log")
-            )
-
-
 class TestParallelFlashPanelScaffolding(unittest.TestCase):
 
     def setUp(self):
@@ -271,11 +262,82 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
         panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
         self.assertTrue(panel["flash_button"].isEnabled())
 
-    def test_view_log_button_switches_the_shared_detail_tab(self):
+    def test_view_log_button_makes_that_panel_the_active_one(self):
         panel = self.window._parallel_panels[2]
         panel["view_log_button"].click()
+        self.assertEqual(self.window._parallel_active_panel_index, 2)
+
+    def test_view_log_replays_panels_buffered_information_and_trace(self):
+        panel = self.window._parallel_panels[0]
+        panel["info_lines"].append("[12:00:00] Buffered info line.")
+        panel["trace_entries"].append(
+            ("system", "12:00:00.000", "Buffered trace line.")
+        )
+        panel["trace_entries"].append((
+            "row",
+            {
+                "req_ts": 1.0, "req_target": "0x778",
+                "req_data": "10 03", "resp_ts": 1.1,
+                "resp_source": "0x788", "resp_data": "50 03",
+            },
+        ))
+
+        panel["view_log_button"].click()
+
+        self.assertIn(
+            "Buffered info line.", self.window.ui.informationText.toPlainText()
+        )
+        self.assertEqual(self.window.ui.traceTable.rowCount(), 2)
         self.assertEqual(
-            self.window.ui.tabWidgetParallelDetail.currentIndex(), 2
+            self.window.ui.traceTable.item(0, 2).text(), "Buffered trace line."
+        )
+        self.assertEqual(
+            self.window.ui.traceTable.item(1, 1).text(), "0x778"
+        )
+
+    def test_live_message_only_shown_for_the_active_panel(self):
+        panels = self.window._parallel_panels
+        panels[0]["view_log_button"].click()
+
+        self.window._log_parallel_panel(panels[1], "Not the active panel.")
+
+        self.assertNotIn(
+            "Not the active panel.",
+            self.window.ui.informationText.toPlainText(),
+        )
+        self.assertIn(
+            "Not the active panel.", panels[1]["info_lines"][0]
+        )
+
+    def test_live_message_shown_immediately_for_the_active_panel(self):
+        panel = self.window._parallel_panels[0]
+        panel["view_log_button"].click()
+
+        self.window._log_parallel_panel(panel, "Live update.")
+
+        self.assertIn(
+            "Live update.", self.window.ui.informationText.toPlainText()
+        )
+
+    def test_switching_active_panel_shows_only_that_panels_own_history(self):
+        panels = self.window._parallel_panels
+        self.window._log_parallel_panel(panels[0], "From channel 1.")
+        self.window._log_parallel_panel(panels[1], "From channel 2.")
+
+        panels[0]["view_log_button"].click()
+        self.assertIn(
+            "From channel 1.", self.window.ui.informationText.toPlainText()
+        )
+        self.assertNotIn(
+            "From channel 2.", self.window.ui.informationText.toPlainText()
+        )
+
+        panels[1]["view_log_button"].click()
+        self.assertIn(
+            "From channel 2.", self.window.ui.informationText.toPlainText()
+        )
+        self.assertNotIn(
+            "From channel 1.", self.window.ui.informationText.toPlainText()
         )
 
     def test_flash_button_starts_styled_as_accent(self):

@@ -18,6 +18,19 @@
 # connected to thread.finished (never the worker's own signal)
 # clears that slot's own thread/worker references.
 #
+# Per-panel log/trace display reuses the app's existing, single
+# Information/Trace tabs (outputTabWidget in gui/main_window.ui —
+# already a sibling of the top-level tabWidget, so already visible
+# under the Parallel Flash tab) instead of a duplicate embedded
+# widget: each panel keeps its OWN buffered history
+# (info_lines/trace_entries, always appended to regardless of what's
+# currently displayed), and clicking that panel's "View Log" button
+# makes it the active one (_parallel_active_panel_index), replaying
+# its buffer into the shared tabs. A worker's messages are only
+# ALSO written live to those shared tabs while its panel is the
+# active one — otherwise they're buffered silently, the same way a
+# real CAN trace tool only renders what you're currently looking at.
+#
 # Two rules specific to this file, since every other QThread pair
 # in this codebase is a single shared self.thread/self.worker (no
 # per-instance routing needed):
@@ -50,6 +63,7 @@
 # ==================================================
 
 import threading
+from datetime import datetime
 
 from PySide6.QtCore import QObject, QThread
 from PySide6.QtWidgets import (
@@ -143,8 +157,14 @@ class _PanelSignalRouter(QObject):
     def on_step_started(self, desc):
         self._mixin._on_panel_step_started(self.panel, desc)
 
-    def on_log_message(self, message):
-        self._mixin._on_panel_log_message(self.panel, message)
+    def on_information_message(self, message):
+        self._mixin._log_parallel_panel(self.panel, message)
+
+    def on_trace_message(self, message):
+        self._mixin._on_panel_trace_message(self.panel, message)
+
+    def on_trace_row(self, row):
+        self._mixin._on_panel_trace_row(self.panel, row)
 
     def on_flash_finished(self):
         self._mixin._on_panel_flash_finished(self.panel)
@@ -166,6 +186,11 @@ class ParallelFlashMixin:
     def setup_parallel_flash(self):
 
         self._parallel_panels = []
+        # None until a panel's "View Log" is clicked — no panel
+        # auto-claims the shared Information/Trace tabs just because
+        # the Parallel Flash top-level tab became active, since
+        # those tabs are shared with Single Flash/Batch Flash too.
+        self._parallel_active_panel_index = None
 
         group_boxes = [
             self.ui.groupBoxParallelChannel1,
@@ -173,17 +198,9 @@ class ParallelFlashMixin:
             self.ui.groupBoxParallelChannel3,
             self.ui.groupBoxParallelChannel4,
         ]
-        log_widgets = [
-            self.ui.textEditParallelChannel1Log,
-            self.ui.textEditParallelChannel2Log,
-            self.ui.textEditParallelChannel3Log,
-            self.ui.textEditParallelChannel4Log,
-        ]
 
         for i in range(_PANEL_COUNT):
-            panel = self._build_parallel_panel(
-                group_boxes[i], log_widgets[i], i
-            )
+            panel = self._build_parallel_panel(group_boxes[i], i)
             self._parallel_panels.append(panel)
 
         if hasattr(self.ui, 'buttonParallelStartAll'):
@@ -195,7 +212,7 @@ class ParallelFlashMixin:
                 self.parallel_abort_all
             )
 
-    def _build_parallel_panel(self, group_box, log_widget, index):
+    def _build_parallel_panel(self, group_box, index):
 
         combo = QComboBox()
         combo.addItem("Not Selected", userData="not-selected")
@@ -243,7 +260,8 @@ class ParallelFlashMixin:
             "flash_button": flash_button,
             "progress_bar": progress_bar,
             "status_label": status_label,
-            "log_widget": log_widget,
+            "info_lines": [],
+            "trace_entries": [],
             "phase": "idle",
             "serial": None,
             "stopping": False,
@@ -335,8 +353,35 @@ class ParallelFlashMixin:
         )
 
     def _view_parallel_panel_log(self, index):
-        if hasattr(self.ui, 'tabWidgetParallelDetail'):
-            self.ui.tabWidgetParallelDetail.setCurrentIndex(index)
+        """
+        Makes panel `index` the active one for the shared
+        Information/Trace tabs (outputTabWidget) — clears them and
+        replays this panel's own buffered history into them. Live
+        messages from OTHER panels keep buffering silently in the
+        background; only this panel's future messages will also be
+        written live from here on, until a different panel's "View
+        Log" is clicked (see this module's docstring).
+        """
+
+        self._parallel_active_panel_index = index
+        panel = self._parallel_panels[index]
+
+        if hasattr(self.ui, 'informationText'):
+            self.ui.informationText.clear()
+            for line in panel["info_lines"]:
+                self._append_information_line(line)
+
+        if hasattr(self.ui, 'traceTable'):
+            self.ui.traceTable.setRowCount(0)
+            for entry in panel["trace_entries"]:
+                if entry[0] == "system":
+                    _, timestamp, message = entry
+                    self._add_trace_row(
+                        timestamp, "SYSTEM", message, "", "", ""
+                    )
+                else:
+                    _, row = entry
+                    self.log_trace_row(row)
 
     # ==================================================
     # Dynamic per-panel coloring (theme-aware)
@@ -622,7 +667,45 @@ class ParallelFlashMixin:
         self._update_parallel_abort_all_state()
 
     def _log_parallel_panel(self, panel, message):
-        panel["log_widget"].append(message)
+        """
+        Buffers an information-style message for `panel` (its own
+        internal narrative log, e.g. "Identify: Serial Number =
+        ..."), and — only if this panel is the one currently shown
+        in the shared Information tab — writes it there live too.
+        """
+
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        line = f"[{timestamp}] {message}"
+        panel["info_lines"].append(line)
+
+        if self._parallel_active_panel_index == panel["index"]:
+            self._append_information_line(line)
+
+    def _on_panel_trace_message(self, panel, message):
+        """
+        Buffers a narrative trace-log line (FlashWorker.trace_message
+        — "Executing: ...", errors) as a SYSTEM row for `panel`,
+        live-writing to the shared Trace tab only while this panel
+        is the active one — same reasoning as _log_parallel_panel().
+        """
+
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        panel["trace_entries"].append(("system", timestamp, message))
+
+        if self._parallel_active_panel_index == panel["index"]:
+            self._add_trace_row(timestamp, "SYSTEM", message, "", "", "")
+
+    def _on_panel_trace_row(self, panel, row):
+        """
+        Buffers a structured UDS request/response row
+        (FlashWorker.trace_row) for `panel`, live-writing to the
+        shared Trace tab only while this panel is the active one.
+        """
+
+        panel["trace_entries"].append(("row", row))
+
+        if self._parallel_active_panel_index == panel["index"]:
+            self.log_trace_row(row)
 
     def _on_parallel_ecu_info(self, panel, info_dict):
         if not hasattr(self, '_parallel_last_ecu_info'):
@@ -742,10 +825,13 @@ class ParallelFlashMixin:
             router.on_step_started
         )
         panel["flash_worker"].information_message.connect(
-            router.on_log_message
+            router.on_information_message
         )
         panel["flash_worker"].trace_message.connect(
-            router.on_log_message
+            router.on_trace_message
+        )
+        panel["flash_worker"].trace_row.connect(
+            router.on_trace_row
         )
 
         panel["flash_worker"].flash_finished.connect(
@@ -766,9 +852,6 @@ class ParallelFlashMixin:
 
     def _on_panel_step_started(self, panel, desc):
         panel["status_label"].setText(desc)
-
-    def _on_panel_log_message(self, panel, message):
-        self._log_parallel_panel(panel, message)
 
     def _cleanup_flash_thread_for_panel(self, panel):
 
