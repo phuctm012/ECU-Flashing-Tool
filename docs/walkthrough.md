@@ -2141,3 +2141,44 @@ Vì Information/Trace là 2 widget DÙNG CHUNG cho cả app (Single Flash, Batch
 - Verify `.grab()` headless: layout Parallel Flash gọn hơn hẳn (không còn vùng 4-tab trống thừa bên dưới lưới channel), tab Trace chung hiện đúng định dạng 6 cột chuẩn của app (giống hệt Single Flash/Batch Flash).
 - Full suite: 470 test pass (skipped=2, không đổi). `tests/test_flash_threading.py` (9 test) pass riêng.
 
+### Phase 4.99: Thêm Dòng Chỉ Báo Channel Đang Xem Vào Information/Trace
+
+User yêu cầu: khi bấm "View Log" ở 1 channel, cho hiện 1 dòng cuối cùng ở cả 2 tab Information và Trace để biết đang xem thông tin của channel nào — bổ sung cho cơ chế dùng chung 2 tab đã làm ở Phase 4.98 (chuyển qua lại giữa các channel không có gì phân biệt rõ ràng đang xem channel nào ngoài việc tự đọc nội dung log).
+
+Dòng chỉ báo ("Now viewing: Channel N") được ghi THẲNG vào 2 widget (`informationText`/`traceTable`) ngay sau khi phát lại (replay) xong buffer của channel đó trong `_view_parallel_panel_log()` — KHÔNG đi qua `_log_parallel_panel()`/`_on_panel_trace_message()` nên không bị lưu vào `info_lines`/`trace_entries` của panel. Nếu lưu vào buffer, mỗi lần replay sau sẽ in lại tất cả các dòng chỉ báo cũ — càng bấm View Log nhiều lần càng tích luỹ dòng rác lẫn vào lịch sử thật, kể cả khi sau này dùng để export Save Report (Phase 4.100).
+
+### Thay đổi
+
+- **`gui/parallel_flash.py`**: `_view_parallel_panel_log()` — sau vòng lặp phát lại buffer, ghi thêm 1 dòng `"Now viewing: Channel {N}"` (timestamp thật lúc bấm) vào cuối `informationText` (qua `_append_information_line()`) và 1 hàng SYSTEM tương ứng vào cuối `traceTable` (qua `_add_trace_row()`) — cả 2 đều gọi trực tiếp, không qua đường buffer.
+
+### Đã kiểm tra
+
+- Test mới (`tests/test_gui_smoke.py`, `TestParallelFlashPanelScaffolding`): dòng chỉ báo xuất hiện đúng ở cuối cả 2 tab sau khi bấm View Log; không tích luỹ vào buffer của panel dù bấm nhiều lần; đổi channel thì dòng chỉ báo cập nhật đúng tên channel mới.
+- Cập nhật lại test cũ `test_view_log_replays_panels_buffered_information_and_trace` (số hàng traceTable kỳ vọng tăng từ 2 lên 3 do có thêm hàng chỉ báo).
+- Full suite lần đầu bị crash sớm (segfault, exit code 139) ở 1 test hoàn toàn không liên quan (`test_batch_flash_threading.py`) — chạy riêng file đó thì pass sạch cả 9 test, chạy lại y hệt full suite lần 2 thì pass sạch toàn bộ — khớp với hiện tượng môi trường không ổn định đã gặp nhiều lần trong session này (không phải lỗi do thay đổi lần này).
+- Full suite (lần chạy sạch): 474 test pass (skipped=2, tăng từ 470 do 4 test mới). `tests/test_flash_threading.py` (9 test) pass riêng.
+
+### Phase 4.100: Thêm Nút "Test Connection" Và "Save Report" Cho Từng Channel
+
+User yêu cầu thêm 2 nút mới cho mỗi channel Parallel Flash: "Test Connection" và "Save Report" (dạng HTML, giống Single Flash), sắp xếp thành lưới 2x2 — hàng trên "Test Connection"/"Settings", hàng dưới "View Log"/"Save Report" (combo chọn channel giữ nguyên trên cùng).
+
+**Test Connection**: tái sử dụng nguyên `TestConnectionDialog` (`gui/test_connection_dialog.py`) — cùng dialog modal Tools > Test Connection... đang dùng cho toàn app — vì dialog này tự quản lý QThread/TestConnectionWorker riêng, không cần thêm bookkeeping thread nào ở panel. Khác biệt duy nhất: `_test_connection_for_panel()` tự resolve channel phần cứng + Basic Communication override CỦA RIÊNG panel đó (qua `_resolve_panel_comm_ids()`, y hệt logic `_start_identify_for_panel()` đã dùng) thay vì lấy từ Configure tab chung. Nút bị disable trong lúc panel đang identifying/flashing (tránh 2 tiến trình cùng nói chuyện với 1 kênh CAN vật lý) và khi chưa chọn channel — y hệt điều kiện enable của nút Flash.
+
+**Save Report**: cùng cấu trúc HTML với Export Report... (Tools menu, `gui/report_export.py`) nhưng KHÔNG thể tái dùng y nguyên vì các hàm build HTML hiện tại đọc thẳng từ widget dùng chung (`self.ui.traceTable`/`informationText`) — chỉ đúng cho 1 lần flash tại 1 thời điểm, trong khi 4 channel Parallel Flash có thể đang chạy đồng thời với dữ liệu khác nhau (đã giải quyết bằng buffer riêng cho Information/Trace ở Phase 4.98, nhưng Datablocks/Summary/Steps vẫn đọc thẳng widget). Refactor: tách `_report_html_style()` (CSS dùng chung) và cho `_report_trace_table()` nhận thêm tham số `rows=None` tuỳ chọn (None thì đọc `traceTable` như cũ, có giá trị thì render thẳng từ list) — cả 2 đều ở `gui/report_export.py`, tái dùng nguyên cho cả Single Flash lẫn Parallel Flash. Tách thêm `_format_trace_row_cells(row)` khỏi `log_trace_row()` (`gui/main_window.py`) để `_panel_trace_rows()` (`gui/parallel_flash.py`) convert `trace_entries` buffer thành list dùng chung logic format timestamp `.5f`s, không viết lại. `_report_datablocks_table()` (firmware dùng chung cho cả 4 channel) tái dùng y nguyên, không đổi. Phần Summary viết riêng cho panel (`_parallel_panel_report_summary_table()`) vì các field khác nhau thật sự: Hardware/Serial Number/kết quả là của riêng channel đó, không phải Configure tab chung — Parallel Flash cũng không có bảng Steps (chỉ có `status_label` hiện bước hiện tại) nên bỏ hẳn section này thay vì hiện rỗng gây hiểu lầm.
+
+### Thay đổi
+
+- **`gui/report_export.py`**: tách `_report_html_style()` khỏi `_build_report_html()`. `_report_trace_table()` nhận thêm `rows=None` tuỳ chọn.
+- **`gui/main_window.py`**: tách `_format_trace_row_cells(row)` khỏi `log_trace_row()`.
+- **`gui/parallel_flash.py`**: `_build_parallel_panel()` thêm 2 nút `test_connection_button`/`save_report_button`, sắp lại layout thành lưới 2x2 (`actions_row_1`/`actions_row_2`) đúng thứ tự user yêu cầu. Enable/disable `test_connection_button` nối vào đúng các điểm chuyển phase đã có sẵn cho `settings_button` (identify start/fail, reset-to-idle, flash finished/aborted, channel-changed). Hàm mới: `_test_connection_for_panel()`, `_save_parallel_panel_report()`, `_write_parallel_panel_report_file()`, `_build_parallel_panel_report_html()`, `_parallel_panel_report_summary_table()`, `_panel_trace_rows()`.
+- **`resources/style.qss`/`style_dark.qss`**: thêm rule `#buttonParallelTestConnection`/`#buttonParallelSaveReport`, cùng dạng pill với `#buttonParallelViewLog`/`#buttonParallelChannelSettings` đã có.
+
+### Đã kiểm tra
+
+- Test mới (`tests/test_gui_smoke.py`): `TestParallelPanelTestConnectionButton` (6 test — enable/disable theo channel/phase, dialog nhận đúng channel/comm ID của panel qua mock `TestConnectionDialog`, log kết quả vào buffer riêng của panel, tôn trọng CAN conflict warning), `TestParallelPanelSaveReport` (3 test — report chứa đúng dữ liệu buffer riêng của panel, không lẫn dữ liệu panel khác, lỗi ghi file không crash).
+- `tests/test_style.py`: mở rộng `test_both_themes_style_parallel_flash_buttons` cho 2 selector mới.
+- `tests/test_gui_smoke.py::TestReportExport` (Single Flash Export Report, 5 test) pass lại sau khi refactor `report_export.py` — xác nhận tách `_report_html_style()`/thêm `rows=None` không đổi hành vi cũ.
+- Verify headless thật (không mock): chạy Test Connection thật qua Virtual ECU Simulator (dialog thay `exec()` bằng vòng lặp `processEvents()` để không bị treo do đây là modal thật — nối `worker.finished` vào 1 lambda `close()` như thử đầu tiên bị treo hẳn, đúng lỗi cross-thread-signal-qua-lambda đã ghi trong docstring file này) — pass, log đúng "Test Connection: PASS." vào buffer channel 1; Save Report thật xuất ra file HTML 1644 byte chứa đúng "Channel 1". Verify `.grab()` headless: layout đúng thứ tự user yêu cầu (Test Connection/Settings hàng trên, View Log/Save Report hàng dưới), nút Test Connection hiện đúng trạng thái disable (mờ) ở 2 channel chưa chọn hardware.
+- `tests/test_flash_threading.py` (9 test) + `tests/test_parallel_flash_threading.py` (10 test) pass riêng.
+- Full suite: 483 test pass (skipped=2, tăng từ 474 đúng bằng 9 test Test Connection/Save Report mới — không thừa/thiếu). `python main.py` khởi động lại bình thường sau toàn bộ thay đổi.
+

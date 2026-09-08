@@ -118,6 +118,40 @@ QPushButton#buttonParallelViewLog:hover {
     background: transparent;
 }
 
+/* Test Connection / Save Report — same pill family as View Log/
+   Settings above (4 secondary actions per channel panel). */
+QPushButton#buttonParallelTestConnection {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 10px;
+    border: 1px solid #d7dde5;
+    background: transparent;
+    color: #5a6472;
+}
+QPushButton#buttonParallelTestConnection:hover:!disabled {
+    border-color: #4a7fd6;
+    color: #4a7fd6;
+    background: transparent;
+}
+QPushButton#buttonParallelTestConnection:disabled {
+    color: #b7bec8;
+    border-color: #e6e9ee;
+}
+
+QPushButton#buttonParallelSaveReport {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 10px;
+    border: 1px solid #d7dde5;
+    background: transparent;
+    color: #5a6472;
+}
+QPushButton#buttonParallelSaveReport:hover {
+    border-color: #4a7fd6;
+    color: #4a7fd6;
+    background: transparent;
+}
+
 /* Default (not-customized) look, matching #buttonParallelViewLog's
    pill shape — gui/parallel_flash.py's _apply_settings_button_style()
    overrides this with a filled accent look via setStyleSheet() once

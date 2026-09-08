@@ -76,6 +76,27 @@ class ReportExportMixin:
             f"Report exported to {file_path}"
         )
 
+    def _report_html_style(self):
+        """
+        Shared CSS for every HTML report this app produces — also
+        used by gui/parallel_flash.py's per-channel Save Report
+        (_build_parallel_panel_report_html()) so both report kinds
+        look identical without duplicating this block.
+        """
+
+        return """
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1a1a1a; }
+  h1 { font-size: 20px; margin-bottom: 0; }
+  .subtitle { color: #666; margin-top: 4px; margin-bottom: 24px; }
+  h2 { font-size: 15px; background: #E0E0E0; padding: 6px 8px; margin-top: 28px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+  th { background: #f2f2f2; }
+  pre { background: #f7f7f7; border: 1px solid #ddd; padding: 10px; \
+white-space: pre-wrap; font-size: 12px; }
+  .summary td:first-child { font-weight: bold; width: 220px; }
+"""
+
     def _build_report_html(self):
 
         e = html.escape
@@ -86,18 +107,7 @@ class ReportExportMixin:
 <head>
 <meta charset="utf-8">
 <title>{e(APP_NAME)} Flash Report — {e(now)}</title>
-<style>
-  body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1a1a1a; }}
-  h1 {{ font-size: 20px; margin-bottom: 0; }}
-  .subtitle {{ color: #666; margin-top: 4px; margin-bottom: 24px; }}
-  h2 {{ font-size: 15px; background: #E0E0E0; padding: 6px 8px; margin-top: 28px; }}
-  table {{ border-collapse: collapse; width: 100%; margin-top: 8px; }}
-  th, td {{ border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }}
-  th {{ background: #f2f2f2; }}
-  pre {{ background: #f7f7f7; border: 1px solid #ddd; padding: 10px; \
-white-space: pre-wrap; font-size: 12px; }}
-  .summary td:first-child {{ font-weight: bold; width: 220px; }}
-</style>
+<style>{self._report_html_style()}</style>
 </head>
 <body>
 <h1>{e(APP_NAME)} v{e(APP_VERSION)} — Flash Session Report</h1>
@@ -238,29 +248,40 @@ white-space: pre-wrap; font-size: 12px; }}
         header = "<tr><th>Timestamp</th><th>Description</th></tr>"
         return f"<table>{header}{''.join(rows_html)}</table>"
 
-    def _report_trace_table(self):
+    def _report_trace_table(self, rows=None):
+        """
+        Builds the Trace section's HTML table. With no `rows` arg,
+        reads the shared traceTable widget directly (Single Flash/
+        Batch Flash — one flash's worth of data on screen at a
+        time). Parallel Flash instead passes each channel's own
+        buffered rows (gui/parallel_flash.py's _panel_trace_rows()),
+        since 4 channels' data can never all fit in that one shared
+        widget at once — see docs/walkthrough.md Phase 4.98.
+        """
 
         e = html.escape
-        table = self.ui.traceTable
 
-        headers = [
-            table.horizontalHeaderItem(col).text()
-            for col in range(table.columnCount())
-        ]
-
-        rows_html = []
-        for row in range(table.rowCount()):
-            cells = [
-                table.item(row, col).text()
-                if table.item(row, col) else ""
+        if rows is None:
+            table = self.ui.traceTable
+            headers = [
+                table.horizontalHeaderItem(col).text()
                 for col in range(table.columnCount())
             ]
-            rows_html.append(
-                "<tr>" + "".join(f"<td>{e(c)}</td>" for c in cells)
-                + "</tr>"
-            )
+            rows = [
+                [
+                    table.item(row, col).text()
+                    if table.item(row, col) else ""
+                    for col in range(table.columnCount())
+                ]
+                for row in range(table.rowCount())
+            ]
+        else:
+            headers = [
+                "Request TimeStamp", "Request Target", "Request Data",
+                "Response TimeStamp", "Response Source", "Response Data",
+            ]
 
-        if not rows_html:
+        if not rows:
             return "<p>No trace recorded.</p>"
 
         header = (
@@ -268,4 +289,8 @@ white-space: pre-wrap; font-size: 12px; }}
             + "".join(f"<th>{e(h)}</th>" for h in headers)
             + "</tr>"
         )
-        return f"<table>{header}{''.join(rows_html)}</table>"
+        rows_html = "".join(
+            "<tr>" + "".join(f"<td>{e(c)}</td>" for c in row) + "</tr>"
+            for row in rows
+        )
+        return f"<table>{header}{rows_html}</table>"

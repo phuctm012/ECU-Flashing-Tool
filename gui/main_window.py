@@ -194,6 +194,18 @@ class MainWindow(
 
     def log_trace_row(self, row):
 
+        self._add_trace_row(*self._format_trace_row_cells(row))
+
+    def _format_trace_row_cells(self, row):
+        """
+        Turns a FlashWorker.trace_row dict into the 6 cell strings
+        _add_trace_row() expects — split out of log_trace_row() so
+        gui/parallel_flash.py's _panel_trace_rows() (building a
+        channel's Save Report trace table straight from its own
+        buffered rows, not the shared traceTable widget) can reuse
+        the exact same formatting instead of duplicating it.
+        """
+
         req_ts = (
             f"{row['req_ts']:.5f}s"
             if row.get("req_ts") is not None else ""
@@ -203,7 +215,7 @@ class MainWindow(
             if row.get("resp_ts") is not None else ""
         )
 
-        self._add_trace_row(
+        return (
             req_ts,
             row.get("req_target") or "",
             row.get("req_data") or "",

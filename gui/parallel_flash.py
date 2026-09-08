@@ -62,14 +62,17 @@
 #    inspecting the emitting worker.
 # ==================================================
 
+import html
 import threading
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QThread
 from PySide6.QtWidgets import (
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QProgressBar,
     QPushButton,
 )
@@ -83,7 +86,10 @@ from core.flash_sequence import (
 from gui.parallel_channel_settings_dialog import (
     ParallelChannelSettingsDialog,
 )
+from gui.test_connection_dialog import TestConnectionDialog
 from config.settings import (
+    APP_NAME,
+    APP_VERSION,
     ACCENT_COLOR,
     ACCENT_HOVER_COLOR,
     ACCENT_COLOR_DARK,
@@ -218,11 +224,20 @@ class ParallelFlashMixin:
         combo.addItem("Not Selected", userData="not-selected")
         self.populate_hardware_combo_widget_append(combo)
 
-        view_log_button = QPushButton("View Log")
-        view_log_button.setObjectName("buttonParallelViewLog")
+        test_connection_button = QPushButton("Test Connection")
+        test_connection_button.setObjectName(
+            "buttonParallelTestConnection"
+        )
+        test_connection_button.setEnabled(False)
 
         settings_button = QPushButton("Settings")
         settings_button.setObjectName("buttonParallelChannelSettings")
+
+        view_log_button = QPushButton("View Log")
+        view_log_button.setObjectName("buttonParallelViewLog")
+
+        save_report_button = QPushButton("Save Report")
+        save_report_button.setObjectName("buttonParallelSaveReport")
 
         serial_label = QLabel("SN: —")
         flash_button = QPushButton("Flash")
@@ -232,21 +247,27 @@ class ParallelFlashMixin:
         progress_bar.setValue(0)
         status_label = QLabel("No channel selected.")
 
-        # Combo + View Log + Settings side by side, and Flash/Abort
-        # + progress bar side by side — matches the approved mockup
-        # (docs/superpowers/specs/2026-09-06-parallel-flash-design.md's
-        # interactive draft), rather than stacking every widget in
-        # one plain vertical column.
-        header_row = QHBoxLayout()
-        header_row.addWidget(combo, 1)
-        header_row.addWidget(view_log_button)
-        header_row.addWidget(settings_button)
+        # Combo on its own row, then a 2x2 grid of secondary actions
+        # (Test Connection/Settings above, View Log/Save Report
+        # below — user-specified order), and Flash/Abort + progress
+        # bar side by side — matches the approved mockup's general
+        # 2-widgets-per-row rhythm rather than stacking every widget
+        # in one plain vertical column.
+        actions_row_1 = QHBoxLayout()
+        actions_row_1.addWidget(test_connection_button, 1)
+        actions_row_1.addWidget(settings_button, 1)
+
+        actions_row_2 = QHBoxLayout()
+        actions_row_2.addWidget(view_log_button, 1)
+        actions_row_2.addWidget(save_report_button, 1)
 
         controls_row = QHBoxLayout()
         controls_row.addWidget(flash_button)
         controls_row.addWidget(progress_bar, 1)
 
-        group_box.layout().addLayout(header_row)
+        group_box.layout().addWidget(combo)
+        group_box.layout().addLayout(actions_row_1)
+        group_box.layout().addLayout(actions_row_2)
         group_box.layout().addWidget(serial_label)
         group_box.layout().addLayout(controls_row)
         group_box.layout().addWidget(status_label)
@@ -254,8 +275,10 @@ class ParallelFlashMixin:
         panel = {
             "index": index,
             "combo": combo,
+            "test_connection_button": test_connection_button,
             "view_log_button": view_log_button,
             "settings_button": settings_button,
+            "save_report_button": save_report_button,
             "serial_label": serial_label,
             "flash_button": flash_button,
             "progress_bar": progress_bar,
@@ -282,11 +305,17 @@ class ParallelFlashMixin:
         flash_button.clicked.connect(
             lambda _, p=panel: self._on_parallel_flash_clicked(p)
         )
+        test_connection_button.clicked.connect(
+            lambda _, p=panel: self._test_connection_for_panel(p)
+        )
         view_log_button.clicked.connect(
             lambda _, idx=index: self._view_parallel_panel_log(idx)
         )
         settings_button.clicked.connect(
             lambda _, p=panel: self._open_parallel_channel_settings(p)
+        )
+        save_report_button.clicked.connect(
+            lambda _, p=panel: self._save_parallel_panel_report(p)
         )
 
         self._apply_panel_button_style(panel, "accent")
@@ -356,20 +385,32 @@ class ParallelFlashMixin:
         """
         Makes panel `index` the active one for the shared
         Information/Trace tabs (outputTabWidget) — clears them and
-        replays this panel's own buffered history into them. Live
-        messages from OTHER panels keep buffering silently in the
-        background; only this panel's future messages will also be
-        written live from here on, until a different panel's "View
-        Log" is clicked (see this module's docstring).
+        replays this panel's own buffered history into them, then
+        appends a "Now viewing: Channel N" marker as the last line of
+        each, so it's clear at a glance which channel's data is on
+        screen. The marker is written straight to the widgets, not
+        through _log_parallel_panel()/_on_panel_trace_message() — it
+        must NOT land in the panel's own info_lines/trace_entries
+        buffer, or every future replay would re-print every past
+        marker along with it. Live messages from OTHER panels keep
+        buffering silently in the background; only this panel's
+        future messages will also be written live from here on, until
+        a different panel's "View Log" is clicked (see this module's
+        docstring).
         """
 
         self._parallel_active_panel_index = index
         panel = self._parallel_panels[index]
+        channel_label = f"Channel {panel['index'] + 1}"
 
         if hasattr(self.ui, 'informationText'):
             self.ui.informationText.clear()
             for line in panel["info_lines"]:
                 self._append_information_line(line)
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            self._append_information_line(
+                f"[{timestamp}] Now viewing: {channel_label}"
+            )
 
         if hasattr(self.ui, 'traceTable'):
             self.ui.traceTable.setRowCount(0)
@@ -382,6 +423,249 @@ class ParallelFlashMixin:
                 else:
                     _, row = entry
                     self.log_trace_row(row)
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            self._add_trace_row(
+                timestamp, "SYSTEM",
+                f"Now viewing: {channel_label}", "", "", "",
+            )
+
+    # ==================================================
+    # Test Connection (per panel)
+    #
+    # Reuses TestConnectionDialog as-is (gui/menu_bar.py's Tools >
+    # Test Connection... uses the exact same class) — it's a
+    # self-contained modal dialog that builds its OWN QThread/
+    # TestConnectionWorker internally, so no per-panel thread-
+    # lifecycle bookkeeping is needed here. The only thing this
+    # method does that open_test_connection_dialog() doesn't is
+    # resolve THIS panel's own hardware channel/comm ID overrides
+    # instead of the global Configure tab ones — same resolution
+    # _start_identify_for_panel() already uses.
+    # ==================================================
+
+    def _test_connection_for_panel(self, panel):
+
+        data = panel["combo"].currentData()
+        use_virtual = data is None
+        channel = 0
+        serial_hw = None
+        label = None
+        if data not in (None, "not-selected"):
+            channel = data.get("hw_channel", data.get("channel", 0))
+            serial_hw = data.get("serial")
+            label = data.get("label")
+
+        if not use_virtual and hasattr(self, 'detect_can_conflict_warning'):
+            warning = self.detect_can_conflict_warning()
+            if warning:
+                choice = QMessageBox.warning(
+                    self,
+                    "Possible CAN Bus Conflict",
+                    warning + "\n\nContinue with Test Connection anyway?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if choice != QMessageBox.Yes:
+                    return
+
+        can_config_global = (
+            self.get_can_config() if hasattr(self, 'get_can_config') else {}
+        )
+        tx_id, rx_id, functional_id = self._resolve_panel_comm_ids(
+            panel, can_config_global
+        )
+        use_suzuki_sequence = False
+        if hasattr(self.ui, 'comboBoxFlashSequence'):
+            use_suzuki_sequence = (
+                "Suzuki" in self.ui.comboBoxFlashSequence.currentText()
+            )
+        security_dll_path = getattr(
+            self, '_security_dll_path', ''
+        ) or None
+
+        can_config = {
+            "channel": channel,
+            "serial": serial_hw,
+            "label": label,
+            "tx_id": tx_id,
+            "rx_id": rx_id,
+            "bitrate": can_config_global.get("bitrate", 500000),
+            "fd": can_config_global.get("fd", False),
+            "data_bitrate": can_config_global.get("data_bitrate", 2000000),
+        }
+
+        dialog = TestConnectionDialog(
+            self, use_virtual, security_dll_path,
+            use_suzuki_sequence, can_config,
+        )
+        dialog.exec()
+
+        if dialog.passed is None:
+            return
+        self._log_parallel_panel(
+            panel,
+            "Test Connection: PASS." if dialog.passed
+            else "Test Connection: FAIL.",
+        )
+
+    # ==================================================
+    # Save Report (HTML, per panel)
+    #
+    # Same shape as gui/report_export.py's Export Report... (Tools
+    # menu, Single Flash/Batch Flash) — a self-contained HTML
+    # snapshot — but built from THIS panel's own buffered
+    # info_lines/trace_entries instead of the shared widgets, since
+    # those only ever hold whichever channel is currently active
+    # (see _view_parallel_panel_log()). Datablocks are shared
+    # firmware across all 4 channels, so that section reuses
+    # ReportExportMixin._report_datablocks_table() unchanged.
+    # ==================================================
+
+    def _save_parallel_panel_report(self, panel):
+
+        default_name = (
+            f"flash_report_channel{panel['index'] + 1}_"
+            + datetime.now().strftime("%Y%m%d_%H%M%S")
+            + ".html"
+        )
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Flash Report",
+            default_name,
+            "HTML Files (*.html);;All Files (*)",
+        )
+
+        if not file_path:
+            return
+
+        self._write_parallel_panel_report_file(panel, file_path)
+
+    def _write_parallel_panel_report_file(self, panel, file_path):
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(self._build_parallel_panel_report_html(panel))
+
+        except OSError as e:
+            QMessageBox.critical(
+                self, "Export Report Failed", str(e)
+            )
+            return
+
+        self._log_parallel_panel(
+            panel, f"Report exported to {file_path}"
+        )
+
+    def _build_parallel_panel_report_html(self, panel):
+
+        e = html.escape
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        channel_label = f"Channel {panel['index'] + 1}"
+
+        return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{e(APP_NAME)} Parallel Flash Report — {e(channel_label)} — {e(now)}</title>
+<style>{self._report_html_style()}</style>
+</head>
+<body>
+<h1>{e(APP_NAME)} v{e(APP_VERSION)} — Parallel Flash Report — {e(channel_label)}</h1>
+<div class="subtitle">Exported {e(now)}</div>
+
+<h2>Summary</h2>
+{self._parallel_panel_report_summary_table(panel)}
+
+<h2>Datablocks</h2>
+{self._report_datablocks_table()}
+
+<h2>Trace</h2>
+{self._report_trace_table(self._panel_trace_rows(panel))}
+
+<h2>Information Log</h2>
+<pre>{e(chr(10).join(panel["info_lines"])) or "No information recorded."}</pre>
+
+</body>
+</html>
+"""
+
+    def _parallel_panel_report_summary_table(self, panel):
+
+        e = html.escape
+
+        data = panel["combo"].currentData()
+        if data is None:
+            hardware = "Virtual ECU Simulator (No Hardware)"
+        elif data == "not-selected":
+            hardware = "Not Selected"
+        else:
+            hardware = data.get("label", "Vector Hardware")
+
+        radar_side = "N/A"
+        if hasattr(self.ui, 'comboBoxRadarSide'):
+            radar_side = self.ui.comboBoxRadarSide.currentText()
+
+        sequence = "N/A"
+        if hasattr(self.ui, 'comboBoxFlashSequence'):
+            sequence = self.ui.comboBoxFlashSequence.currentText()
+
+        security_dll = "Built-in algorithm"
+        if hasattr(self.ui, 'lineEditSecurityDll'):
+            security_dll = (
+                self.ui.lineEditSecurityDll.text()
+                or "Built-in algorithm"
+            )
+
+        can_config_global = (
+            self.get_can_config() if hasattr(self, 'get_can_config') else {}
+        )
+        tx_id, rx_id, functional_id = self._resolve_panel_comm_ids(
+            panel, can_config_global
+        )
+        comm_ids = (
+            f"Tx=0x{tx_id:X} Rx=0x{rx_id:X} Functional=0x{functional_id:X}"
+            + (
+                " (channel override)" if panel["comm_settings"]
+                else " (shared/global)"
+            )
+        )
+
+        rows = [
+            ("Channel", f"Channel {panel['index'] + 1}"),
+            ("Hardware", hardware),
+            ("Basic Communication", comm_ids),
+            ("Serial Number", panel["serial"] or "N/A"),
+            ("Radar Side", radar_side),
+            ("Flash Sequence", sequence),
+            ("Security Access DLL", security_dll),
+            ("Result", panel["status_label"].text()),
+        ]
+
+        body = "".join(
+            f"<tr><td>{e(k)}</td><td>{e(v)}</td></tr>" for k, v in rows
+        )
+
+        return f'<table class="summary">{body}</table>'
+
+    def _panel_trace_rows(self, panel):
+        """
+        Converts a panel's buffered trace_entries into plain row
+        lists — the same shape gui/main_window.py's _add_trace_row()
+        takes — so ReportExportMixin._report_trace_table() can
+        render them without ever touching the shared traceTable
+        widget.
+        """
+
+        rows = []
+        for entry in panel["trace_entries"]:
+            if entry[0] == "system":
+                _, timestamp, message = entry
+                rows.append([timestamp, "SYSTEM", message, "", "", ""])
+            else:
+                _, row = entry
+                rows.append(list(self._format_trace_row_cells(row)))
+        return rows
 
     # ==================================================
     # Dynamic per-panel coloring (theme-aware)
@@ -510,6 +794,7 @@ class ParallelFlashMixin:
 
         selected = panel["combo"].currentData() != "not-selected"
         panel["flash_button"].setEnabled(selected)
+        panel["test_connection_button"].setEnabled(selected)
         if panel["phase"] not in ("pass", "fail", "abort"):
             panel["status_label"].setText(
                 "Idle — ready to flash." if selected
@@ -532,6 +817,7 @@ class ParallelFlashMixin:
         panel["flash_button"].setText("Abort")
         panel["combo"].setEnabled(False)
         panel["settings_button"].setEnabled(False)
+        panel["test_connection_button"].setEnabled(False)
         panel["status_label"].setText(
             "Identifying ECU — reading Serial Number (DID 0xF18C)..."
         )
@@ -640,6 +926,7 @@ class ParallelFlashMixin:
             panel["flash_button"].setText("Flash")
             panel["combo"].setEnabled(True)
             panel["settings_button"].setEnabled(True)
+            panel["test_connection_button"].setEnabled(True)
             self._apply_panel_button_style(panel, "accent")
             self._apply_panel_progress_style(panel, "danger")
             self._update_parallel_abort_all_state()
@@ -661,6 +948,7 @@ class ParallelFlashMixin:
         panel["flash_button"].setText("Flash")
         panel["combo"].setEnabled(True)
         panel["settings_button"].setEnabled(True)
+        panel["test_connection_button"].setEnabled(True)
         panel["status_label"].setText("Idle — ready to flash.")
         self._apply_panel_button_style(panel, "accent")
         self._apply_panel_progress_style(panel, None)
@@ -872,6 +1160,7 @@ class ParallelFlashMixin:
         panel["flash_button"].setText("Flash")
         panel["combo"].setEnabled(True)
         panel["settings_button"].setEnabled(True)
+        panel["test_connection_button"].setEnabled(True)
         panel["status_label"].setText("PASS.")
         self._log_parallel_panel(panel, "Flash completed successfully.")
         self._apply_panel_button_style(panel, "accent")
@@ -889,6 +1178,7 @@ class ParallelFlashMixin:
         panel["flash_button"].setText("Flash")
         panel["combo"].setEnabled(True)
         panel["settings_button"].setEnabled(True)
+        panel["test_connection_button"].setEnabled(True)
         panel["status_label"].setText("FAIL / ABORTED.")
         self._log_parallel_panel(panel, "Flash aborted.")
         self._apply_panel_button_style(panel, "accent")

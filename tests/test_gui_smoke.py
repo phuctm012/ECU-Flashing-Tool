@@ -287,7 +287,9 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
         self.assertIn(
             "Buffered info line.", self.window.ui.informationText.toPlainText()
         )
-        self.assertEqual(self.window.ui.traceTable.rowCount(), 2)
+        # 2 replayed entries + the "Now viewing: Channel 1" indicator
+        # row _view_parallel_panel_log() appends after the replay.
+        self.assertEqual(self.window.ui.traceTable.rowCount(), 3)
         self.assertEqual(
             self.window.ui.traceTable.item(0, 2).text(), "Buffered trace line."
         )
@@ -340,6 +342,56 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
             "From channel 1.", self.window.ui.informationText.toPlainText()
         )
 
+    def test_view_log_appends_a_channel_indicator_to_information(self):
+        panel = self.window._parallel_panels[2]
+        panel["view_log_button"].click()
+
+        lines = [
+            line for line in
+            self.window.ui.informationText.toPlainText().split("\n")
+            if line
+        ]
+        self.assertIn("Now viewing: Channel 3", lines[-1])
+
+    def test_view_log_appends_a_channel_indicator_to_trace(self):
+        panel = self.window._parallel_panels[2]
+        panel["view_log_button"].click()
+
+        table = self.window.ui.traceTable
+        last_row = table.rowCount() - 1
+        self.assertEqual(table.item(last_row, 1).text(), "SYSTEM")
+        self.assertIn(
+            "Now viewing: Channel 3", table.item(last_row, 2).text()
+        )
+
+    def test_view_log_indicator_does_not_accumulate_in_the_panels_buffer(self):
+        panel = self.window._parallel_panels[0]
+        panel["view_log_button"].click()
+        panel["view_log_button"].click()
+
+        text = self.window.ui.informationText.toPlainText()
+        self.assertEqual(text.count("Now viewing"), 1)
+        self.assertFalse(
+            any("Now viewing" in line for line in panel["info_lines"])
+        )
+        self.assertFalse(any(
+            entry[0] == "system" and "Now viewing" in entry[2]
+            for entry in panel["trace_entries"]
+        ))
+
+    def test_view_log_indicator_updates_when_switching_panels(self):
+        panels = self.window._parallel_panels
+        panels[0]["view_log_button"].click()
+        panels[1]["view_log_button"].click()
+
+        lines = [
+            line for line in
+            self.window.ui.informationText.toPlainText().split("\n")
+            if line
+        ]
+        self.assertIn("Now viewing: Channel 2", lines[-1])
+        self.assertNotIn("Channel 1", lines[-1])
+
     def test_flash_button_starts_styled_as_accent(self):
         panel = self.window._parallel_panels[0]
         self.assertIn(ACCENT_COLOR, panel["flash_button"].styleSheet())
@@ -367,6 +419,185 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
         panel = self.window._parallel_panels[0]
         self.window._on_panel_flash_aborted(panel)
         self.assertIn(DANGER_COLOR, panel["progress_bar"].styleSheet())
+
+
+class TestParallelPanelTestConnectionButton(unittest.TestCase):
+    """
+    Covers each Parallel Flash panel's own "Test Connection" button
+    (gui/parallel_flash.py's _test_connection_for_panel()) — reuses
+    the same TestConnectionDialog as Tools > Test Connection..., but
+    resolves THIS panel's own hardware channel/comm ID overrides
+    instead of the global Configure tab ones.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_button_starts_disabled_with_no_channel_selected(self):
+        panel = self.window._parallel_panels[0]
+        self.assertFalse(panel["test_connection_button"].isEnabled())
+
+    def test_selecting_a_channel_enables_the_button(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        self.assertTrue(panel["test_connection_button"].isEnabled())
+
+    def test_button_disabled_while_identifying(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        self.window._start_identify_for_panel(panel)
+        self.assertFalse(panel["test_connection_button"].isEnabled())
+        # Real QThread started above — clean it up so nothing is left
+        # dangling in the background when the test ends.
+        self.window._abort_panel(panel)
+        self.app.processEvents()
+
+    def test_button_click_opens_dialog_with_panels_own_channel(self):
+        panel = self.window._parallel_panels[1]
+        panel["combo"].addItem(
+            "VN1640A - Channel 1",
+            userData={
+                "label": "VN1640A - Channel 1",
+                "channel": 0, "hw_channel": 2,
+                "serial": "ABC123", "is_on_bus": False,
+            },
+        )
+        panel["combo"].setCurrentIndex(panel["combo"].count() - 1)
+
+        with unittest.mock.patch(
+            "gui.parallel_flash.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = True
+            panel["test_connection_button"].click()
+
+        MockDialog.assert_called_once()
+        args = MockDialog.call_args.args
+        self.assertFalse(args[1])  # use_virtual
+        can_config = args[4]
+        self.assertEqual(can_config["channel"], 2)
+        self.assertEqual(can_config["serial"], "ABC123")
+
+    def test_result_is_logged_to_the_panels_own_buffer(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+
+        with unittest.mock.patch(
+            "gui.parallel_flash.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = True
+            panel["test_connection_button"].click()
+
+        self.assertTrue(any(
+            "Test Connection: PASS." in line
+            for line in panel["info_lines"]
+        ))
+
+    def test_respects_can_conflict_warning(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].addItem(
+            "VN1640A - Channel 1",
+            userData={
+                "label": "VN1640A - Channel 1",
+                "channel": 0, "hw_channel": 0,
+                "serial": None, "is_on_bus": False,
+            },
+        )
+        panel["combo"].setCurrentIndex(panel["combo"].count() - 1)
+
+        with unittest.mock.patch.object(
+            self.window, 'detect_can_conflict_warning',
+            return_value="Something is on the bus",
+        ), unittest.mock.patch(
+            "gui.parallel_flash.QMessageBox.warning",
+            return_value=QMessageBox.No,
+        ), unittest.mock.patch(
+            "gui.parallel_flash.TestConnectionDialog"
+        ) as MockDialog:
+            panel["test_connection_button"].click()
+
+        MockDialog.assert_not_called()
+
+
+class TestParallelPanelSaveReport(unittest.TestCase):
+    """
+    Covers each Parallel Flash panel's own "Save Report" button
+    (gui/parallel_flash.py's _save_parallel_panel_report()) — same
+    self-contained HTML report as Tools > Export Report... (see
+    gui/report_export.py), but built from this panel's own buffered
+    info_lines/trace_entries instead of the shared widgets, so each
+    of 4 concurrently-running channels gets its own accurate report.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_report_contains_this_panels_own_buffered_data(self):
+        panel = self.window._parallel_panels[2]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        panel["serial"] = "SN12345"
+        panel["status_label"].setText("PASS.")
+        self.window._log_parallel_panel(
+            panel, "Flash completed successfully."
+        )
+        self.window._on_panel_trace_row(panel, {
+            "req_ts": 0.01, "req_target": "0x77B",
+            "req_data": "10 02",
+            "resp_ts": 0.02, "resp_source": "0x78B",
+            "resp_data": "50 02",
+        })
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False
+        ) as f:
+            path = f.name
+        try:
+            self.window._write_parallel_panel_report_file(panel, path)
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+
+            self.assertIn("Channel 3", content)
+            self.assertIn("SN12345", content)
+            self.assertIn("Flash completed successfully.", content)
+            self.assertIn("0x77B", content)
+            self.assertIn("10 02", content)
+            self.assertIn("PASS.", content)
+        finally:
+            os.unlink(path)
+
+    def test_report_does_not_include_another_panels_data(self):
+        panel0 = self.window._parallel_panels[0]
+        panel1 = self.window._parallel_panels[1]
+        self.window._log_parallel_panel(panel0, "From channel 1 only.")
+        self.window._log_parallel_panel(panel1, "From channel 2 only.")
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False
+        ) as f:
+            path = f.name
+        try:
+            self.window._write_parallel_panel_report_file(panel1, path)
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+
+            self.assertIn("From channel 2 only.", content)
+            self.assertNotIn("From channel 1 only.", content)
+        finally:
+            os.unlink(path)
+
+    def test_write_failure_does_not_raise(self):
+        panel = self.window._parallel_panels[0]
+        # Writing to a directory (not a file) — OSError must be
+        # caught internally, not propagate. QMessageBox.critical
+        # patched to a no-op to avoid a real modal dialog.
+        with unittest.mock.patch(
+            "gui.parallel_flash.QMessageBox.critical"
+        ) as mock_critical:
+            self.window._write_parallel_panel_report_file(
+                panel, tempfile.gettempdir()
+            )
+        mock_critical.assert_called_once()
 
 
 class TestParallelPanelRecolorsOnThemeToggle(unittest.TestCase):
