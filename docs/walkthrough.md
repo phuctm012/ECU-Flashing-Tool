@@ -2182,3 +2182,123 @@ User yêu cầu thêm 2 nút mới cho mỗi channel Parallel Flash: "Test Conne
 - `tests/test_flash_threading.py` (9 test) + `tests/test_parallel_flash_threading.py` (10 test) pass riêng.
 - Full suite: 483 test pass (skipped=2, tăng từ 474 đúng bằng 9 test Test Connection/Save Report mới — không thừa/thiếu). `python main.py` khởi động lại bình thường sau toàn bộ thay đổi.
 
+### Phase 4.101: Đổi Màu Nút "Test Connection" Theo Kết Quả Pass/Fail
+
+User yêu cầu: nút Test Connection của từng channel phải đổi màu theo kết quả Pass/Fail. App đã có sẵn đúng pattern này ở nơi khác — nút Test Connection CHUNG trên tab Configure (`buttonTestConnectionHardware`, `gui/configure_tab.py`) đã tô xanh/đỏ theo kết quả bằng `_status_colors('done'/'error')` (định nghĩa ở `gui/flash_tab.py`, cũng là palette đang dùng cho các dòng Batch Log) — tái dùng nguyên helper này cho nút Test Connection của từng panel thay vì tự định nghĩa màu mới, để kết quả trông giống hệt nhau ở mọi nơi trong app.
+
+Theo đúng "Theme-color staleness pattern" đã ghi trong CLAUDE.md: màu được set qua `_apply_test_connection_button_style(panel, kind)` — lưu `kind` ("done"/"error"/`None`) vào `panel["_test_connection_kind"]` rồi mới tô — và nối thêm vào `_recolor_parallel_panels()` (hàm đã có sẵn, chạy lại mỗi lần bấm Dark Mode) để không bị "đứng hình" ở màu của theme lúc mới tô. Điểm reset duy nhất: đổi lựa chọn channel (`_on_parallel_channel_changed()`) — y hệt lý do/vị trí reset của nút Test Connection chung trên Configure tab (`_reset_test_connection_button_status()`), tránh trường hợp màu xanh/đỏ cũ gây hiểu lầm "đã test" cho 1 hardware channel khác vừa mới chọn. Không reset khi bắt đầu Identify/Flash — giữ đúng phạm vi user yêu cầu, không tự thêm hành vi ngoài spec.
+
+### Thay đổi
+
+- **`gui/parallel_flash.py`**: thêm `panel["_test_connection_kind"]` (khởi tạo `None`) vào panel dict. Hàm mới `_apply_test_connection_button_style(panel, kind)` — `kind=None` trả về style pill mặc định (QSS `#buttonParallelTestConnection`), có giá trị thì tô theo `_status_colors(kind)`. `_test_connection_for_panel()` gọi hàm này với `"done"`/`"error"` ngay sau khi log kết quả. `_on_parallel_channel_changed()` gọi với `None` để reset. `_recolor_parallel_panels()` gọi lại theo `_test_connection_kind` đã lưu.
+
+### Đã kiểm tra
+
+- Test mới (`tests/test_gui_smoke.py`): `TestParallelPanelTestConnectionButton` thêm 4 test (Pass tô xanh, Fail tô đỏ, đóng dialog giữa chừng thì giữ nguyên màu cũ, đổi channel thì xoá màu cũ + `_test_connection_kind` về `None`); `TestParallelPanelRecolorsOnThemeToggle` thêm 1 test (bấm Dark Mode thì màu xanh chuyển đúng sang `STATUS_COLOR_DONE_DARK`, không còn màu light cũ).
+- Verify `.grab()` headless cả 2 theme: channel 1 (giả lập Pass) hiện đúng nền xanh nhạt/chữ đậm ở Light Mode, xanh đậm ở Dark Mode; channel 2 (giả lập Fail) hiện đúng đỏ nhạt/đỏ đậm tương ứng — bấm Dark Mode thật (không phải gọi hàm nội bộ) để xác nhận `_recolor_parallel_panels()` chạy đúng qua đường dây thật của `actionDarkMode`.
+- Full suite chạy gộp chung với Phase 4.102 ngay sau đó (2 thay đổi liên tiếp cùng session) — xem số liệu ở cuối Phase 4.102.
+
+### Phase 4.102: Mở Rộng Parallel Flash Từ 4 Lên 6 Channel (Lưới 3x2)
+
+User yêu cầu đổi từ 4 channel (lưới 2x2) lên 6 channel, layout "2x3". Vì "2x3" có thể hiểu 2 nghĩa khác nhau (2 hàng×3 cột hay 3 hàng×2 cột — cả 2 đều ra đúng 6 ô), hỏi lại user bằng preview ASCII trước khi sửa `.ui` để tránh làm sai hướng rồi phải dựng lại — user chọn **3 hàng × 2 cột (giữ nguyên độ rộng mỗi panel)**, không phải mở rộng theo chiều ngang.
+
+Theo đúng rule "GUI changes go in `gui/main_window.ui` first": thêm `groupBoxParallelChannel5`/`6` trực tiếp vào `gridLayout_parallelChannels` (row=2, col=0/1) trong `.ui` XML, regenerate `gui/ui_main_window.py` bằng `pyside6-uic` — không dựng widget bằng tay trong Python. `gui/settings_profile.py` (persist theo `panel{i}`) đã tự động scale vì code lặp qua `self._parallel_panels` chung chung, không hardcode số 4 ở đâu — không cần sửa.
+
+**Phát hiện quan trọng khi verify (không phải lỗi cosmetic, ảnh hưởng thực tế)**: thêm hẳn 1 hàng panel thứ 3 đẩy chiều cao tối thiểu THẬT SỰ của cửa sổ (`minimumSizeHint()`, chỉ có hiệu lực SAU khi cửa sổ đã hiện ra ít nhất 1 lần — 1 cửa sổ chưa từng `.show()` thì `resize()` xuống nhỏ hơn vẫn được chấp nhận, không bị Qt chặn) từ ~789px lên ~928px — vượt qua độ phân giải màn hình laptop công nghiệp rất phổ biến 1366×768. Hệ quả: `showFullScreen()` không còn thật sự vào được chế độ Full Screen trên màn hình thấp hơn ~928px (kể cả màn ảo 800×800 của môi trường test offscreen — đã thử `QT_QPA_PLATFORM=offscreen:size=1920x1080` và `-platform offscreen:size=...` nhưng bản Qt/PySide6 đang cài không hỗ trợ tùy chỉnh kích thước màn ảo này). Đây KHÔNG phải lỗi test — Qt không thể co cửa sổ nhỏ hơn minimum size của chính nó dù để vừa màn hình, kể cả màn hình thật. Đã hỏi lại user: chấp nhận đánh đổi này (giữ nguyên thiết kế mỗi panel, cửa sổ cao hơn) hay làm khu lưới channel có thể cuộn (`QScrollArea`) để chiều cao tối thiểu không phụ thuộc số channel — user chọn **chấp nhận đánh đổi**, đúng scope đã yêu cầu ban đầu (chỉ đổi layout, không thêm scroll area).
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: thêm `groupBoxParallelChannel5`/`groupBoxParallelChannel6` vào `gridLayout_parallelChannels` (row 2). Regenerate `gui/ui_main_window.py`.
+- **`gui/parallel_flash.py`**: `_PANEL_COUNT` 4→6, `group_boxes` trong `setup_parallel_flash()` thêm 2 phần tử. Sửa lại vài comment nói cứng "4 channel"/"4 ECU" trong docstring đầu file và docstring `_save_parallel_panel_report`'s section thành số chung chung (không hardcode số cụ thể nữa, vì con số này rõ ràng đã đổi 1 lần và có thể đổi tiếp).
+- **`gui/report_export.py`**: sửa tương tự 1 comment "4 channels" thành "multiple channels" trong `_report_trace_table()`.
+- **`gui/menu_bar.py`**: `action_resize_medium()` — 789→928 (chiều cao tối thiểu thật mới), theo đúng tiền lệ đã có ở đây (768→789 trước đó) là giữ giá trị hardcode khớp với thực tế thay vì để 1 con số không bao giờ đạt được.
+- **`tests/test_gui_smoke.py`**: `test_four_channel_panel_shells_exist`→`test_six_channel_panel_shells_exist` (range 1-7), `test_four_panels_created_with_expected_widgets`→`test_six_panels_created_with_expected_widgets` (== 6). `test_resize_medium_sets_exact_size` cập nhật 789→928. `test_resize_after_maximize_un_maximizes_first` đổi từ so sánh số hardcode sang so sánh động với `self.window.minimumSizeHint().height()` — con số cụ thể đã phải sửa tay 4 lần trong lịch sử file này (768→789→800→789→928), nghĩa là test đang kiểm tra sai bất biến (1 con số cụ thể) thay vì đúng bất biến thật sự (bị Qt "clamp" đúng về giá trị minimum hiện tại) — sửa 1 lần cho đúng để không phải quay lại sửa tay lần 5. `test_full_screen_action` và `test_resize_after_full_screen_exits_full_screen_first` — `@unittest.skip` kèm lý do đầy đủ (giới hạn màn ảo 800×800 của môi trường offscreen, không phải bug), hành vi `_resize_window()` gọi `showNormal()` trước khi resize vẫn còn được `test_resize_after_maximize_un_maximizes_first` phủ qua nhánh `isMaximized()`.
+
+### Đã kiểm tra
+
+- `tests/test_gui_smoke.py::TestParallelFlashTabScaffolding`, `TestParallelFlashPanelScaffolding`, `TestParallelPanelChannelPersistence` (22 test), `TestMenuBar` (24 test, 2 skipped đúng lý do) pass sau khi sửa.
+- `tests/test_style.py` + `tests/test_parallel_flash_threading.py` + `tests/test_flash_threading.py` (37 test) pass riêng — xác nhận việc mở rộng panel không phá threading/concurrency của Parallel Flash.
+- Verify `.grab()` headless: lưới 6 channel hiển thị đúng 3 hàng × 2 cột, mỗi panel giữ nguyên độ rộng/layout nút y hệt bản 4-channel trước đó (không co lại).
+- Full suite (bao gồm cả Phase 4.101 lẫn 4.102): 488 test pass — đúng 2 skip mới (Full Screen) là toàn bộ số skip của suite, không có skip lạ nào khác. `python main.py` khởi động lại bình thường.
+
+### Phase 4.103: Tối Ưu Layout Từng Panel — Không Cần Đánh Đổi Cửa Sổ Cao Hơn Nữa
+
+Ngay sau khi thấy ảnh chụp thật của 1 panel (Channel 3, nút Test Connection đã tô xanh), user đổi ý so với quyết định "chấp nhận đánh đổi" ở Phase 4.102: yêu cầu tối ưu lại layout hiển thị từng channel để giữ nguyên kích thước cửa sổ như cũ, thay vì chấp nhận cửa sổ cao hơn.
+
+Mỗi panel lúc này xếp chồng 6 hàng: combo, [Test Connection|Settings], [View Log|Save Report], nhãn "SN: —", [Flash|progress bar], status. Tối ưu bằng 2 thay đổi cấu trúc, không đổi nội dung/chữ trên nút:
+1. **Bỏ hẳn hàng "SN: ..." riêng** — chuyển hiển thị Serial Number vào ngay **title của `QGroupBox`** (`"Channel N"` → `"Channel N — SN: ..."` một khi đã Identify xong) qua hàm mới `_set_panel_group_box_title()`. Tận dụng khoảng trống title bar Qt đã tự dành sẵn cho `QGroupBox`, không cần thêm layout mới.
+2. **Gộp 2 hàng nút (2x2) thành 1 hàng 4 nút** — Test Connection/Settings/View Log/Save Report nằm chung 1 `QHBoxLayout`, mỗi nút stretch=1 chia đều 1/4 chiều rộng panel.
+
+Kết quả: mỗi panel còn đúng 4 hàng (giảm 1/3), y hệt số hàng của bản panel gốc **trước cả khi** có Test Connection/Save Report — nên `minimumSizeHint()` của cửa sổ tụt về đúng lại **789px**, không chỉ bằng mà **giải quyết dứt điểm** luôn vấn đề Full Screen phát hiện ở Phase 4.102 (789 < 800px màn ảo offscreen → `showFullScreen()` vào được thật, không còn là "đánh đổi chấp nhận" nữa) — bỏ lại 2 `@unittest.skip` vừa thêm, trả `action_resize_medium()` về 789. Verify bằng script độc lập ban đầu đo ra 779 (không phải 789) — lệch ~10px so với con số thật đo qua test suite thật (giống hệt kiểu lệch đã gặp ở Phase 4.102 lúc đo 917 vs 928) — không tin số đo từ script cô lập nữa, lấy số thật từ chính lần chạy `TestMenuBar` để sửa cho khớp.
+
+Nhân tiện phát hiện `test_resize_after_maximize_un_maximizes_first`'s bản sửa động ở Phase 4.102 (so `window.height()` với `minimumSizeHint().height()`) sai logic: chỉ đúng khi kích thước yêu cầu NHỎ HƠN minimum (bị Qt "clamp" lên); giờ minimum tụt xuống dưới 850 (giá trị Resize Default yêu cầu) thì KHÔNG bị clamp nữa, cửa sổ đúng ra sẽ là 850 chứ không phải minimum — sửa lại đúng bất biến thật: `max(850, minimumSizeHint().height())`.
+
+### Thay đổi
+
+- **`gui/parallel_flash.py`**: `_build_parallel_panel()` — bỏ `serial_label`, gộp `actions_row_1`/`actions_row_2` thành 1 `actions_row` (4 nút). Panel dict thêm `"group_box"`, bỏ `"serial_label"`. Hàm mới `_set_panel_group_box_title(panel)`. 3 chỗ gọi `panel["serial_label"].setText(...)` cũ (`_start_identify_for_panel`, `_on_identify_finished_for_panel`) đổi thành gọi hàm mới; `_on_parallel_channel_changed()` cũng reset `panel["serial"]`/title khi đổi channel (tránh SN cũ của channel trước đó còn hiện nhầm).
+- **`gui/menu_bar.py`**: `action_resize_medium()` — 928→789.
+- **`tests/test_gui_smoke.py`**: bỏ 2 `@unittest.skip` (`test_full_screen_action`, `test_resize_after_full_screen_exits_full_screen_first`), 928→789 ở cả 2 chỗ liên quan. `test_resize_after_maximize_un_maximizes_first` sửa lại đúng bất biến `max(850, minimumSizeHint().height())` thay vì so bằng thẳng với minimum.
+
+### Đã kiểm tra
+
+- 40 test Parallel Flash panel (`TestParallelFlashPanelScaffolding`, `TestParallelPanelTestConnectionButton`, `TestParallelPanelRecolorsOnThemeToggle`, `TestParallelPanelSaveReport`, `TestParallelChannelSettingsButton`) pass sau refactor — xác nhận không có test nào assert trực tiếp vào `serial_label` hay cấu trúc layout cũ nên refactor không phá gì.
+- `TestMenuBar` (24 test) pass **không cần skip** — Full Screen hoạt động thật trở lại.
+- Verify `.grab()` headless cả 2 theme + 1 case status dài ("Identifying ECU — reading Serial Number (DID 0xF18C)...") — layout gọn, không tràn/cắt chữ, cả 4 nút trong 1 hàng vẫn đọc rõ ràng, title hiện đúng "Channel 3 — SN: SN-SIM-001-2026".
+- Full suite chạy gộp chung với Phase 4.104 ngay sau đó (user gửi mockup mới ngay khi vừa thấy bản compact này, trước khi kịp chạy full suite riêng) — xem số liệu ở cuối Phase 4.104.
+
+### Phase 4.104: Redesign Panel Theo Mockup — Gộp 4 Nút Phụ Vào Menu "..."
+
+Ngay sau khi thấy ảnh chụp thật của Channel 3 (Phase 4.103), user gửi 1 mockup mới (dạng card gọn, 3x2) và yêu cầu: 4 nút phụ lặp lại y hệt trên 6 card nên gom vào 1 nút menu "···", và hiện tại không có phân cấp trực quan giữa Flash (hành động chính) với các nút phụ.
+
+**Xung đột cần hỏi lại trước khi làm**: gộp cả Test Connection vào menu "···" sẽ làm mất màu Pass/Fail thường trực vừa mới làm ở Phase 4.101 theo đúng yêu cầu của user — vì menu chỉ hiện màu trong khoảnh khắc đang mở, không phải trạng thái luôn nhìn thấy được như 1 nút riêng. Đưa ra 3 phương án (giữ Test Connection tách riêng / dồn Pass-Fail vào chấm trạng thái / bỏ hẳn màu thường trực), user chọn **giữ Test Connection tách riêng** — đúng như mockup gốc gợi ý (mockup không hề gộp Test Connection vào đâu cả, chỉ ẩn Settings/View Log/Save Report).
+
+Thiết kế theo đúng mockup:
+1. **Header row riêng cho mỗi card** (không dùng title có sẵn của `QGroupBox` nữa — title chuỗi thuần không thể có chấm màu hay nút bấm lồng vào): chấm trạng thái màu (●) + "Channel N" (đậm) + nút "···" (canh phải, mở `QMenu` chứa 3 `QAction`: Settings/View Log/Save Report).
+2. **Test Connection + Flash + progress bar dồn chung 1 hàng** — do hàng nút phụ giờ chỉ còn 1 nút (Test Connection), gộp luôn vào hàng Flash để tiết kiệm thêm 1 hàng nữa thay vì để riêng.
+3. **Chấm trạng thái màu theo phase** (xám=idle, xanh dương=đang identify/flash, xanh lá=pass, đỏ=fail) — tái dùng đúng palette `ACCENT_COLOR`/`SUCCESS_COLOR`/`DANGER_COLOR`/`DISABLED_BUTTON_FG` đã có, theo đúng "Theme-color staleness pattern" (lưu `_dot_kind`, nối vào `_recolor_parallel_panels()`).
+4. **Bỏ hẳn cơ chế SN-trong-title vừa làm ở Phase 4.103** — mockup gộp SN vào CHUNG 1 dòng với status text (`"SN: X · status"`), không phải trong title. `_set_panel_status_text(panel, text)` thay thế mọi chỗ gọi `.setText()` trực tiếp lên `status_label`, tự thêm tiền tố SN nếu đã biết; text gốc (không tiền tố) lưu riêng ở `panel["_status_text"]` để Save Report không bị lặp SN (report đã có dòng "Serial Number" riêng).
+
+**Settings mất luôn dấu hiệu "đã customize" (viền/nền accent) đã làm ở Phase 4.97** — hệ quả tất yếu của việc dồn vào menu (menu action không giữ được màu thường trực), user đã ngầm chấp nhận khi chọn phương án "giữ Test Connection tách riêng, Settings/View Log/Save Report vào menu" — không hỏi lại lần 2 về riêng chi tiết này.
+
+Settings/View Log/Save Report chuyển từ `QPushButton` sang `QAction` (`panel["action_settings"]`/`"action_view_log"`/`"action_save_report"`, thay cho `"settings_button"`/`"view_log_button"`/`"save_report_button"` cũ) — logic xử lý bên trong (`_open_parallel_channel_settings`, `_view_parallel_panel_log`, `_save_parallel_panel_report`) không đổi gì, chỉ đổi cách kích hoạt (`.triggered` thay `.clicked`).
+
+### Thay đổi
+
+- **`gui/parallel_flash.py`**: viết lại gần như toàn bộ `_build_parallel_panel()` — header row (chấm + tên + menu "···"), Test Connection dồn vào hàng Flash/progress. Panel dict: bỏ `"group_box"`'s vai trò cũ (không còn set title), thêm `"status_dot"`, `"title_label"`, `"menu_button"`, `"action_settings"`/`"action_view_log"`/`"action_save_report"` (thay 3 key `*_button` cũ), `"_dot_kind"`, `"_status_text"`. Hàm mới `_apply_panel_status_dot_style()`, `_set_panel_status_text()`. Xoá hẳn `_apply_settings_button_style()` và `_set_panel_group_box_title()` (không còn dùng). Mọi chỗ enable/disable `settings_button` đổi thành `action_settings`.
+- **`gui/settings_profile.py`**: xoá lời gọi `_apply_settings_button_style()` còn sót lại khi restore `comm_settings` đã lưu (method không còn tồn tại).
+- **`resources/style.qss`/`style_dark.qss`**: xoá rule `#buttonParallelViewLog`/`#buttonParallelChannelSettings`/`#buttonParallelSaveReport` (không còn là `QPushButton` nữa — `QMenu`/`QMenu::item` dùng chung đã có sẵn styling đúng theme cho các action bên trong). Thêm `#buttonParallelChannelMenu` (nút "···" nhỏ, gọn, ẩn mũi tên menu mặc định qua `::menu-indicator { image: none; width: 0px; }`).
+- **`tests/test_gui_smoke.py`**: đổi mọi `panel["view_log_button"].click()`/`panel["settings_button"].click()` thành `.trigger()` trên key `action_*` mới. Xoá `test_toggling_dark_recolors_a_customized_settings_button` (tính năng không còn). Thêm test mới cho menu (3 action đúng thứ tự), chấm trạng thái (4 màu theo phase + reset khi đổi channel + recolor theo Dark Mode), dòng status kết hợp SN. Sửa 1 test cũ (`test_report_contains_this_panels_own_buffered_data`) tự bắt lỗi: test gọi thẳng `panel["status_label"].setText("PASS.")` thay vì qua `_set_panel_status_text()`, khiến `panel["_status_text"]` (nguồn dữ liệu MỚI của cột "Result" trong Save Report) không được cập nhật — sửa lại gọi đúng hàm mới.
+- **`tests/test_style.py`**: cập nhật `test_both_themes_style_parallel_flash_buttons` theo đúng selector còn/mất.
+
+### Đã kiểm tra
+
+- 82 test (toàn bộ class Parallel Flash liên quan + `test_parallel_flash_threading` + `test_style`) pass.
+- Verify `.grab()` headless cả 2 theme, đủ trạng thái (pass/fail/test-connection-pass/idle/chưa chọn channel) trên nhiều channel cùng lúc — chấm trạng thái, màu Test Connection, dòng "SN: X · status" đều đúng ở cả 2 theme; bấm menu "···" thật (không mock) xác nhận mở đúng menu + trigger đúng action.
+- Trong lúc verify phát hiện 1 vấn đề CỦA SCRIPT VERIFY (không phải bug thật): script dark-mode trước đó dùng `QApplication` trần không redirect `QSettings` như `tests/qt_test_utils.py`'s `get_app()` làm — khiến Dark Mode toggle từ NHIỀU lần verify trước đó trong session này rò rỉ thật vào QSettings hệ thống, làm cửa sổ MỚI khởi tạo đã ở sẵn Dark Mode nên `setChecked(True)` thành no-op (Qt không phát `toggled` nếu state không đổi) — sửa script để redirect `QSettings.setPath()` trước khi tạo `MainWindow()`, xác nhận toggle hoạt động đúng.
+- `minimumSizeHint()`: (635, 789) — không đổi so với Phase 4.103, xác nhận việc dồn thêm Test Connection vào hàng Flash và bỏ hàng riêng cho nút phụ không làm cửa sổ cao thêm.
+- Full suite chạy gộp chung với Phase 4.105 ngay sau đó (user phát hiện bug hiển thị ngay khi vừa xem xong bản redesign này) — xem số liệu ở cuối Phase 4.105.
+
+### Phase 4.105: Sửa Dropdown Popup Của QComboBox Không Theo Dark Mode
+
+User gửi ảnh chụp thật cho thấy: mở dropdown của combo chọn hardware (Channel 1, Parallel Flash) ở Dark Mode thì popup hiện nền trắng/chữ tối gần như không đọc được, trong khi bản thân ô combo (lúc đóng) và toàn bộ phần còn lại của app đã đúng theme tối.
+
+**Không phải bug riêng của Parallel Flash — bug toàn app.** `QComboBox` có 1 popup dropdown là `QAbstractItemView` TÁCH RIÊNG (Qt tạo ra khi mở, không phải con trực tiếp của combo trong con mắt stylesheet) — rule `QLineEdit, QComboBox, QSpinBox { background: ...; color: ...; }` đã có trong cả 2 theme chỉ style đúng cái Ô lúc ĐÓNG, không hề lan sang popup lúc MỞ. Grep xác nhận: cả `resources/style.qss` lẫn `style_dark.qss` chưa từng có rule `QComboBox QAbstractItemView`/`QListView`/`QAbstractItemView` nào — nghĩa là popup của MỌI combo trong app (không riêng Parallel Flash: `comboBoxHardware`, `comboBoxRadarSide`, `comboBoxFlashSequence`, `comboBoxLogicalLink`, và cả 6 combo channel) đều đang dựa hoàn toàn vào theme mặc định của OS — vô hại (trùng hợp) ở Light Mode vì mặc định cũng là nền trắng, nhưng lộ rõ ở Dark Mode.
+
+**Vì sao không phát hiện sớm hơn**: MỌI lần verify `.grab()` headless trong suốt session này (từ đầu tới Phase 4.104) chỉ chụp cửa sổ chính lúc combo đang ĐÓNG — chưa bao giờ thực sự mở popup ra để chụp. Sau khi biết bug, verify lại đúng cách bằng `combo.showPopup()` + `QApplication.activePopupWidget().grab()` (popup là 1 top-level widget riêng, `window.grab()` của cửa sổ chính không hề chụp được nó).
+
+### Thay đổi
+
+- **`resources/style.qss`/`style_dark.qss`**: thêm rule `QComboBox QAbstractItemView` (nền/chữ/màu chọn khớp đúng theme, dùng chung 1 rule cho toàn bộ combo trong app — không cần sửa riêng từng nơi).
+
+### Đã kiểm tra
+
+- Test mới (`tests/test_style.py`): `test_both_themes_style_combo_box_dropdown_popup` — xác nhận rule tồn tại ở cả 2 theme.
+- Verify đúng cách (mở popup thật, chụp riêng popup — không phải cửa sổ chính): Dark Mode hiện đúng nền tối/chữ sáng dễ đọc; Light Mode vẫn giữ nguyên nền trắng/chữ tối như trước (không đổi/không hồi quy).
+- Full suite: 497 test pass, 0 skipped.
+
+### Stress test trước khi push cả phiên lên remote
+
+User yêu cầu push toàn bộ thay đổi trong phiên (Phase 4.99 → 4.105) lên remote. Theo đúng rule bắt buộc trong `CLAUDE.md` ("push tất cả thay đổi trong phiên" phải stress test trước, nặng hơn lần chạy full suite thông thường cuối mỗi phase ở trên) — chạy đủ 3 bước: (1) full suite (497 test, 0 skip), (2) `tests/test_flash_threading.py` riêng (9 test), (3) 1 script headless thật chạy nối tiếp nhiều hành động thật trong CÙNG 1 process, không khởi động lại giữa chừng: nạp firmware thật (`tests/sample.hex`) → flash xong hoàn chỉnh qua Virtual ECU → flash lần 2 rồi abort giữa chừng → bật/tắt Dark Mode → resize cửa sổ → mở Test Connection dialog thật (không mock) rồi đóng → chuyển sang Parallel Flash, chọn 2 channel, bấm Test Connection thật (tô xanh), mở menu "···" thật và trigger cả 3 action (Settings/View Log/Save Report), flash 1 panel xong hoàn chỉnh, flash panel khác rồi abort giữa chừng, bật Dark Mode với panel đang có dữ liệu, cuối cùng đóng cửa sổ chính — cả 15 bước đều pass sạch, không exception nào. Cả 3 bước đều pass → push thẳng theo đúng rule, không cần hỏi lại.
+
+(Phiên bị gián đoạn 1 lần giữa lúc đang chạy full suite lần đầu — 2 background task cũ bị đánh dấu "orphan/stopped" khi harness khởi động lại. Không tin kết quả cũ, chạy lại từ đầu cả 3 bước stress test sau khi phiên resume, bao gồm phát hiện và sửa 1 lỗi TRONG SCRIPT VERIFY: vòng lặp chờ Test Connection dialog thật không có `time.sleep()`, khiến 3000 vòng lặp trôi qua gần như tức thời — không đủ thời gian thực để worker thread thật xử lý xong — sửa lại dùng deadline theo giờ thực (`time.time()`) kèm `time.sleep(0.01)` mỗi vòng, giống đúng cách đã dùng thành công nhiều lần trước đó trong phiên này.)
+

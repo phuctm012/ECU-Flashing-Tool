@@ -104,22 +104,10 @@ QPushButton#buttonParallelAbortAll:disabled {
     border: 1px solid #d7dde5;
 }
 
-QPushButton#buttonParallelViewLog {
-    font-size: 11px;
-    padding: 4px 10px;
-    border-radius: 10px;
-    border: 1px solid #d7dde5;
-    background: transparent;
-    color: #5a6472;
-}
-QPushButton#buttonParallelViewLog:hover {
-    border-color: #4a7fd6;
-    color: #4a7fd6;
-    background: transparent;
-}
-
-/* Test Connection / Save Report — same pill family as View Log/
-   Settings above (4 secondary actions per channel panel). */
+/* Test Connection is the one secondary action kept as its own
+   visible button (not folded into #buttonParallelChannelMenu) so
+   its Pass/Fail color stays visible at a glance — see
+   gui/parallel_flash.py's module docstring. */
 QPushButton#buttonParallelTestConnection {
     font-size: 11px;
     padding: 4px 10px;
@@ -138,38 +126,26 @@ QPushButton#buttonParallelTestConnection:disabled {
     border-color: #e6e9ee;
 }
 
-QPushButton#buttonParallelSaveReport {
-    font-size: 11px;
-    padding: 4px 10px;
-    border-radius: 10px;
-    border: 1px solid #d7dde5;
+/* Per-channel "..." menu (Settings/View Log/Save Report) — small
+   and understated on purpose, so Flash reads as the one primary
+   action per card instead of competing with 4 equally-weighted
+   buttons. */
+QPushButton#buttonParallelChannelMenu {
+    font-size: 15px;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
     background: transparent;
     color: #5a6472;
 }
-QPushButton#buttonParallelSaveReport:hover {
-    border-color: #4a7fd6;
-    color: #4a7fd6;
-    background: transparent;
+QPushButton#buttonParallelChannelMenu:hover {
+    background: #eef1f5;
+    color: #2b579a;
 }
-
-/* Default (not-customized) look, matching #buttonParallelViewLog's
-   pill shape — gui/parallel_flash.py's _apply_settings_button_style()
-   overrides this with a filled accent look via setStyleSheet() once
-   the channel has its own Basic Communication settings (see
-   config.settings.HIGHLIGHT_BG_COLOR/ACCENT_COLOR), same as the
-   Flash/Abort button and progress bar's dynamic per-state coloring. */
-QPushButton#buttonParallelChannelSettings {
-    font-size: 11px;
-    padding: 4px 10px;
-    border-radius: 10px;
-    border: 1px solid #d7dde5;
-    background: transparent;
-    color: #5a6472;
-}
-QPushButton#buttonParallelChannelSettings:hover {
-    border-color: #4a7fd6;
-    color: #4a7fd6;
-    background: transparent;
+QPushButton#buttonParallelChannelMenu::menu-indicator {
+    image: none;
+    width: 0px;
 }
 
 QTabWidget::pane {
@@ -281,6 +257,20 @@ QLineEdit, QComboBox, QSpinBox {
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
     border-color: #4a7fd6;
+}
+
+/* The dropdown popup (a separate QAbstractItemView Qt creates for
+   QComboBox) doesn't inherit the box's own background/text colors —
+   without this it silently stays on the OS default palette, which
+   only actually looks broken once Dark Mode is on (harmless-by-
+   coincidence in Light Mode, since the OS default is white-on-black
+   too). Every QComboBox in the app shares this one rule. */
+QComboBox QAbstractItemView {
+    background: #ffffff;
+    color: #1a1a1a;
+    border: 1px solid #d7dde5;
+    selection-background-color: #2b579a;
+    selection-color: white;
 }
 
 /* Compression/Encryption Method (Configure > Data > Details

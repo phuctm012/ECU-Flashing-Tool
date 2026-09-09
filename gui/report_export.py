@@ -255,8 +255,8 @@ white-space: pre-wrap; font-size: 12px; }
         Batch Flash — one flash's worth of data on screen at a
         time). Parallel Flash instead passes each channel's own
         buffered rows (gui/parallel_flash.py's _panel_trace_rows()),
-        since 4 channels' data can never all fit in that one shared
-        widget at once — see docs/walkthrough.md Phase 4.98.
+        since multiple channels' data can never all fit in that one
+        shared widget at once — see docs/walkthrough.md Phase 4.98.
         """
 
         e = html.escape

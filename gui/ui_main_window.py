@@ -271,6 +271,20 @@ class Ui_MainWindow(object):
 
         self.gridLayout_parallelChannels.addWidget(self.groupBoxParallelChannel4, 1, 1, 1, 1)
 
+        self.groupBoxParallelChannel5 = QGroupBox(self.parallelFlashTab)
+        self.groupBoxParallelChannel5.setObjectName(u"groupBoxParallelChannel5")
+        self.verticalLayout_parallelChannel5 = QVBoxLayout(self.groupBoxParallelChannel5)
+        self.verticalLayout_parallelChannel5.setObjectName(u"verticalLayout_parallelChannel5")
+
+        self.gridLayout_parallelChannels.addWidget(self.groupBoxParallelChannel5, 2, 0, 1, 1)
+
+        self.groupBoxParallelChannel6 = QGroupBox(self.parallelFlashTab)
+        self.groupBoxParallelChannel6.setObjectName(u"groupBoxParallelChannel6")
+        self.verticalLayout_parallelChannel6 = QVBoxLayout(self.groupBoxParallelChannel6)
+        self.verticalLayout_parallelChannel6.setObjectName(u"verticalLayout_parallelChannel6")
+
+        self.gridLayout_parallelChannels.addWidget(self.groupBoxParallelChannel6, 2, 1, 1, 1)
+
 
         self.verticalLayout_parallelFlashTab.addLayout(self.gridLayout_parallelChannels)
 
@@ -873,6 +887,8 @@ class Ui_MainWindow(object):
         self.groupBoxParallelChannel2.setTitle(QCoreApplication.translate("MainWindow", u"Channel 2", None))
         self.groupBoxParallelChannel3.setTitle(QCoreApplication.translate("MainWindow", u"Channel 3", None))
         self.groupBoxParallelChannel4.setTitle(QCoreApplication.translate("MainWindow", u"Channel 4", None))
+        self.groupBoxParallelChannel5.setTitle(QCoreApplication.translate("MainWindow", u"Channel 5", None))
+        self.groupBoxParallelChannel6.setTitle(QCoreApplication.translate("MainWindow", u"Channel 6", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.parallelFlashTab), QCoreApplication.translate("MainWindow", u"Parallel Flash", None))
 
         __sortingEnabled = self.navListWidget.isSortingEnabled()

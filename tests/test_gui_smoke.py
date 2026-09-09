@@ -35,6 +35,8 @@ from config.settings import (
     APP_VERSION,
     STATUS_COLOR_DONE,
     STATUS_COLOR_DONE_DARK,
+    STATUS_COLOR_ERROR,
+    STATUS_COLOR_ERROR_DARK,
     STATUS_COLOR_RUNNING_DARK,
     STATUS_TEXT_COLOR,
     STATUS_TEXT_COLOR_DARK,
@@ -44,8 +46,8 @@ from config.settings import (
     DANGER_COLOR_DARK,
     SUCCESS_COLOR,
     SUCCESS_COLOR_DARK,
-    HIGHLIGHT_BG_COLOR,
-    HIGHLIGHT_BG_COLOR_DARK,
+    DISABLED_BUTTON_FG,
+    DISABLED_BUTTON_FG_DARK,
 )
 from parsers.auto_parser import parse_firmware_file
 
@@ -223,8 +225,8 @@ class TestParallelFlashTabScaffolding(unittest.TestCase):
         self.assertEqual(tw.tabText(1), "Parallel Flash")
         self.assertEqual(tw.tabText(2), "Configure")
 
-    def test_four_channel_panel_shells_exist(self):
-        for i in range(1, 5):
+    def test_six_channel_panel_shells_exist(self):
+        for i in range(1, 7):
             self.assertTrue(
                 hasattr(self.window.ui, f"groupBoxParallelChannel{i}")
             )
@@ -239,8 +241,8 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
         self.app = get_app()
         self.window = MainWindow()
 
-    def test_four_panels_created_with_expected_widgets(self):
-        self.assertEqual(len(self.window._parallel_panels), 4)
+    def test_six_panels_created_with_expected_widgets(self):
+        self.assertEqual(len(self.window._parallel_panels), 6)
         for panel in self.window._parallel_panels:
             self.assertIn(panel["combo"].count(), range(1, 10))
             self.assertEqual(panel["phase"], "idle")
@@ -264,7 +266,7 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
 
     def test_view_log_button_makes_that_panel_the_active_one(self):
         panel = self.window._parallel_panels[2]
-        panel["view_log_button"].click()
+        panel["action_view_log"].trigger()
         self.assertEqual(self.window._parallel_active_panel_index, 2)
 
     def test_view_log_replays_panels_buffered_information_and_trace(self):
@@ -282,7 +284,7 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
             },
         ))
 
-        panel["view_log_button"].click()
+        panel["action_view_log"].trigger()
 
         self.assertIn(
             "Buffered info line.", self.window.ui.informationText.toPlainText()
@@ -299,7 +301,7 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
 
     def test_live_message_only_shown_for_the_active_panel(self):
         panels = self.window._parallel_panels
-        panels[0]["view_log_button"].click()
+        panels[0]["action_view_log"].trigger()
 
         self.window._log_parallel_panel(panels[1], "Not the active panel.")
 
@@ -313,7 +315,7 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
 
     def test_live_message_shown_immediately_for_the_active_panel(self):
         panel = self.window._parallel_panels[0]
-        panel["view_log_button"].click()
+        panel["action_view_log"].trigger()
 
         self.window._log_parallel_panel(panel, "Live update.")
 
@@ -326,7 +328,7 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
         self.window._log_parallel_panel(panels[0], "From channel 1.")
         self.window._log_parallel_panel(panels[1], "From channel 2.")
 
-        panels[0]["view_log_button"].click()
+        panels[0]["action_view_log"].trigger()
         self.assertIn(
             "From channel 1.", self.window.ui.informationText.toPlainText()
         )
@@ -334,7 +336,7 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
             "From channel 2.", self.window.ui.informationText.toPlainText()
         )
 
-        panels[1]["view_log_button"].click()
+        panels[1]["action_view_log"].trigger()
         self.assertIn(
             "From channel 2.", self.window.ui.informationText.toPlainText()
         )
@@ -344,7 +346,7 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
 
     def test_view_log_appends_a_channel_indicator_to_information(self):
         panel = self.window._parallel_panels[2]
-        panel["view_log_button"].click()
+        panel["action_view_log"].trigger()
 
         lines = [
             line for line in
@@ -355,7 +357,7 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
 
     def test_view_log_appends_a_channel_indicator_to_trace(self):
         panel = self.window._parallel_panels[2]
-        panel["view_log_button"].click()
+        panel["action_view_log"].trigger()
 
         table = self.window.ui.traceTable
         last_row = table.rowCount() - 1
@@ -366,8 +368,8 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
 
     def test_view_log_indicator_does_not_accumulate_in_the_panels_buffer(self):
         panel = self.window._parallel_panels[0]
-        panel["view_log_button"].click()
-        panel["view_log_button"].click()
+        panel["action_view_log"].trigger()
+        panel["action_view_log"].trigger()
 
         text = self.window.ui.informationText.toPlainText()
         self.assertEqual(text.count("Now viewing"), 1)
@@ -381,8 +383,8 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
 
     def test_view_log_indicator_updates_when_switching_panels(self):
         panels = self.window._parallel_panels
-        panels[0]["view_log_button"].click()
-        panels[1]["view_log_button"].click()
+        panels[0]["action_view_log"].trigger()
+        panels[1]["action_view_log"].trigger()
 
         lines = [
             line for line in
@@ -419,6 +421,66 @@ class TestParallelFlashPanelScaffolding(unittest.TestCase):
         panel = self.window._parallel_panels[0]
         self.window._on_panel_flash_aborted(panel)
         self.assertIn(DANGER_COLOR, panel["progress_bar"].styleSheet())
+
+    def test_channel_menu_has_settings_view_log_save_report(self):
+        panel = self.window._parallel_panels[0]
+        menu = panel["menu_button"].menu()
+        labels = [action.text() for action in menu.actions()]
+        self.assertEqual(labels, ["Settings", "View Log", "Save Report"])
+        self.assertIs(menu.actions()[0], panel["action_settings"])
+        self.assertIs(menu.actions()[1], panel["action_view_log"])
+        self.assertIs(menu.actions()[2], panel["action_save_report"])
+
+    def test_status_dot_starts_idle_colored(self):
+        panel = self.window._parallel_panels[0]
+        self.assertIn(
+            DISABLED_BUTTON_FG, panel["status_dot"].styleSheet()
+        )
+
+    def test_status_dot_turns_busy_while_identifying(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        self.window._start_identify_for_panel(panel)
+        self.assertIn(ACCENT_COLOR, panel["status_dot"].styleSheet())
+        self.window._abort_panel(panel)
+        self.app.processEvents()
+
+    def test_status_dot_turns_success_green_on_pass(self):
+        panel = self.window._parallel_panels[0]
+        self.window._on_panel_flash_finished(panel)
+        self.assertIn(SUCCESS_COLOR, panel["status_dot"].styleSheet())
+
+    def test_status_dot_turns_danger_red_on_fail(self):
+        panel = self.window._parallel_panels[0]
+        self.window._on_panel_flash_aborted(panel)
+        self.assertIn(DANGER_COLOR, panel["status_dot"].styleSheet())
+
+    def test_status_dot_resets_to_idle_on_channel_change(self):
+        panel = self.window._parallel_panels[0]
+        self.window._on_panel_flash_finished(panel)
+        self.assertIn(SUCCESS_COLOR, panel["status_dot"].styleSheet())
+
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+
+        self.assertIn(
+            DISABLED_BUTTON_FG, panel["status_dot"].styleSheet()
+        )
+        self.assertNotIn(SUCCESS_COLOR, panel["status_dot"].styleSheet())
+
+    def test_status_text_has_no_sn_prefix_before_identify(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        self.assertEqual(
+            panel["status_label"].text(), "Idle — ready to flash."
+        )
+
+    def test_status_text_gets_sn_prefix_once_known(self):
+        panel = self.window._parallel_panels[0]
+        panel["serial"] = "SN-SIM-001"
+        self.window._set_panel_status_text(panel, "Flashing...")
+        self.assertEqual(
+            panel["status_label"].text(), "SN: SN-SIM-001 · Flashing..."
+        )
 
 
 class TestParallelPanelTestConnectionButton(unittest.TestCase):
@@ -518,6 +580,67 @@ class TestParallelPanelTestConnectionButton(unittest.TestCase):
 
         MockDialog.assert_not_called()
 
+    def test_pass_colors_the_button_green(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+
+        with unittest.mock.patch(
+            "gui.parallel_flash.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = True
+            panel["test_connection_button"].click()
+
+        self.assertIn(
+            STATUS_COLOR_DONE, panel["test_connection_button"].styleSheet()
+        )
+
+    def test_fail_colors_the_button_red(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+
+        with unittest.mock.patch(
+            "gui.parallel_flash.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = False
+            panel["test_connection_button"].click()
+
+        self.assertIn(
+            STATUS_COLOR_ERROR, panel["test_connection_button"].styleSheet()
+        )
+
+    def test_dialog_closed_before_finishing_leaves_color_unchanged(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        self.window._apply_test_connection_button_style(panel, "done")
+
+        with unittest.mock.patch(
+            "gui.parallel_flash.TestConnectionDialog"
+        ) as MockDialog:
+            MockDialog.return_value.passed = None
+            panel["test_connection_button"].click()
+
+        self.assertIn(
+            STATUS_COLOR_DONE, panel["test_connection_button"].styleSheet()
+        )
+
+    def test_changing_channel_clears_a_previous_result_color(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        self.window._apply_test_connection_button_style(panel, "done")
+
+        panel["combo"].addItem(
+            "VN1640A - Channel 1",
+            userData={
+                "label": "VN1640A - Channel 1",
+                "channel": 0, "hw_channel": 0,
+                "serial": None, "is_on_bus": False,
+            },
+        )
+        panel["combo"].setCurrentIndex(panel["combo"].count() - 1)
+
+        self.assertEqual(panel["test_connection_button"].styleSheet(), "")
+        self.assertIsNone(panel["_test_connection_kind"])
+
 
 class TestParallelPanelSaveReport(unittest.TestCase):
     """
@@ -537,7 +660,7 @@ class TestParallelPanelSaveReport(unittest.TestCase):
         panel = self.window._parallel_panels[2]
         panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
         panel["serial"] = "SN12345"
-        panel["status_label"].setText("PASS.")
+        self.window._set_panel_status_text(panel, "PASS.")
         self.window._log_parallel_panel(
             panel, "Flash completed successfully."
         )
@@ -638,28 +761,32 @@ class TestParallelPanelRecolorsOnThemeToggle(unittest.TestCase):
         self.assertIn(SUCCESS_COLOR_DARK, panel["progress_bar"].styleSheet())
         self.assertNotIn(SUCCESS_COLOR, panel["progress_bar"].styleSheet())
 
-    def test_toggling_dark_recolors_a_customized_settings_button(self):
+    def test_toggling_dark_recolors_a_passed_test_connection_button(self):
         panel = self.window._parallel_panels[0]
-        with unittest.mock.patch(
-            "gui.parallel_flash.ParallelChannelSettingsDialog"
-        ) as MockDialog:
-            instance = MockDialog.return_value
-            instance.result.return_value = True
-            instance.reset_requested.return_value = False
-            instance.result_values.return_value = (0x7A0, 0x7A8, 0x710)
-            panel["settings_button"].click()
+        self.window._apply_test_connection_button_style(panel, "done")
         self.assertIn(
-            HIGHLIGHT_BG_COLOR, panel["settings_button"].styleSheet()
+            STATUS_COLOR_DONE, panel["test_connection_button"].styleSheet()
         )
 
         self.window.ui.actionDarkMode.setChecked(True)
 
         self.assertIn(
-            HIGHLIGHT_BG_COLOR_DARK, panel["settings_button"].styleSheet()
+            STATUS_COLOR_DONE_DARK,
+            panel["test_connection_button"].styleSheet(),
         )
         self.assertNotIn(
-            HIGHLIGHT_BG_COLOR, panel["settings_button"].styleSheet()
+            STATUS_COLOR_DONE, panel["test_connection_button"].styleSheet()
         )
+
+    def test_toggling_dark_recolors_a_passed_panels_status_dot(self):
+        panel = self.window._parallel_panels[0]
+        self.window._on_panel_flash_finished(panel)
+        self.assertIn(SUCCESS_COLOR, panel["status_dot"].styleSheet())
+
+        self.window.ui.actionDarkMode.setChecked(True)
+
+        self.assertIn(SUCCESS_COLOR_DARK, panel["status_dot"].styleSheet())
+        self.assertNotIn(SUCCESS_COLOR, panel["status_dot"].styleSheet())
 
 
 class TestParallelChannelSettingsButton(unittest.TestCase):
@@ -668,12 +795,12 @@ class TestParallelChannelSettingsButton(unittest.TestCase):
         self.app = get_app()
         self.window = MainWindow()
 
-    def test_settings_button_and_comm_settings_exist(self):
+    def test_settings_action_and_comm_settings_exist(self):
         panel = self.window._parallel_panels[0]
-        self.assertIn("settings_button", panel)
+        self.assertIn("action_settings", panel)
         self.assertIsNone(panel["comm_settings"])
 
-    def test_settings_button_opens_dialog_prefilled_with_shared_defaults(self):
+    def test_settings_action_opens_dialog_prefilled_with_shared_defaults(self):
         panel = self.window._parallel_panels[0]
         # Whatever the Configure tab's live tx_id/rx_id actually are
         # right now (radar-side/Suzuki defaults, not necessarily the
@@ -684,7 +811,7 @@ class TestParallelChannelSettingsButton(unittest.TestCase):
             "gui.parallel_flash.ParallelChannelSettingsDialog"
         ) as MockDialog:
             MockDialog.return_value.result.return_value = False
-            panel["settings_button"].click()
+            panel["action_settings"].trigger()
 
         MockDialog.assert_called_once()
         args = MockDialog.call_args[0]
@@ -694,7 +821,7 @@ class TestParallelChannelSettingsButton(unittest.TestCase):
         self.assertEqual(args[4], 0x700)
         self.assertFalse(args[5])
 
-    def test_settings_button_opens_dialog_prefilled_with_existing_override(self):
+    def test_settings_action_opens_dialog_prefilled_with_existing_override(self):
         panel = self.window._parallel_panels[0]
         panel["comm_settings"] = {
             "tx_id": 0x7A0, "rx_id": 0x7A8, "functional_id": 0x710,
@@ -703,7 +830,7 @@ class TestParallelChannelSettingsButton(unittest.TestCase):
             "gui.parallel_flash.ParallelChannelSettingsDialog"
         ) as MockDialog:
             MockDialog.return_value.result.return_value = False
-            panel["settings_button"].click()
+            panel["action_settings"].trigger()
 
         args = MockDialog.call_args[0]
         self.assertEqual(args[2], 0x7A0)
@@ -711,7 +838,7 @@ class TestParallelChannelSettingsButton(unittest.TestCase):
         self.assertEqual(args[4], 0x710)
         self.assertTrue(args[5])
 
-    def test_saving_dialog_stores_custom_comm_settings_and_marks_button(self):
+    def test_saving_dialog_stores_custom_comm_settings(self):
         panel = self.window._parallel_panels[0]
         with unittest.mock.patch(
             "gui.parallel_flash.ParallelChannelSettingsDialog"
@@ -720,14 +847,11 @@ class TestParallelChannelSettingsButton(unittest.TestCase):
             instance.result.return_value = True
             instance.reset_requested.return_value = False
             instance.result_values.return_value = (0x7A0, 0x7A8, 0x710)
-            panel["settings_button"].click()
+            panel["action_settings"].trigger()
 
         self.assertEqual(
             panel["comm_settings"],
             {"tx_id": 0x7A0, "rx_id": 0x7A8, "functional_id": 0x710},
-        )
-        self.assertIn(
-            HIGHLIGHT_BG_COLOR, panel["settings_button"].styleSheet()
         )
 
     def test_resetting_dialog_clears_comm_settings(self):
@@ -742,12 +866,9 @@ class TestParallelChannelSettingsButton(unittest.TestCase):
             instance.result.return_value = True
             instance.reset_requested.return_value = True
             instance.result_values.return_value = None
-            panel["settings_button"].click()
+            panel["action_settings"].trigger()
 
         self.assertIsNone(panel["comm_settings"])
-        self.assertNotIn(
-            HIGHLIGHT_BG_COLOR, panel["settings_button"].styleSheet()
-        )
 
     def test_cancelling_dialog_leaves_comm_settings_unchanged(self):
         panel = self.window._parallel_panels[0]
@@ -755,19 +876,19 @@ class TestParallelChannelSettingsButton(unittest.TestCase):
             "gui.parallel_flash.ParallelChannelSettingsDialog"
         ) as MockDialog:
             MockDialog.return_value.result.return_value = False
-            panel["settings_button"].click()
+            panel["action_settings"].trigger()
 
         self.assertIsNone(panel["comm_settings"])
 
-    def test_settings_button_disabled_while_panel_is_identifying(self):
+    def test_settings_action_disabled_while_panel_is_identifying(self):
         panel = self.window._parallel_panels[0]
         panel["combo"].setCurrentIndex(1)
         self.window._start_identify_for_panel(panel)
-        self.assertFalse(panel["settings_button"].isEnabled())
+        self.assertFalse(panel["action_settings"].isEnabled())
 
         self.window._abort_panel(panel)
         self.app.processEvents()
-        self.assertTrue(panel["settings_button"].isEnabled())
+        self.assertTrue(panel["action_settings"].isEnabled())
 
 
 class TestCanConfig(unittest.TestCase):
@@ -2582,7 +2703,12 @@ class TestMenuBar(unittest.TestCase):
 
     def test_resize_medium_sets_exact_size(self):
         self.window.ui.actionResizeMedium.trigger()
-        # 789, not 768 -- buttonLoadFromGitLab added one more row to pageData's minimum height
+        # 789 -- see gui/menu_bar.py's action_resize_medium() for why
+        # this literal tracks the window's true minimum height. A
+        # never-shown window (this test never calls .show()) isn't
+        # clamped to that minimum regardless -- see the sibling
+        # comment on test_resize_after_maximize_un_maximizes_first
+        # for the case that IS.
         self.assertEqual(
             self.window.size().toTuple(), (1366, 789)
         )
@@ -2608,8 +2734,19 @@ class TestMenuBar(unittest.TestCase):
         self.window.ui.actionResizeDefault.trigger()
 
         self.assertFalse(self.window.isMaximized())
+        # Once the window has actually been shown (maximize does
+        # that), Qt clamps any resize() below the window's true
+        # minimum size back up to that minimum -- asserting against
+        # max(requested, minimumSizeHint()) itself (rather than a
+        # hardcoded pixel literal) keeps this test correct however
+        # tall Parallel Flash's panel grid happens to be, whether
+        # that's currently enough to force a clamp or not; the exact
+        # pixel value has already drifted 4 times as panels were
+        # added/restyled (see action_resize_medium()'s own history).
+        self.assertEqual(self.window.width(), 1100)
         self.assertEqual(
-            self.window.size().toTuple(), (1100, 850)
+            self.window.height(),
+            max(850, self.window.minimumSizeHint().height()),
         )
 
     def test_resize_after_full_screen_exits_full_screen_first(self):
@@ -2619,15 +2756,6 @@ class TestMenuBar(unittest.TestCase):
         self.window.ui.actionResizeMedium.trigger()
 
         self.assertFalse(self.window.isFullScreen())
-        # Back to 789 (not the 800 introduced in Phase 4.92, when
-        # each Parallel Flash panel first stacked 5 separate widget
-        # rows). The Phase 4.96 visual-parity fix paired combo +
-        # View Log and Flash/Abort + progress bar into 2 horizontal
-        # rows each, dropping each panel to 4 rows total and
-        # shrinking the tab's true (fully-activated) minimum height
-        # back down — see the sibling comment in
-        # test_resize_medium_sets_exact_size for why a never-shown
-        # window reports this same 789 regardless.
         self.assertEqual(
             self.window.size().toTuple(), (1366, 789)
         )

@@ -284,6 +284,22 @@
              <layout class="QVBoxLayout" name="verticalLayout_parallelChannel4"/>
             </widget>
            </item>
+           <item row="2" column="0">
+            <widget class="QGroupBox" name="groupBoxParallelChannel5">
+             <property name="title">
+              <string>Channel 5</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_parallelChannel5"/>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QGroupBox" name="groupBoxParallelChannel6">
+             <property name="title">
+              <string>Channel 6</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_parallelChannel6"/>
+            </widget>
+           </item>
           </layout>
          </item>
         </layout>

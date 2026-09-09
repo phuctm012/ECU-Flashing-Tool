@@ -263,7 +263,6 @@ class SettingsProfileMixin:
                         0x700, type=int,
                     ),
                 }
-                self._apply_settings_button_style(panel, True)
 
             selected = s.value(f"parallel/panel{i}/selected", False, type=bool)
             if not selected:

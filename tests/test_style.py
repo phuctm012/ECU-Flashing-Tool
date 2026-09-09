@@ -151,10 +151,14 @@ class TestShippedDarkStylesheetContent(unittest.TestCase):
 
     def test_both_themes_style_parallel_flash_buttons(self):
         # Start All / Abort All (gui/main_window.ui, Parallel Flash
-        # tab) and each panel's View Log pill used to fall back to
-        # the plain default QPushButton look, unlike the approved
-        # design mockup — see docs/walkthrough.md's Parallel Flash
-        # visual-parity fix entry.
+        # tab) used to fall back to the plain default QPushButton
+        # look, unlike the approved design mockup — see
+        # docs/walkthrough.md's Parallel Flash visual-parity fix
+        # entry. Settings/View Log/Save Report were later folded into
+        # one per-panel "..." menu (QActions on a QMenu, styled by
+        # the app's existing generic QMenu rule below) — only Test
+        # Connection stays a real, separately-styled button, plus the
+        # new menu button itself.
         for css in (load_stylesheet(dark=False), load_stylesheet(dark=True)):
             self.assertIn("QPushButton#buttonParallelStartAll", css)
             self.assertIn("QPushButton#buttonParallelStartAll:hover", css)
@@ -162,12 +166,6 @@ class TestShippedDarkStylesheetContent(unittest.TestCase):
             self.assertIn("QPushButton#buttonParallelAbortAll", css)
             self.assertIn("QPushButton#buttonParallelAbortAll:hover", css)
             self.assertIn("QPushButton#buttonParallelAbortAll:disabled", css)
-            self.assertIn("QPushButton#buttonParallelViewLog", css)
-            self.assertIn("QPushButton#buttonParallelViewLog:hover", css)
-            self.assertIn("QPushButton#buttonParallelChannelSettings", css)
-            self.assertIn(
-                "QPushButton#buttonParallelChannelSettings:hover", css
-            )
             self.assertIn("QPushButton#buttonParallelTestConnection", css)
             self.assertIn(
                 "QPushButton#buttonParallelTestConnection:hover:!disabled",
@@ -176,10 +174,8 @@ class TestShippedDarkStylesheetContent(unittest.TestCase):
             self.assertIn(
                 "QPushButton#buttonParallelTestConnection:disabled", css
             )
-            self.assertIn("QPushButton#buttonParallelSaveReport", css)
-            self.assertIn(
-                "QPushButton#buttonParallelSaveReport:hover", css
-            )
+            self.assertIn("QPushButton#buttonParallelChannelMenu", css)
+            self.assertIn("QPushButton#buttonParallelChannelMenu:hover", css)
 
     def test_both_themes_style_text_edit(self):
         # informationText (QTextEdit) had no QSS selector at all —
@@ -208,6 +204,18 @@ class TestShippedDarkStylesheetContent(unittest.TestCase):
         # above, caught by screenshot before it shipped.
         self.assertIn("QSpinBox", load_stylesheet(dark=False))
         self.assertIn("QSpinBox", load_stylesheet(dark=True))
+
+    def test_both_themes_style_combo_box_dropdown_popup(self):
+        # QComboBox's own closed-box look was styled, but its
+        # dropdown popup (a separate QAbstractItemView Qt creates,
+        # not a QComboBox child in the stylesheet's eyes) wasn't —
+        # it silently stayed on the OS-default white/black palette,
+        # unreadable in Dark Mode specifically (every screenshot
+        # verification this whole session grabbed the closed combo,
+        # never an opened dropdown, so this shipped unnoticed until
+        # a real user screenshot caught it).
+        for css in (load_stylesheet(dark=False), load_stylesheet(dark=True)):
+            self.assertIn("QComboBox QAbstractItemView", css)
 
 
 class TestDarkModePreference(unittest.TestCase):

@@ -99,20 +99,6 @@ QPushButton#buttonParallelAbortAll:disabled {
     border: 1px solid #3a4048;
 }
 
-QPushButton#buttonParallelViewLog {
-    font-size: 11px;
-    padding: 4px 10px;
-    border-radius: 10px;
-    border: 1px solid #3a4048;
-    background: transparent;
-    color: #9aa4b2;
-}
-QPushButton#buttonParallelViewLog:hover {
-    border-color: #5b8fd9;
-    color: #5b8fd9;
-    background: transparent;
-}
-
 /* See resources/style.qss's matching light-theme comment. */
 QPushButton#buttonParallelTestConnection {
     font-size: 11px;
@@ -132,33 +118,22 @@ QPushButton#buttonParallelTestConnection:disabled {
     border-color: #2e333b;
 }
 
-QPushButton#buttonParallelSaveReport {
-    font-size: 11px;
-    padding: 4px 10px;
-    border-radius: 10px;
-    border: 1px solid #3a4048;
+QPushButton#buttonParallelChannelMenu {
+    font-size: 15px;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
     background: transparent;
     color: #9aa4b2;
 }
-QPushButton#buttonParallelSaveReport:hover {
-    border-color: #5b8fd9;
+QPushButton#buttonParallelChannelMenu:hover {
+    background: #2a2f38;
     color: #5b8fd9;
-    background: transparent;
 }
-
-/* See resources/style.qss's matching light-theme comment. */
-QPushButton#buttonParallelChannelSettings {
-    font-size: 11px;
-    padding: 4px 10px;
-    border-radius: 10px;
-    border: 1px solid #3a4048;
-    background: transparent;
-    color: #9aa4b2;
-}
-QPushButton#buttonParallelChannelSettings:hover {
-    border-color: #5b8fd9;
-    color: #5b8fd9;
-    background: transparent;
+QPushButton#buttonParallelChannelMenu::menu-indicator {
+    image: none;
+    width: 0px;
 }
 
 QTabWidget::pane {
@@ -272,6 +247,18 @@ QLineEdit, QComboBox, QSpinBox {
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
     border-color: #5b8fd9;
+}
+
+/* See resources/style.qss's matching light-theme comment — without
+   this the dropdown popup stays on the OS-default white/black
+   palette regardless of Dark Mode, unreadable against the box
+   itself. Every QComboBox in the app shares this one rule. */
+QComboBox QAbstractItemView {
+    background: #262b33;
+    color: #e6e9ee;
+    border: 1px solid #3a4048;
+    selection-background-color: #3f6cb0;
+    selection-color: white;
 }
 
 /* Compression/Encryption Method (Configure > Data > Details
