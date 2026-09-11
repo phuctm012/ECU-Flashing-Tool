@@ -834,7 +834,7 @@ class ConfigureTabMixin:
 
     def setup_fingerprint_selector(self):
         """
-        Validates/wires lineEditTesterSerialNumber (Miscellaneous
+        Validates/wires lineEditTesterSerialNumber (Flash Options
         page, defined in main_window.ui) — the DID 0xF198
         (WriteDataByIdentifier) payload sent by the Suzuki SLP1
         sequence's "Write Tester Info" step (see

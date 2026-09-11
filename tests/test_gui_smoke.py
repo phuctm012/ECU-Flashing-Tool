@@ -723,6 +723,87 @@ class TestParallelPanelSaveReport(unittest.TestCase):
         mock_critical.assert_called_once()
 
 
+class TestParallelExportAllReports(unittest.TestCase):
+    """
+    Covers Tools > Export Report > Parallel Flash (actionExportReportParallel)
+    / export_all_parallel_reports()
+    (gui/parallel_flash.py) — one combined HTML report covering every
+    channel whose hardware combo has an actual selection, skipping
+    channels still at "Not Selected" (never touched by the operator).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+
+    def test_menu_action_calls_export_all_parallel_reports(self):
+        with unittest.mock.patch.object(
+            self.window, 'export_all_parallel_reports'
+        ) as mock_export:
+            self.window.ui.actionExportReportParallel.trigger()
+        mock_export.assert_called_once()
+
+    def test_shows_info_dialog_when_no_channel_connected(self):
+        with unittest.mock.patch(
+            "gui.parallel_flash.QMessageBox.information"
+        ) as mock_info:
+            self.window.export_all_parallel_reports()
+        mock_info.assert_called_once()
+
+    def test_combined_report_includes_only_connected_channels(self):
+        p0 = self.window._parallel_panels[0]
+        p2 = self.window._parallel_panels[2]
+        p0["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        p2["combo"].setCurrentIndex(1)
+        self.window._log_parallel_panel(p0, "Channel 1 log line.")
+        self.window._log_parallel_panel(p2, "Channel 3 log line.")
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False
+        ) as f:
+            path = f.name
+        try:
+            with unittest.mock.patch(
+                "gui.parallel_flash.QFileDialog.getSaveFileName",
+                return_value=(path, ""),
+            ):
+                self.window.export_all_parallel_reports()
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+
+            self.assertIn("Channel 1", content)
+            self.assertIn("Channel 1 log line.", content)
+            self.assertIn("Channel 3", content)
+            self.assertIn("Channel 3 log line.", content)
+            self.assertNotIn("Channel 2", content)
+        finally:
+            os.unlink(path)
+
+    def test_cancelling_save_dialog_writes_nothing(self):
+        p0 = self.window._parallel_panels[0]
+        p0["combo"].setCurrentIndex(1)
+
+        with unittest.mock.patch(
+            "gui.parallel_flash.QFileDialog.getSaveFileName",
+            return_value=("", ""),
+        ) as mock_dialog:
+            self.window.export_all_parallel_reports()
+        mock_dialog.assert_called_once()
+
+    def test_write_failure_does_not_raise(self):
+        p0 = self.window._parallel_panels[0]
+        p0["combo"].setCurrentIndex(1)
+
+        with unittest.mock.patch(
+            "gui.parallel_flash.QFileDialog.getSaveFileName",
+            return_value=(tempfile.gettempdir(), ""),
+        ), unittest.mock.patch(
+            "gui.parallel_flash.QMessageBox.critical"
+        ) as mock_critical:
+            self.window.export_all_parallel_reports()
+        mock_critical.assert_called_once()
+
+
 class TestParallelPanelRecolorsOnThemeToggle(unittest.TestCase):
 
     def setUp(self):
@@ -1094,7 +1175,7 @@ class TestDataFormatConfig(unittest.TestCase):
 class TestFingerprintConfig(unittest.TestCase):
     """
     Covers the Tester Serial Number field (Configure ->
-    Miscellaneous -> Fingerprint, lineEditTesterSerialNumber /
+    Flash Options -> Fingerprint, lineEditTesterSerialNumber /
     ConfigureTabMixin.get_tester_serial_number()) — the DID
     0xF198 WriteDataByIdentifier payload sent by the Suzuki SLP1
     sequence's "Write Tester Info" step (core/flash_sequence.py).

@@ -52,3 +52,11 @@ Thumbs.db
 # ==================================================
 *.log
 log/
+
+# ==================================================
+# Regenerable build output
+# ==================================================
+# tools/capture_guide_screenshots.py writes the PNGs here, then embeds
+# them into docs/user_guide.html — the guide carries the only copy that
+# ships, so these are intermediates.
+docs/guide_images/

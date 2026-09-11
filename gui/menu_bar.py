@@ -146,6 +146,11 @@ class MenuBarMixin:
                 self.export_report
             )
 
+        if hasattr(self.ui, 'actionExportReportParallel'):
+            self.ui.actionExportReportParallel.triggered.connect(
+                self.export_all_parallel_reports
+            )
+
         # Live theme state, read by gui/flash_tab.py's status-color
         # helpers so Steps/Segments row highlights always match
         # whichever theme is *currently* applied (not just the one

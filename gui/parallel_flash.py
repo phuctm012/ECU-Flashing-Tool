@@ -298,13 +298,16 @@ class ParallelFlashMixin:
         progress_bar.setValue(0)
         status_label = QLabel("No channel selected.")
 
+        combo_row = QHBoxLayout()
+        combo_row.addWidget(combo, 1)
+        combo_row.addWidget(test_connection_button)
+
         controls_row = QHBoxLayout()
-        controls_row.addWidget(test_connection_button)
         controls_row.addWidget(flash_button)
         controls_row.addWidget(progress_bar, 1)
 
         group_box.layout().addLayout(header_row)
-        group_box.layout().addWidget(combo)
+        group_box.layout().addLayout(combo_row)
         group_box.layout().addLayout(controls_row)
         group_box.layout().addWidget(status_label)
 
@@ -602,6 +605,101 @@ class ParallelFlashMixin:
         self._log_parallel_panel(
             panel, f"Report exported to {file_path}"
         )
+
+    def export_all_parallel_reports(self):
+        """
+        Combined HTML report for every channel that currently has a
+        hardware channel assigned (combo != "not-selected" — Virtual
+        ECU Simulator counts, since it's still a deliberate selection;
+        an untouched "Not Selected" panel is skipped since it carries
+        no meaningful Summary/Trace/Info to report). Wired to
+        Tools > Export Report > Parallel Flash (actionExportReportParallel,
+        gui/menu_bar.py) — the sibling actionExportReport action under
+        the same "Export Report" submenu covers Single Flash, unaware
+        of these panels (see gui/report_export.py).
+        """
+
+        panels = [
+            p for p in self._parallel_panels
+            if p["combo"].currentData() != "not-selected"
+        ]
+
+        if not panels:
+            QMessageBox.information(
+                self,
+                "Export All Reports",
+                "No channels are connected to a hardware selection yet.",
+            )
+            return
+
+        default_name = (
+            "parallel_flash_report_all_"
+            + datetime.now().strftime("%Y%m%d_%H%M%S")
+            + ".html"
+        )
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export All Channel Reports",
+            default_name,
+            "HTML Files (*.html);;All Files (*)",
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(self._build_all_parallel_reports_html(panels))
+
+        except OSError as e:
+            QMessageBox.critical(
+                self, "Export Report Failed", str(e)
+            )
+            return
+
+        self.log_information(f"Combined report exported to {file_path}")
+
+    def _build_all_parallel_reports_html(self, panels):
+
+        e = html.escape
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        sections = "\n".join(
+            f"""
+<h2 style="margin-top:40px;border-top:3px solid #333;padding-top:12px;">
+Channel {p['index'] + 1}
+</h2>
+
+<h3>Summary</h3>
+{self._parallel_panel_report_summary_table(p)}
+
+<h3>Trace</h3>
+{self._report_trace_table(self._panel_trace_rows(p))}
+
+<h3>Information Log</h3>
+<pre>{e(chr(10).join(p["info_lines"])) or "No information recorded."}</pre>
+"""
+            for p in panels
+        )
+
+        return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{e(APP_NAME)} Parallel Flash Report — All Channels — {e(now)}</title>
+<style>{self._report_html_style()}</style>
+</head>
+<body>
+<h1>{e(APP_NAME)} v{e(APP_VERSION)} — Parallel Flash Report — All Channels</h1>
+<div class="subtitle">Exported {e(now)} — {len(panels)} channel(s)</div>
+
+<h2>Datablocks (shared by all channels)</h2>
+{self._report_datablocks_table()}
+{sections}
+</body>
+</html>
+"""
 
     def _build_parallel_panel_report_html(self, panel):
 

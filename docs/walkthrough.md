@@ -2302,3 +2302,223 @@ User yêu cầu push toàn bộ thay đổi trong phiên (Phase 4.99 → 4.105) 
 
 (Phiên bị gián đoạn 1 lần giữa lúc đang chạy full suite lần đầu — 2 background task cũ bị đánh dấu "orphan/stopped" khi harness khởi động lại. Không tin kết quả cũ, chạy lại từ đầu cả 3 bước stress test sau khi phiên resume, bao gồm phát hiện và sửa 1 lỗi TRONG SCRIPT VERIFY: vòng lặp chờ Test Connection dialog thật không có `time.sleep()`, khiến 3000 vòng lặp trôi qua gần như tức thời — không đủ thời gian thực để worker thread thật xử lý xong — sửa lại dùng deadline theo giờ thực (`time.time()`) kèm `time.sleep(0.01)` mỗi vòng, giống đúng cách đã dùng thành công nhiều lần trước đó trong phiên này.)
 
+## Phase 4.106: Đặt Test Connection Sát Bên Phải Thanh Chọn Channel (Parallel Flash)
+
+Phiên mới (sau khi Phase 4.99-4.105 đã push lên remote). User gửi ảnh chụp thật của 1 card (Channel 1) và yêu cầu: nút "Test Connection" nên nằm bên phải thanh chọn hardware, đồng thời thu gọn thanh chọn channel lại — lúc đó combo và Test Connection đang nằm 2 hàng riêng (combo chiếm cả hàng, Test Connection ở hàng dưới cùng Flash/progress bar).
+
+Thử bản đầu: gộp combo + Test Connection vào chung 1 `QHBoxLayout` mới (`combo_row`), set `combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)` + `setMinimumContentsLength(18)` để combo không chiếm hết chiều rộng, xong thêm `combo_row.addStretch(1)` sau Test Connection để cả 2 dồn về bên trái. Gặp lỗi nhỏ: `QComboBox.AdjustToMinimumContentsLength` không tồn tại trong PySide6 (Qt6 gộp chung vào `AdjustToMinimumContentsLengthWithIcon`) — sửa ngay khi chạy test phát hiện `AttributeError`.
+
+User gửi tiếp ảnh chụp bản này (combo gọn + Test Connection sát cạnh, nhưng còn khoảng trống lớn giữa Test Connection và mép phải card) và làm rõ ý muốn thật sự: "Test connection sát bên phải, chỗ còn lại sẽ là thanh chọn channel" — tức Test Connection phải nằm SÁT MÉP PHẢI của card, còn combo chiếm hết phần còn lại (ngược lại hướng "thu gọn combo" hiểu nhầm ở bản đầu). Sửa lại: bỏ hẳn `setSizeAdjustPolicy`/`setMinimumContentsLength`, đổi `combo_row.addWidget(combo, 1)` (stretch=1, chiếm hết chỗ trống) + `combo_row.addWidget(test_connection_button)` (không stretch, đứng ngay sau, tự động dồn sát phải vì combo đã ăn hết khoảng trống còn lại) — không cần `addStretch` nữa.
+
+### Thay đổi
+
+- **`gui/parallel_flash.py`**: `_build_parallel_panel()` — combo và `test_connection_button` chuyển từ 2 hàng riêng (`group_box.layout().addWidget(combo)` rồi `controls_row` chứa Test Connection+Flash+progress) sang 1 `combo_row` chung (`combo` stretch=1, `test_connection_button` không stretch, dồn sát phải); `controls_row` giờ chỉ còn Flash + progress bar.
+
+### Đã kiểm tra
+
+- Verify `.grab()` headless: card rỗng (chưa chọn channel) và card đã chọn `"VN1640A - Channel 1"` (giả lập tên hardware thật dài) — cả 2 trường hợp Test Connection đều sát mép phải card, combo chiếm đúng phần còn lại, không tràn/không để trống bất thường.
+- Full test suite chạy nền sau thay đổi — không có test nào assert cứng vào layout/vị trí widget theo tọa độ nên không có test nào cần sửa lại vì thay đổi thuần layout này.
+
+## Phase 4.107: Thêm Report Gộp Nhiều Channel — Tools > Export Report > Parallel Flash
+
+User hỏi (sau khi được giải thích Tools > Export Report... hiện tại không nhận biết tab Parallel Flash, chỉ export đúng dữ liệu Single Flash): Parallel Flash có thể export 1 report chung cho tất cả channel đang kết nối hardware/flash không, bỏ qua các channel chưa kết nối. Theo đúng rule "brainstorm fit trước khi làm feature mới" trong `CLAUDE.md`: tính năng này khớp thẳng với kiến trúc report đã có (mỗi channel đã có report riêng qua menu "···" > Save Report, `_build_parallel_panel_report_html()`), không xung đột gì — làm thẳng trong lượt này, không cần hỏi lại.
+
+**Bản đầu (nút bấm) → sửa lại theo yêu cầu user**: lúc đầu thêm hẳn 1 nút `buttonParallelExportAllReports` ("Export All Reports") vào hàng Start All/Abort All của Parallel Flash tab. User phản hồi ngay: không cần tạo nút mới, dùng lại đúng `Tools > Export Report...` đã có sẵn trên menu bar, cho chọn giữa Single Flash hay Parallel Flash. Bỏ hẳn nút vừa thêm (xoá khỏi `.ui`, bỏ wiring `clicked`), chuyển `actionExportReport` (trước đây là 1 `QAction` đơn, text "Export Report...") thành 1 `QMenu` con "Export Report" chứa 2 action: `actionExportReport` (đổi text thành "Single Flash...", giữ nguyên object name + wiring cũ tới `export_report()` để không phải sửa lại chỗ khác) và `actionExportReportParallel` (mới, text "Parallel Flash...", wire tới `export_all_parallel_reports()`). Theo đúng rule ".ui trước, Python sau": sửa `.ui` XML trước (nest `actionExportReport` vào `menuExportReport`, thêm action mới), regenerate `gui/ui_main_window.py` bằng `pyside6-uic`, rồi mới wire `triggered` trong `gui/menu_bar.py`. Logic build report bên dưới (`export_all_parallel_reports()`, `_build_all_parallel_reports_html()` trong `gui/parallel_flash.py`) không đổi gì so với bản nút bấm ban đầu — chỉ đổi điểm kích hoạt.
+
+Logic `export_all_parallel_reports()` (gui/parallel_flash.py): lọc `self._parallel_panels` theo `panel["combo"].currentData() != "not-selected"` (Virtual ECU Simulator tính là "đã kết nối" vì là 1 lựa chọn có chủ đích, chỉ bỏ qua panel còn ở "Not Selected" mặc định). Không có channel nào đủ điều kiện → `QMessageBox.information` báo không có gì để export, không mở dialog lưu file. Có ít nhất 1 → mở `QFileDialog.getSaveFileName` như các report khác, ghi 1 file HTML gộp: 1 khối `<h2>Datablocks</h2>` dùng chung (tái sử dụng `_report_datablocks_table()` sẵn có, vì Datablocks là firmware chung cho mọi channel — không lặp lại theo từng channel), theo sau là 1 khối Summary/Trace/Information Log riêng cho MỖI channel đủ điều kiện (tái sử dụng nguyên `_parallel_panel_report_summary_table()`, `_report_trace_table(self._panel_trace_rows(p))`, `p["info_lines"]` — không viết lại logic build từng phần, chỉ ghép nối).
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: `menuTools` — bọc `actionExportReport` (đổi text "Export Report..." → "Single Flash...") vào submenu mới `menuExportReport` (title "Export Report"), thêm action mới `actionExportReportParallel` (text "Parallel Flash...") cùng submenu. Regenerate `gui/ui_main_window.py`.
+- **`gui/menu_bar.py`**: wire `actionExportReportParallel.triggered` → `export_all_parallel_reports()`, ngay cạnh wiring cũ của `actionExportReport` → `export_report()`.
+- **`gui/parallel_flash.py`**: hàm mới `export_all_parallel_reports()` (lọc panel đủ điều kiện, mở dialog lưu file, log qua `self.log_information()`) và `_build_all_parallel_reports_html(panels)` (ghép 1 khối Datablocks dùng chung + N khối Summary/Trace/Information theo từng channel, tái dùng các hàm build sẵn có của cả report gộp lẫn report từng channel). Không còn wiring `buttonParallelExportAllReports.clicked` (đã bỏ khỏi `.ui`).
+- **`tests/test_gui_smoke.py`**: thêm `TestParallelExportAllReports` (5 test: menu action `actionExportReportParallel.trigger()` gọi đúng `export_all_parallel_reports()`; hiện dialog thông báo khi chưa channel nào kết nối; report gộp chỉ chứa đúng các channel đã kết nối, không lẫn channel chưa chọn; huỷ dialog lưu file thì không ghi gì; ghi file lỗi thì `QMessageBox.critical` báo lỗi thay vì crash) theo đúng khuôn `TestParallelPanelSaveReport` đã có cho report từng channel.
+
+### Đã kiểm tra
+
+- 32 test (`TestParallelExportAllReports`, `TestParallelPanelSaveReport`, `TestParallelFlashPanelScaffolding`) pass.
+- Verify `.grab()` headless menu thật: mở `menuTools` → `Export Report` hiện đúng dạng submenu (có mũi tên), mở tiếp hiện đúng 2 mục "Single Flash..." / "Parallel Flash...".
+- Verify thủ công không mock: gọi thẳng `export_all_parallel_reports()` — trường hợp chưa channel nào chọn hiện đúng dialog thông báo; chọn 2/6 channel (Virtual ECU) rồi export ra file thật, đọc lại nội dung xác nhận đúng 2 channel có mặt, 4 channel còn lại (còn "Not Selected") không xuất hiện trong report.
+- Full test suite chạy nền sau thay đổi.
+
+## Phase 4.108: Đổi Tên Tab "Miscellaneous" Thành "Flash Options"
+
+User hỏi có tên nào hợp lý hơn cho tab "Miscellaneous" (Configure > sidebar `navListWidget`, trang `pageMisc`). Nội dung trang này thực chất không hề "linh tinh": Flash Sequence (chọn sequence Suzuki SLP1/Generic), Security Access DLL, Fingerprint (Tester Serial Number ghi vào DID `0xF198`) — toàn bộ đều là tham số cấu hình phiên flash/giao thức UDS, không phải các tuỳ chọn phụ không liên quan tới nhau. Đưa ra 3 gợi ý ("Flash Options", "Session Settings", "Protocol Settings") kèm lý do — user chọn **"Flash Options"**.
+
+Chỉ đổi text hiển thị, giữ nguyên toàn bộ tên nội bộ (`pageMisc`, `labelMiscTitle`, `verticalLayout_misc`, `verticalSpacer_misc`, ...) — theo đúng rule "tên object đã có ý nghĩa (không phải Designer auto-numbered) thì không bắt buộc phải đổi theo text hiển thị", tránh phải grep/sửa lại mọi chỗ tham chiếu code không cần thiết cho 1 thay đổi thuần hiển thị.
+
+### Thay đổi
+
+- **`gui/main_window.ui`**: đổi text "Miscellaneous" → "Flash Options" ở cả 2 chỗ — mục `navListWidget` (sidebar) và `labelMiscTitle` (tiêu đề trang). Regenerate `gui/ui_main_window.py`.
+- **`gui/configure_tab.py`**, **`tests/test_gui_smoke.py`**: sửa 2 comment/docstring còn nhắc tên cũ "Miscellaneous" cho khớp tên hiển thị mới (không ảnh hưởng logic).
+
+### Đã kiểm tra
+
+- `TestFingerprintConfig` (7 test), `TestParallelFlashTabScaffolding` (3 test) pass — không có test nào assert cứng vào chuỗi "Miscellaneous" nên không cần sửa thêm.
+- Verify `.grab()` headless: sidebar hiện đúng thứ tự "Data, Communication, Flash Options, Custom Actions"; chọn "Flash Options" hiện đúng trang cũ (Flash Sequence, Security Access DLL, Fingerprint) với tiêu đề trang cũng đã đổi tên.
+
+## Phase 4.109: Cập Nhật `docs/user_guide.html` — Thêm Mục Single Flash (Flash, Batch Flash) Và Parallel Flash
+
+User yêu cầu update guideline (mở qua **Help → Open Guideline**, file `docs/user_guide.html`), thêm mục cho **Single Flash** (2 mode: Flash, Batch Flash) và **Parallel Flash** — cả 2 tính năng đều đã có trong app từ trước (Batch Flash từ nhánh `feature/sequential-batch-flash`, Parallel Flash từ phiên này) nhưng guideline chưa từng nhắc tới, chỉ có đúng 1 mục "Basic Flashing Steps" mô tả luồng Flash cơ bản.
+
+Cấu trúc lại: đổi h2 "Basic Flashing Steps" → "Single Flash Tab" (thêm 1 đoạn giới thiệu 2 mode), bọc 4 step đánh số sẵn có vào h3 con "Flash Mode" (không đổi nội dung 4 step, chỉ sửa 1 chỗ nhắc tên tab cũ "Flash tab" → đúng tên hiện tại "Single Flash tab", và cập nhật cách gọi menu Export Report — xem bên dưới). Thêm h3 "Batch Flash Mode" ngay sau (Tools > Mode > Batch Flash, nút Start → Next mỗi unit, Stop Batch, Export Report riêng của Batch). Thêm hẳn 1 h2 mới "Parallel Flash Tab" (6 channel/3x2, mỗi card: hardware combo, Test Connection tô màu, Flash + progress, chấm trạng thái, menu "···" gồm Settings/View Log/Save Report, Start All/Abort All) — đặt ngay sau Single Flash Tab, trước "Loading Firmware from GitLab" để 2 mục nói về chế độ flash nằm liền nhau.
+
+**Cập nhật luôn 1 chỗ đã lỗi thời phát hiện trong lúc sửa** (không phải do Phase 4.109 gây ra, có sẵn từ trước): step "Monitor progress & export a report" nhắc "Tools → Export Report..." như 1 action đơn — nay đã thành submenu (Phase 4.107) với 2 mục con Single Flash/Parallel Flash — sửa lại thành "Tools → Export Report → Single Flash...".
+
+**Follow-up ngay sau đó**: user phản hồi 2 mục mới thiếu hình minh hoạ thật (4 step "Flash Mode" cũ và mục GitLab đều có sẵn ảnh chụp thật, 2 mục mới chỉ toàn chữ) và văn phong hơi dài dòng — yêu cầu chụp ảnh thật kèm vào, đồng thời rút gọn lời văn. Chụp 2 ảnh thật (không dựng mockup) bằng đúng kỹ thuật headless đã dùng cả phiên (`QT_QPA_PLATFORM=offscreen`, `MainWindow` thật, `.grab()`), cùng kích thước 1100×850 khớp 4 ảnh Flash Mode có sẵn (kiểm tra lại header PNG của 4 ảnh cũ bằng `struct.unpack` trước khi chụp, để khớp đúng quy ước):
+1. **Batch Flash**: bật Batch Flash mode thật, gọi thẳng `_on_batch_unit_finished("pass"/"fail", ...)` 3 lần (bỏ qua chạy luồng QThread thật vì chỉ cần đúng trạng thái UI cuối, không cần re-test lại logic đã có test riêng) để có sẵn tally "2 PASS · 1 FAIL · 0 ABORTED", 3 dòng log tô màu, nút "Next".
+2. **Parallel Flash**: dựng đủ 5 trạng thái khác nhau trên 6 card qua các hàm nội bộ đã có (`_apply_test_connection_button_style`, `_apply_panel_status_dot_style`, `_apply_panel_progress_style`, `_set_panel_status_text`) — Channel 1 Pass (xanh, 100%), Channel 2 Fail (đỏ, kèm lý do NRC), Channel 3 đang Flash (xanh dương, 58%), Channel 4 đã chọn hardware nhưng chưa test (Idle), Channel 5/6 còn "Not Selected" — 1 ảnh duy nhất minh hoạ gần hết các trạng thái mô tả trong chữ.
+
+Thử thêm 1 ảnh cận cảnh menu "···" đang mở (bấm `menu_button.click()` + `QApplication.activePopupWidget().grab()`, đúng kỹ thuật chụp popup đã rút ra ở Phase 4.105) nhưng ảnh cắt ra chỉ còn đúng 3 dòng chữ trên nền trắng, không có ngữ cảnh (không thấy nút/card xung quanh) — không có giá trị minh hoạ thêm so với ảnh tổng quan đã có, bỏ không dùng.
+
+Nhúng 2 ảnh vào file bằng script Python độc lập (đọc/ghi trực tiếp, không paste chuỗi base64 ~90KB/ảnh qua tool Edit) — thay chuỗi HTML cũ bằng bản mới kèm `<img>`, có `assert content.count(OLD) == 1` trước khi replace để chắc chắn thay đúng 1 chỗ. Rút gọn văn: câu ngắn hơn, bỏ bớt chi tiết phụ (vd. bỏ giải thích DID `0xF18C` lặp lại 2 lần trong Batch Flash Mode, bỏ câu nhắc lại "the same channel list as Configure → Communication" ở Parallel Flash — thông tin đúng nhưng không cần thiết để hiểu cách dùng).
+
+### Thay đổi
+
+- **`docs/user_guide.html`**: đổi h2 "Basic Flashing Steps" → "Single Flash Tab" + đoạn giới thiệu 2 mode; bọc 4 step cũ vào h3 "Flash Mode"; sửa "Flash tab" → "Single Flash tab" và "Tools → Export Report..." → "Tools → Export Report → Single Flash..." trong step 3/4. Thêm h3 "Batch Flash Mode" (rút gọn còn 2 đoạn ngắn + 1 ảnh chụp thật + 1 tip box). Thêm h2 "Parallel Flash Tab" (1 đoạn giới thiệu ngắn + 1 ảnh chụp thật + h3 "Each channel card" (rút gọn) + h3 "Running several channels together" + 1 tip box).
+
+### Đã kiểm tra
+
+- File 690KB (tăng thêm ~200KB do 2 ảnh mới, ảnh cũ không đổi) nên không đọc/paste được nguyên file — dùng `awk 'length($0) < 2000'` để lọc bỏ các dòng ảnh base64 khi cần xem cấu trúc, và Python `html.parser.HTMLParser` + đếm số thẻ mở/đóng (`div`, `h2`, `h3`, `p`, `ul`, `img`) để xác nhận file vẫn well-formed sau khi chỉnh (kể cả sau khi nhúng ảnh) — không thiếu/thừa thẻ đóng nào (`img` không có thẻ đóng, đúng chuẩn void element).
+- `tests/test_gui_smoke.py::TestMenuBar::test_open_guideline_opens_existing_file` pass (chỉ test wiring `actionOpenGuideline` mở đúng file, không có test nào assert nội dung HTML nên không cần sửa test).
+- Xem lại 2 ảnh đã chụp trước khi nhúng (đọc trực tiếp file PNG) — xác nhận đúng trạng thái mong muốn (tally/log màu đúng ở Batch Flash; đủ 5 trạng thái khác nhau hiện đúng màu ở Parallel Flash) trước khi ghép vào HTML.
+
+## Phase 4.110: Chụp Lại TOÀN BỘ Ảnh Trong Guideline Bằng Luồng Chạy Thật
+
+User gửi ảnh chụp mục "4. Monitor progress & export a report" trong guideline và hỏi tại sao những ảnh sau (2 ảnh vừa thêm ở Phase 4.109) không được như ảnh này. So sánh lại thì đúng: ảnh cũ chụp app đã chạy xong 1 lần flash thật (bảng Steps 13 dòng xanh, bảng Segments "Flashed", statsLabel "Done | 1.1s | ...", Information log đầy log thật), còn 2 ảnh mới của Phase 4.109 dựng trạng thái bằng cách gọi thẳng hàm nội bộ (`_on_batch_unit_finished`, `_apply_*_style`) nên các bảng xung quanh vẫn còn nguyên placeholder rỗng ("No steps recorded yet.", "No datablock loaded — ...") → nhìn dở dang hẳn so với ảnh cũ.
+
+**Sửa gốc vấn đề**: bỏ hẳn cách dựng trạng thái giả, chụp lại bằng cách CHẠY THẬT toàn bộ luồng trong phiên headless (`QT_QPA_PLATFORM=offscreen`): nạp firmware thật qua đúng đường UI thật (`add_new_datablock()` với `QFileDialog.getOpenFileNames` mock trả về `tests/sample.hex` — nên bảng Datablocks/Details/checksum đều được điền thật), rồi bấm nút thật và bơm event loop chờ kết quả thật.
+- **Batch Flash**: 3 unit thật — unit 1 chạy xong (PASS), unit 2 bấm Abort giữa chừng (ABORTED thật, dòng log màu vàng), unit 3 chạy xong (PASS) → tally "2 PASS · 0 FAIL · 1 ABORTED" thật, kèm bảng Steps/Segments/Information đầy dữ liệu thật.
+- **Parallel Flash**: Channel 1 chạy Test Connection thật (pill xanh) rồi flash xong (100%, SN thật); Channel 2 **fail thật** — patch `EcuSimulator.compute_key` (static, phía client) trong lúc chạy để key client tính ra không khớp với `_calculate_key()` của chính ECU giả lập → ECU trả NRC 0x35 Invalid Key thật, panel fail qua đúng đường code thật (đúng kiểu hỏng ngoài đời khi sai DLL/thuật toán Security Access), không phải tô đỏ giả; Channel 3 chụp đúng lúc đang flash thật (chấm xanh dương, bar 53%, nút đang là "Abort", combo bị khoá); Channel 4 đã chọn hardware nhưng chưa chạy; Channel 5/6 "Not Selected". Bấm "View Log" của Channel 1 trước khi chụp nên tab Information hiện log thật + dòng "Now viewing: Channel 1".
+
+**Phát hiện thêm khi làm (ảnh cũ đã lỗi thời)**: chính ảnh user gửi cho thấy app phiên bản CŨ — chỉ 2 tab "Flash | Configure" (chưa có Parallel Flash, chưa đổi tên "Single Flash") và footer "Version: v1.1". Nghĩa là cả 4 ảnh của mục Flash Mode đều chụp từ rất lâu, giờ mâu thuẫn với chính phần chữ của guideline (chữ đã ghi "Single Flash tab" nhưng ảnh vẫn hiện tab "Flash"). Chụp lại luôn cả 4: (1) Configure → Data đã nạp firmware, (2) Configure → Communication, (3) Single Flash đang flash dở (nút "Abort", dòng bước đang chạy màu vàng, segment "Flashing..."/"Waiting"), (4) Single Flash sau khi flash xong (13 bước xanh, "Done | 1.1s | 0.0 KB/s | 32 bytes") — tất cả đều v2.0, 3 tab, và sidebar đã hiện tên mới "Flash Options" (Phase 4.108).
+
+**Bug trong script chụp ảnh (không phải bug app), mất khá lâu mới ra**: 2 ảnh "chụp giữa lúc đang flash" ban đầu luôn bị biến thành trạng thái *đã abort* (`statsLabel` = "ETA: -- | Speed: Aborted"). Truy vết bằng cách patch `FlashWorker.request_abort` in stack trace → thủ phạm là `MainWindow.closeEvent()`. Nguyên nhân: helper `pump_until()` gọi `app.quit()` để thoát vòng lặp chờ, mà `app.quit()` trong bản Qt này **đóng luôn mọi cửa sổ** → `closeEvent()` chạy → abort flash đang chạy. Sửa: dùng `QEventLoop` cục bộ và `loop.quit()`, tuyệt đối không `app.quit()` khi cửa sổ còn phải sống tiếp. Đây là cái bẫy chung cho mọi script verify sau này của repo, không riêng việc chụp ảnh.
+
+### Thay đổi
+
+- **`docs/user_guide.html`**: thay toàn bộ 6 ảnh cửa sổ chính (4 ảnh Flash Mode cũ đã lỗi thời + 2 ảnh Phase 4.109 dựng trạng thái giả) bằng 6 ảnh chụp từ luồng chạy thật, giữ nguyên kích thước 1100×850 theo đúng quy ước sẵn có. Giữ nguyên `alt` của các ảnh cũ, thêm `alt` cho 2 ảnh mới (trước đó thiếu), và sửa 2 `alt` đã lỗi thời ("Flash tab — ready to start" → "Single Flash tab — a flash in progress, button showing Abort"; "Flash tab — completed..." → "Single Flash tab — completed flash..."). File: 490KB → 860KB.
+
+### Đã kiểm tra
+
+- Xem lại từng ảnh sau khi chụp (đọc trực tiếp file PNG) trước khi nhúng — xác nhận đúng trạng thái muốn minh hoạ, đặc biệt 2 ảnh "giữa chừng" (Single Flash đang chạy, Parallel Channel 3 đang chạy) đúng là đang chạy thật chứ không phải đã abort.
+- Sau khi nhúng: `html.parser.HTMLParser` parse sạch; đếm thẻ mở/đóng (`div` 28/28, `h2` 5/5, `h3` 12/12, `p` 29/29, `ul` 1/1, `img` 7 — void element nên không có thẻ đóng); giải mã lại cả 7 data URI bằng `base64` + đọc header PNG (`struct.unpack`) xác nhận 6 ảnh cửa sổ chính đều đúng 1100×850 và ảnh dialog GitLab cũ giữ nguyên 620×560; liệt kê lại toàn bộ `alt` để chắc không ảnh nào bị mất chú thích.
+- `tests/test_gui_smoke.py::TestMenuBar::test_open_guideline_opens_existing_file` pass.
+- Full suite (chạy nền, gồm cả Phase 4.107/4.108): **502 test pass**.
+
+**Vòng sửa thứ 2 — thiếu stylesheet của app**: user xem lại vẫn nói ảnh trong HTML chưa đẹp bằng ảnh cũ. Lần này nguyên nhân KHÁC hẳn vòng trước (không phải nội dung rỗng nữa mà là giao diện): script chụp ảnh chỉ tạo `MainWindow()` chứ không hề áp stylesheet — mà theme của app do `main.py` áp ở entry point (`app.setStyleSheet(load_stylesheet(dark=is_dark_mode_enabled()))`, [main.py:14](main.py#L14)), KHÔNG phải do `MainWindow` tự áp. Hệ quả: mọi ảnh chụp đều ra widget mặc định của macOS (tab vuông xám, nút phẳng, header bảng xám trơn) thay vì giao diện Engineering Blue thật (tab bo tròn xanh, nút Flash accent to bo góc, header bảng nền xanh nhạt + gạch chân accent, Stop Batch đỏ / Export Report xanh lá, pill Test Connection, chấm trạng thái màu). Đây đúng là thứ làm ảnh mới "kém đẹp" hơn ảnh cũ — ảnh cũ vốn chụp từ app chạy thật qua `python main.py` nên có theme.
+
+Sửa: thêm đúng 2 dòng của `main.py` vào cả 3 script chụp (import `load_stylesheet`/`is_dark_mode_enabled` + `app.setStyleSheet(...)` ngay sau khi tạo `QApplication`, trước khi import/tạo `MainWindow`), chụp lại cả 6 ảnh và nhúng lại. Bài học chung: script verify/chụp ảnh headless phải tự áp stylesheet giống `main.py`, vì dựng `MainWindow()` trần KHÔNG có theme — lỗi này im lặng, mọi thứ khác trong ảnh vẫn đúng nên rất dễ bỏ sót.
+
+### Đã kiểm tra (sau vòng sửa thứ 2)
+
+- Xem lại cả 3 ảnh chính sau khi chụp lại — xác nhận đã có theme thật: tab bo tròn với tab đang chọn màu accent, nút Flash accent lớn, header bảng nền xanh nhạt chữ xanh, Stop Batch đỏ / Export Report xanh lá, các card Parallel Flash nền trắng viền nhạt, pill Test Connection xanh, chấm trạng thái đúng 4 màu.
+- Sau khi nhúng lại: parse sạch, thẻ cân bằng (`div` 28/28, `h2` 5/5, `h3` 12/12, `p` 29/29, `ul` 1/1, `img` 7), giải mã lại 7 data URI — 6 ảnh cửa sổ chính đúng 1100×850, ảnh dialog GitLab giữ nguyên 620×560, 6 `alt` còn nguyên. File: 860KB → 894KB.
+- `test_open_guideline_opens_existing_file` pass.
+
+## Phase 4.111: Guideline — Batch Flash Và Parallel Flash Cũng Chia Từng Bước 1-2-3-4 Như Flash Mode
+
+User yêu cầu 2 mục Batch mode và Parallel mode phải chi tiết từng bước 1 2 3 4 giống mục Flash Mode (vốn có 4 step đánh số trong khối `.step` + `.step-num`, mỗi step 1 ảnh). Trước đó 2 mục này chỉ là đoạn văn xuôi trong `.step-body` trần kèm đúng 1 ảnh tổng quan mỗi mục.
+
+Viết lại thành 4 step có đánh số cho mỗi mục, mỗi step 1 ảnh riêng (8 ảnh mới), theo đúng khuôn của Flash Mode:
+- **Batch Flash**: (1) bật `Tools → Mode → Batch Flash`, (2) nối ECU đầu và bấm Start (Identify → Flash tự động), (3) đổi ECU rồi bấm Next, (4) Stop Batch + Export Report.
+- **Parallel Flash**: (1) chọn hardware channel cho từng card, (2) Test Connection từng channel, (3) Flash từng channel hoặc Start All, (4) menu "···" từng channel + report gộp.
+
+**Kỹ thuật mới cần cho ảnh có menu đang mở**: `window.grab()` KHÔNG bao giờ chụp được popup (menu/dropdown là top-level widget riêng — đã biết từ Phase 4.105). Trước đây thử chụp riêng popup thì ra ảnh 3 dòng chữ trơ trọi không có ngữ cảnh, phải bỏ. Lần này ghép ảnh: chụp cửa sổ, chụp popup, rồi `QPainter.drawPixmap()` popup lên đúng vị trí tương đối (`popup.mapToGlobal(0,0) - window.mapToGlobal(0,0)`) — ra ảnh menu đang mở đè lên app y như thật. Dùng cho 3 ảnh: menu `Tools → Mode` (mở cả submenu), dropdown chọn hardware của Channel 1, và menu "···" của 1 card.
+
+**Vài chi tiết phải chạy thật mới đúng**:
+- Test Connection fail thật ở Parallel step 2: KHÔNG dùng lại mẹo lệch key của Phase 4.110 được, vì Test Connection theo thiết kế chỉ làm session + đọc DID, **không hề chạy Security Access** (đúng như `CLAUDE.md` mô tả) nên patch `compute_key` không ảnh hưởng gì — lần đầu chạy ra "done" (xanh) thay vì đỏ. Đổi sang mô phỏng đúng tình huống thật hay gặp hơn: ECU không trả lời (patch `VirtualCanInterface.receive_isotp` trả `None` trong đúng lần chạy đó) → client timeout thật → pill đỏ thật.
+- Parallel step 3 (nhiều channel chạy song song): bấm Flash 4 channel cách nhau ~160ms để 4 thanh tiến trình ở các mức khác nhau (53%/9%/9%/9%) thay vì trùng khít 1 giá trị — nhìn mới ra "đang chạy song song".
+- Xoá Information/Trace log (`actionClearInformationLog`/`actionClearTrace`) trước khi chụp phần Parallel, để log của phần Batch chụp trước đó không còn dính trong ảnh Parallel.
+- Sau ảnh step 2, cho Channel 2 chạy lại Test Connection (lần này pass) để 2 ảnh step 3/4 không còn pill đỏ cũ đứng cạnh kết quả PASS (mâu thuẫn thị giác).
+
+### Thay đổi
+
+- **`docs/user_guide.html`**: mục "Batch Flash Mode" và "Parallel Flash Tab" viết lại thành 4 step đánh số mỗi mục (khối `.step` + `.step-num` + `h3` + `p` + ảnh), thay cho văn xuôi + 1 ảnh. Nội dung 2 tip box cũ được gộp vào chính step liên quan (tip "dùng chung setting kết nối" → step 1 của Batch; tip "Tools → Export Report → Parallel Flash" → step 4 của Parallel) nên không mất thông tin. Thêm 8 ảnh chụp thật (tổng 13 ảnh), mỗi ảnh có `alt`. File: 894KB → 1.48MB.
+
+### Đã kiểm tra
+
+- Xem lại từng ảnh trong 8 ảnh mới trước khi nhúng — đặc biệt 3 ảnh ghép popup (menu Tools/Mode, dropdown hardware, menu "···") đúng vị trí, không lệch/không che nhầm; ảnh Parallel step 3 đúng 4 channel cùng chạy ở 4 mức tiến trình khác nhau với nút "Abort" và chấm xanh dương.
+- Sau khi nhúng: parse sạch; thẻ cân bằng (`div` 48/48, `h2` 5/5, `h3` 18/18, `p` 32/32, `ul` 1/1, `img` 13); đếm `step-num` ra đúng `1,2,3,4` lặp lại 3 lần (Flash / Batch / Parallel); giải mã lại 13 data URI — 12 ảnh cửa sổ chính đúng 1100×850, ảnh dialog GitLab giữ nguyên 620×560; 12 `alt` đầy đủ.
+- `test_open_guideline_opens_existing_file` pass.
+
+## Phase 4.112: Guideline — Khoanh Vùng Trên Ảnh, Mục Lục, Dark Mode
+
+User hỏi còn cách nào làm guideline đẹp hơn nữa không. Rà lại file thì thấy 4 thiếu sót thật (kiểm tra bằng grep chứ không đoán): chưa có mục lục/anchor nào (`href="#"` = 0), chưa có dark mode, chưa có style cho lúc in, và 13 ảnh (1.1MB) tải hết ngay khi mở. Đưa ra 4 hướng kèm đánh đổi, user chọn 3: **khoanh vùng trên ảnh**, **mục lục + link nhảy**, **dark mode + tối ưu tải** (không chọn cắt ảnh vào vùng chính).
+
+**1. Khoanh vùng trên ảnh (12 ảnh step)**: vẽ khung bo góc màu accent quanh đúng widget mà mỗi step đang nói tới, ngay lúc chụp. Toạ độ lấy từ chính widget thật (`widget.mapTo(window, QPoint(0,0))` + `widget.size()`) nên khung không bao giờ lệch khỏi thứ nó chỉ, kể cả khi layout đổi sau này. Với item nằm trong menu/popup thì lấy `menu.actionGeometry(action)` rồi cộng offset của popup trong ảnh ghép. Vẽ 2 lớp: viền trắng mờ 7px làm halo (để khung vẫn nổi trên nền tối như nút Flash xanh đậm) rồi viền accent 3px đè lên. Gộp luôn 3 script chụp rời trước đây (`shoot_flash_steps` / `shoot_batch` / `shoot_parallel`) thành 1 script duy nhất chạy 1 lượt ra cả 12 ảnh, tránh trôi lệch giữa các lần chạy.
+
+**2. Mục lục + anchor**: thêm `id` cho 5 mục lớn, 2 mục con (Flash Mode / Batch Flash Mode) và cả 12 step (`flash-step-1`, `batch-step-2`, ...), kèm khối `<nav class="toc">` ở đầu trang liệt kê đủ 5 mục + 12 step. Ban đầu dựng bằng CSS grid nhưng render ra thấy cột "Single Flash Tab" (10 dòng) cao gấp đôi cột kia nên chừa 1 khoảng trống lớn — đổi sang `columns: 2 230px` (multi-column flow) thì các mục ngắn tự lấp đầy, cân đối hẳn. Thêm link chéo trong Batch step 1 trỏ về `#flash-step-1`, `scroll-margin-top` để nhảy anchor không dính sát mép, và `scroll-behavior: smooth`.
+
+**3. Dark mode + tối ưu tải + in ấn**: gom toàn bộ màu đang hardcode rải rác (`.note`, `.safety-list`, `.error-item`, `code`, nền trang, đổ bóng) thành CSS variable trong `:root`, giữ nguyên y hệt giá trị cũ cho light mode, rồi thêm 1 khối `@media (prefers-color-scheme: dark)` chỉ định nghĩa lại bộ variable đó (bảng màu lấy tinh thần từ `style_dark.qss` của chính app để 2 bên đồng bộ). Thêm `color-scheme: light dark`, `loading="lazy" decoding="async"` cho 12/13 ảnh (giữ ảnh đầu tải ngay), và `@media print` (ẩn mục lục, không cắt trang giữa 1 step/1 box).
+
+**Bug tự bắt được nhờ render thật**: file chưa từng có rule `a { color }` nào — link chéo vừa thêm hiện màu xanh mặc định của trình duyệt, đọc gần như không ra trên nền tối. Thêm `a { color: var(--accent) }` + `a:hover`.
+
+**Lần đầu verify được giao diện HTML bằng mắt**: trước giờ chỉ kiểm tra HTML bằng parser + đếm thẻ vì không có trình duyệt. Lần này phát hiện máy đã có sẵn Google Chrome → dùng `--headless=new --screenshot` để render thật và xem. Kiểm dark mode bằng cách tạo bản copy tạm đổi `@media (prefers-color-scheme: dark)` thành `@media all` (tin cậy hơn cờ `--force-dark-mode` của Chrome, vì cờ đó bật thuật toán tự đảo màu của trình duyệt chứ không phải media query của mình), và bản copy bỏ hết ảnh để toàn bộ khối chữ lọt 1 khung hình.
+
+### Thay đổi
+
+- **`docs/user_guide.html`**: thay 12 ảnh step bằng bản có khoanh vùng; thêm `<nav class="toc">` + 19 `id` + link chéo; viết lại khối `<style>` (tokenize màu, thêm `@media (prefers-color-scheme: dark)`, `@media print`, `a { color }`, `scroll-margin-top`, `scroll-behavior`); thêm `loading="lazy" decoding="async"` cho 12 ảnh. File: 1.48MB → 1.58MB.
+
+### Đã kiểm tra
+
+- Render thật bằng Chrome headless và xem tận mắt: light mode (mục lục 2 cột cân đối, khung accent quanh đúng widget), dark mode (nền/chữ/accent, hộp Tip vàng, hộp Safety đỏ, hộp lỗi, code chip, footer đều đọc rõ), và riêng link chéo sau khi thêm màu link.
+- Kiểm từng ảnh khoanh vùng trước khi nhúng — khung nằm đúng: mục "Batch Flash" trong submenu, 2 pill Test Connection (1 xanh 1 đỏ), nút Flash/Start All/Abort All, bảng Datablocks, 2 bảng Steps/Segments, dropdown hardware, menu "···".
+- Sau khi nhúng: parse sạch, thẻ cân bằng (`div` 49/49, `h2` 5/5, `h3` 18/18, `p` 32/32, `ul` 4/4, `li` 23/23, `nav` 1/1, `a` 20/20, `img` 13); 13 ảnh giải mã đúng kích thước; **19 anchor / 19 link nhảy, không link nào gãy**; 12/13 ảnh lazy.
+- `test_open_guideline_opens_existing_file` pass.
+
+## Phase 4.113: Công Cụ Tái Sử Dụng — Script Chụp Ảnh Guideline + Agent Viết User Guide
+
+User yêu cầu đóng gói lại đúng chuẩn 2 bên đã thống nhất suốt Phase 4.109-4.112 thành thứ dùng lại được cho những lần sau: 1 **agent** chuyên viết/cập nhật user guide, và 1 **script** chụp lại ảnh mỗi khi UI đổi. Trước đó mọi thứ nằm rải rác trong script tạm ở scratchpad, hết phiên là mất.
+
+**`tools/capture_guide_screenshots.py`** (thư mục `tools/` mới): chạy app thật headless và sinh ra đủ 12 ảnh step, tuỳ chọn nhúng thẳng vào `docs/user_guide.html`.
+- `python tools/capture_guide_screenshots.py` — chỉ chụp, ra `docs/guide_images/`
+- `--embed` — chụp xong nhúng luôn vào guide
+- `--only <tên shot>` — chỉ lưu vài ảnh (vẫn chạy hết luồng, vì trạng thái sau phụ thuộc trạng thái trước)
+
+Điểm quan trọng về cách nhúng: mỗi `<img>` trong guide giờ mang thêm thuộc tính `data-shot="flash-step-1"` (13 ảnh, kể cả ảnh dialog GitLab cũ), và script khớp ảnh theo **tên** chứ không theo **vị trí**. Cách cũ (thay theo thứ tự xuất hiện) sẽ gán nhầm ảnh nếu sau này ai đó đảo thứ tự mục trong guide; cách mới thì đảo thoải mái, và nếu 1 shot không tìm thấy `<img>` tương ứng thì script báo lỗi rõ ràng thay vì im lặng bỏ qua.
+
+Script gói sẵn cả 4 cái bẫy đã trả giá ở Phase 4.110-4.112, kèm comment giải thích ngay trong file để lần sau không lặp lại: (1) phải tự `app.setStyleSheet()` vì theme do `main.py` áp chứ không phải `MainWindow`; (2) vòng chờ dùng `QEventLoop` cục bộ, không `app.quit()` (nó đóng cửa sổ → `closeEvent()` abort flash đang chạy); (3) menu/dropdown là top-level widget riêng, phải chụp rời rồi ghép bằng `QPainter`; (4) dựng trạng thái bằng cách chạy thật (firmware thật, flash thật, abort thật) chứ không chọc widget. Cộng thêm 1 ghi chú về Test Connection chỉ làm session + đọc DID nên muốn nó fail thì phải cho ECU im lặng (`VirtualCanInterface.receive_isotp` trả `None`), không phải sai key.
+
+**`.claude/agents/user-guide-writer.md`**: agent chuyên trách guide, viết theo đúng khuôn 3 agent sẵn có trong repo (`model` + `tools` + phần thân). Nội dung gom lại toàn bộ chuẩn đã chốt: cách đọc file 1.6MB mà không tràn context (`awk 'length($0) < 2000'`), khuôn `.step` đánh số + mỗi step 1 ảnh, quy tắc màu phải lấy từ CSS variable (hardcode màu là hỏng dark mode), thêm mục thì phải thêm anchor + mục lục, luôn chụp lại ảnh bằng script chứ không bịa, 4 cái bẫy trên, bộ lệnh verify (parse + cân thẻ + giải mã ảnh + kiểm link nhảy gãy + test wiring), và **bắt buộc render bằng Chrome headless để nhìn tận mắt** — kèm mẹo kiểm dark mode bằng bản copy đổi `@media (prefers-color-scheme: dark)` thành `@media all` (cờ `--force-dark-mode` của Chrome là thuật toán tự đảo màu của trình duyệt, không phải stylesheet của mình nên không chứng minh được gì). Cuối cùng nhắc agent phải ghi `docs/walkthrough.md` theo rule `CLAUDE.md`.
+
+### Thay đổi
+
+- **`tools/capture_guide_screenshots.py`** (mới): script chụp + nhúng ảnh guideline, có `--embed`/`--out`/`--only`.
+- **`.claude/agents/user-guide-writer.md`** (mới): agent viết/cập nhật user guide.
+- **`docs/user_guide.html`**: thêm `data-shot="..."` cho cả 13 ảnh (khoá để script khớp theo tên); 12 ảnh step được sinh lại bằng chính script (xác nhận đường dẫn chạy từ repo hoạt động, không còn phụ thuộc script tạm).
+- **`CLAUDE.md`**: thêm lệnh regenerate ảnh guideline vào mục Commands, ngay cạnh lệnh `pyside6-uic` sẵn có.
+- **`.gitignore`**: bỏ qua `docs/guide_images/` — ảnh PNG chỉ là sản phẩm trung gian, bản duy nhất được ship là bản nhúng trong `user_guide.html`.
+
+### Đã kiểm tra
+
+- Chạy thật `python tools/capture_guide_screenshots.py --embed` từ repo: chụp đủ 12/12 shot, nhúng đủ 12/12 vào guide. Chạy thêm `--only parallel-step-3 --out /tmp/...` xác nhận chế độ lọc hoạt động.
+- Guide sau khi script nhúng: parse sạch, thẻ cân bằng, 13 ảnh giải mã đúng kích thước, 19 link nhảy không cái nào gãy, 12 ảnh lazy, 13 `data-shot`.
+- Render lại bằng Chrome headless và nhìn tận mắt: ảnh mới do script sinh ra vẫn đúng theme và vẫn có khung khoanh vùng đúng widget (bảng Datablocks ở step 1, combo Hardware ở step 2).
+- `python -m py_compile tools/capture_guide_screenshots.py` OK; `tests.test_gui_smoke.TestMenuBar` (24 test) pass. Không đụng code app nên full suite gần nhất (502 test, Phase 4.112) vẫn còn hiệu lực.
+
+## Phase 4.114: Stress Test Chuyên Sâu Cho Parallel + Biến Thành Công Cụ Thường Trực
+
+User yêu cầu chạy stress test thêm 1 lần nữa, **nhấn mạnh Parallel Flash** (flash nhiều lần nhiều channel, flash nhiều channel xong flash thêm 1 channel nữa) và đặc biệt về **threading**: chương trình có khả năng crash không. Sau khi có kết quả, user yêu cầu cập nhật luôn skill stress-test sẵn có.
+
+**Kết quả kiểm tra threading — không tìm thấy khả năng crash nào.** Chạy 2 script stress (parallel + races) trên tổng cộng ~150 lượt flash: **0 lần** xuất hiện `QThread: Destroyed while thread is still running`, `Signal source has been deleted`, hay cảnh báo timer/teardown; `faulthandler` bật sẵn để bắt segfault cũng không kích hoạt. Đóng cửa sổ lúc 6 channel đang flash: trả về sau **0.12s**, không deadlock. Đóng lúc đang ở phase Identify (chưa có flash worker): cũng sạch. Abort đặt ở 6 mốc thời gian khác nhau (0/5/20/60/150/400ms sau khi bấm Flash — rơi vào giữa Identify, giữa lúc bàn giao sang Flash, và giữa lúc đang Flash) đều settle đúng. Double-click Start All, double-click Abort All, Start All đè lên channel đang chạy, đổi tab giữa lúc flash — tất cả đều sạch.
+
+**1 lần FAIL ban đầu và nó là lỗi của chính bài test, không phải của app.** Lần chạy đầu báo "10 leaked python threads". Không bỏ qua mà truy tận nơi: liệt kê `threading.enumerate()` ra thì thấy toàn bộ là `_DummyThread` — placeholder Python tự tạo cho OS thread do Qt sinh ra, và `is_alive()` của nó **luôn** trả `True` kể cả khi thread thật đã chết (nó không bao giờ set `_is_stopped`). Kiểm chứng bằng số liệu thật: đếm OS thread qua `ps -M <pid>` sau mỗi vòng, chạy 8 vòng × 6 channel = **48 lượt flash** — OS thread đứng yên ở 7-8 (thậm chí tụt từ 8 xuống 7), còn `threading.active_count()` bò từ 1 lên 9 rồi **dừng hẳn** chứ không tăng theo số lần flash. Kết luận: không rò rỉ thread thật; `threading.active_count()` là thước đo SAI cho việc này. Sửa lại assertion thành đúng thứ cần kiểm: không còn thread keepalive `TesterPresent` nào sống sót (đúng lỗi mà `CLAUDE.md` mô tả, biểu hiện muộn thành `Signal source has been deleted`), không còn thread worker thật nào, và số placeholder phải bị chặn trên.
+
+**Phát hiện thêm: skill `stress-test` cũ có 2 lỗ hổng.** (a) Chỉ kiểm Single Flash — không hề đụng tới Batch Flash lẫn Parallel Flash dù cả 2 đều là code QThread. (b) Hàm `run_until()` của nó dùng `app.quit()` để thoát vòng chờ — mà `app.quit()` đóng luôn mọi cửa sổ, nên **mọi bước sau lần chờ đầu tiên đều đang chạy trên cửa sổ đã đóng** (đây đúng là cái bẫy đã tốn công truy ở Phase 4.110, lúc mọi ảnh chụp "giữa lúc flash" đều biến thành trạng thái đã abort).
+
+**Gộp thành công cụ thường trực `tools/stress_test.py`** thay cho đoạn `python -c "..."` dài nhét trong skill: 4 section (`single`/`batch`/`parallel`/`races`), chạy được riêng từng section (`--section parallel`). Điểm thiết kế quan trọng: script tự cài `qInstallMessageHandler` để **bắt cảnh báo threading của Qt và cho FAIL luôn**, thay vì để nó trôi qua trong stderr — vì loại cảnh báo này không ném exception Python nên exit code 0 hoàn toàn không chứng minh được gì. Kèm `faulthandler` cho segfault. Toàn bộ 4 cái bẫy đã trả giá trong phiên (không dùng `app.quit()`; theme do `main.py` áp; không lambda trên signal cross-thread; không đo leak bằng `threading.active_count()`) được ghi thẳng vào header script và phần cuối skill.
+
+### Thay đổi
+
+- **`tools/stress_test.py`** (mới): stress test end-to-end headless, 4 section, 51 checkpoint, có Qt message handler + faulthandler + thread audit.
+- **`.claude/skills/stress-test/SKILL.md`**: viết lại — bước 2 thêm 3 file threading test còn thiếu (parallel/batch/test-connection-dialog), bước 3 gọi `tools/stress_test.py` thay cho snippet inline (bỏ luôn `run_until()` dùng `app.quit()` sai), thêm mục "Reading the result" (phân biệt checkpoint fail vs cảnh báo Qt) và mục "If you extend the script" (4 cái bẫy).
+- **`CLAUDE.md`**: cập nhật rule pre-push cho khớp — bước 2 liệt kê đủ 4 file threading test, bước 3 trỏ vào `tools/stress_test.py` thay vì "throwaway `python -c` script", nói rõ nó fail cả trên cảnh báo Qt chứ không chỉ exception.
+
+### Đã kiểm tra
+
+- `python tools/stress_test.py` (đủ 4 section): **51/51 checkpoint pass, 0 cảnh báo Qt, 48 giây**, `STRESS_RESULT=PASS`.
+- Chạy riêng `--section single --section batch` (15 checkpoint) xác nhận cơ chế chọn section hoạt động.
+- Threading tests chạy riêng: `test_flash_threading` 9, `test_parallel_flash_threading` 10, `test_batch_flash_threading` 9, `test_test_connection_dialog` 3, `test_gitlab_dialog_threading` 15 — **46/46 pass**.
+- Thí nghiệm đếm OS thread (`ps -M`) qua 48 lượt flash để chứng minh không rò rỉ thread — số liệu ghi ở trên.
+- Full test suite: **502 test pass, 0 fail, 0 error** (994s).

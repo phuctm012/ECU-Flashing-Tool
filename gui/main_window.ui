@@ -329,7 +329,7 @@
            </item>
            <item>
             <property name="text">
-             <string>Miscellaneous</string>
+             <string>Flash Options</string>
             </property>
            </item>
            <item>
@@ -700,7 +700,7 @@
                 <string notr="true">color: #2b579a; font-size: 20px;</string>
                </property>
                <property name="text">
-                <string>Miscellaneous</string>
+                <string>Flash Options</string>
                </property>
               </widget>
              </item>
@@ -1116,7 +1116,14 @@
     <addaction name="actionAbort"/>
     <addaction name="separator"/>
     <addaction name="actionTestConnection"/>
-    <addaction name="actionExportReport"/>
+    <widget class="QMenu" name="menuExportReport">
+     <property name="title">
+      <string>Export Report</string>
+     </property>
+     <addaction name="actionExportReport"/>
+     <addaction name="actionExportReportParallel"/>
+    </widget>
+    <addaction name="menuExportReport"/>
     <addaction name="separator"/>
     <widget class="QMenu" name="menuMode">
      <property name="title">
@@ -1190,7 +1197,12 @@
   </action>
   <action name="actionExportReport">
    <property name="text">
-    <string>Export Report...</string>
+    <string>Single Flash...</string>
+   </property>
+  </action>
+  <action name="actionExportReportParallel">
+   <property name="text">
+    <string>Parallel Flash...</string>
    </property>
   </action>
   <action name="actionModeFlash">
