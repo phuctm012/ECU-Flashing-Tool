@@ -20,7 +20,7 @@ Full stress test before pushing session changes — catches crashes that isolate
    python tools/stress_test.py
    ```
 
-   Takes about a minute and prints `STRESS_RESULT=PASS` or `STRESS_RESULT=FAIL` plus a checkpoint count. Sections can be run alone while narrowing something down:
+   Takes about a minute and a half and prints `STRESS_RESULT=PASS` or `STRESS_RESULT=FAIL` plus a checkpoint count. Sections can be run alone while narrowing something down:
    ```bash
    python tools/stress_test.py --section parallel --section races
    python tools/stress_test.py --list
@@ -31,6 +31,8 @@ Full stress test before pushing session changes — catches crashes that isolate
    - **batch** — Batch Flash mode: three units (one aborted mid-flight), Stop Batch, Export Report
    - **parallel** — six channels flashed concurrently and repeatedly; a second wave started while the first is live; a lone channel flashed after a group finished; partial aborts; Start All / Abort All; Dark Mode, View Log, reports and the settings dialog exercised *while threads are running*; the window closed with six channels mid-flash
    - **races** — aborts timed into every phase of start-up (0/5/20/60/150/400 ms), double Start All and double Abort All, Start All on top of running channels, tab switching mid-flash, and the window closed during **Identify**, before any flash worker exists
+   - **dialogs** — the Test Connection dialog: ten probes back to back, closed mid-probe at five delays, a silent ECU (failed probe), and probes run from Parallel panels / the menu *while flashes are live* on the same window
+   - **gitlab** — the GitLab fetch dialog with the network patched out: ten fetches, five connection errors, refs/jobs lists, closed mid-fetch at five delays (no deadlock, no post-cancel firmware load), double-click refused, and fetches run beside a live single flash and beside six live parallel flashes
 
 4. If everything passes, report success. If anything fails, report what broke — do **NOT** push. Follow `CLAUDE.md`'s decision protocol: stop and wait for the user to choose between debugging now or pushing anyway with a note added to `docs/gui_todo.md`.
 

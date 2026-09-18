@@ -71,6 +71,8 @@ QSettings.setPath(
 from gui.main_window import MainWindow
 from gui.style import is_dark_mode_enabled, load_stylesheet
 from gui.test_connection_dialog import TestConnectionDialog
+from gui.gitlab_dialog import GitLabFetchDialog
+from communication.gitlab_client import GitLabConnectionError
 
 SAMPLE_HEX = os.path.join(REPO, "tests", "sample.hex")
 
@@ -539,11 +541,294 @@ def audit_threads(label):
           str([t.name for t in real]))
 
 
+# ==================================================
+# dialogs — the Test Connection dialog, hammered
+# ==================================================
+
+def section_dialogs():
+    """Test Connection dialog (gui/test_connection_dialog.py): the
+    QThread site with the least coverage in the other sections. Every
+    probe here creates a fresh QThread + TestConnectionWorker (whose
+    inner FlashWorker is wired on the main thread) and tears both down
+    through gui/worker_teardown.py."""
+
+    print("\n[dialogs] Test Connection dialog: repeat, close mid-probe, "
+          "silent ECU, beside a live flash", flush=True)
+    w = build_window()
+
+    # 1. Ten probes back to back, each must pass and leave no thread.
+    ok = True
+    for i in range(10):
+        with unittest.mock.patch.object(TestConnectionDialog, "exec", pumped_exec):
+            dialog = w.open_test_connection_dialog()
+        if dialog is None or dialog.passed is not True or dialog._thread is not None:
+            ok = False
+            print(f"  !! probe {i + 1}: passed={getattr(dialog, 'passed', None)}",
+                  flush=True)
+            break
+    check("dialogs: 10 probes in a row passed and cleaned up", ok)
+
+    # 2. Close the dialog mid-probe, at varying delays, so closeEvent()'s
+    #    quit()+wait() lands in different phases of the probe.
+    def close_after(delay_ms):
+        def fake_exec(dialog):
+            pump_ms(delay_ms)
+            dialog.close()          # closeEvent: quit() then wait()
+            app.processEvents()
+            return 0
+        return fake_exec
+
+    ok = True
+    for delay in (0, 5, 30, 120, 300):
+        with unittest.mock.patch.object(TestConnectionDialog, "exec",
+                                        close_after(delay)):
+            dialog = w.open_test_connection_dialog()
+        settled = pump_until(lambda: dialog._thread is None, timeout_ms=15000)
+        if not settled:
+            ok = False
+            print(f"  !! close@{delay}ms: thread never cleaned up", flush=True)
+            break
+    check("dialogs: close mid-probe at 0/5/30/120/300 ms settled", ok)
+
+    # 3. Silent ECU -> every request times out -> passed is False, and
+    #    the dialog still tears its thread down.
+    from communication.virtual_can import VirtualCanInterface
+    with unittest.mock.patch.object(
+        VirtualCanInterface, "receive_isotp", return_value=None,
+    ), unittest.mock.patch.object(TestConnectionDialog, "exec", pumped_exec):
+        dialog = w.open_test_connection_dialog()
+    check("dialogs: silent ECU reported as a failed probe",
+          dialog is not None and dialog.passed is False)
+    check("dialogs: failed probe cleaned up its thread",
+          pump_until(lambda: dialog._thread is None, timeout_ms=15000))
+
+    # 4. Probe from a Parallel panel while other panels are flashing —
+    #    this is the exact shape of the Phase 4.116 inversion: a dialog
+    #    worker being torn down while the main thread wires the next
+    #    flash worker for a neighbouring panel.
+    panels = select_all_channels(w)
+    n = len(panels)
+    for i in range(n):
+        panels[i]["flash_button"].click()
+    pump_until(lambda: sum(1 for p in panels
+                           if p["phase"] in ("identifying", "flashing")) >= 3,
+               timeout_ms=20000)
+    ok = True
+    for rnd in range(4):
+        with unittest.mock.patch.object(TestConnectionDialog, "exec", pumped_exec):
+            w._test_connection_for_panel(panels[rnd % n])
+        app.processEvents()
+    check("dialogs: 4 panel probes beside live flashes survived", ok)
+    check("dialogs: flashes settled afterwards",
+          pump_until(lambda: panel_quiet(panels, range(n))))
+
+    # 5. Probe, then immediately start a flash on the same window, then
+    #    probe again while it runs — the single-flash variant of 4.
+    w.ui.tabWidget.setCurrentWidget(w.ui.flashTab)
+    app.processEvents()
+    with unittest.mock.patch.object(TestConnectionDialog, "exec", pumped_exec):
+        w.open_test_connection_dialog()
+    w.flash_button_clicked()
+    pump_ms(150)
+    with unittest.mock.patch.object(TestConnectionDialog, "exec", pumped_exec):
+        dialog = w.open_test_connection_dialog()
+    check("dialogs: probe beside a live single flash passed",
+          dialog is not None and dialog.passed is True)
+    check("dialogs: single flash settled afterwards",
+          pump_until(lambda: w.thread is None and w.worker is None))
+
+    audit_threads("dialogs")
+    w.close()
+    app.processEvents()
+
+
+# ==================================================
+# gitlab — the GitLab fetch dialog, network mocked
+# ==================================================
+
+def section_gitlab():
+    """GitLab fetch dialog (gui/gitlab_dialog.py): one QThread +
+    GitLabFetchWorker per action. Network calls are patched at
+    gui.gitlab_dialog.gitlab_client.* so this runs offline and fast;
+    the thread lifecycle underneath is real."""
+
+    print("\n[gitlab] fetch dialog: repeat, errors, close mid-fetch, "
+          "double-click, beside a live flash", flush=True)
+    w = build_window()
+
+    def make_dialog():
+        d = GitLabFetchDialog(w)
+        d.urlEdit.setText("https://gitlab.example")
+        d.ciProjectEdit.setText("group/proj")
+        d.pkgProjectEdit.setText("group/pkg")
+        d.tokenEdit.setText("tok")
+        d.ciRefEdit.setEditText("main")
+        d.ciJobEdit.setEditText("build_firmware")
+        d.show()
+        app.processEvents()
+        return d
+
+    def idle(d):
+        return pump_until(lambda: d._thread is None, timeout_ms=15000)
+
+    load_patch = unittest.mock.patch.object(
+        w, "_load_firmware_file", return_value=True
+    )
+
+    # 1. Ten downloads back to back on one dialog instance.
+    ok = True
+    d = make_dialog()
+    with unittest.mock.patch(
+        "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+        return_value=b"PK\x03\x04fakezip",
+    ), load_patch:
+        for i in range(10):
+            d._cancelled = False
+            d.ciFetchButton.click()
+            if not idle(d):
+                ok = False
+                print(f"  !! fetch {i + 1} never cleaned up", flush=True)
+                break
+    check("gitlab: 10 fetches in a row cleaned up", ok)
+    d.close(); app.processEvents()
+
+    # 2. Error path, five times, then a list action, then a jobs list.
+    d = make_dialog()
+    ok = True
+    with unittest.mock.patch(
+        "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+        side_effect=GitLabConnectionError("Could not reach host: timeout"),
+    ):
+        for _ in range(5):
+            d.ciFetchButton.click()
+            if not idle(d):
+                ok = False
+                break
+    check("gitlab: 5 connection errors handled and cleaned up", ok)
+    with unittest.mock.patch(
+        "gui.gitlab_dialog.gitlab_client.list_branches_and_tags",
+        return_value=[{"name": "main", "ref_type": "branch"},
+                      {"name": "v1.0.0", "ref_type": "tag"}],
+    ):
+        d.ciLoadRefsButton.click()
+        check("gitlab: refs list cleaned up", idle(d))
+    with unittest.mock.patch(
+        "gui.gitlab_dialog.gitlab_client.list_jobs_for_ref",
+        return_value=[{
+            "pipeline_id": 1, "job_id": 2, "job_name": "build_firmware",
+            "ref": "main", "status": "success",
+            "created_at": "2026-09-18T00:00:00Z", "has_artifacts": True,
+        }],
+    ):
+        d.ciBrowseToggle.click()
+        check("gitlab: jobs list cleaned up", idle(d))
+    d.close(); app.processEvents()
+
+    # 3. Close mid-fetch at varying delays: closeEvent() must stop the
+    #    thread without deadlock, and the queued download_ready must
+    #    NOT load firmware after the cancel.
+    def slow_download(*_a, **_k):
+        time.sleep(0.5)          # every close below lands before this returns
+        return b"PK\x03\x04fakezip"
+
+    ok = True
+    for delay in (0, 5, 50, 150, 300):
+        d = make_dialog()
+        with unittest.mock.patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+            side_effect=slow_download,
+        ), unittest.mock.patch.object(
+            w, "_load_firmware_file", return_value=True,
+        ) as mock_load:
+            d.ciFetchButton.click()
+            pump_ms(delay)
+            t0 = time.time()
+            d.close()                       # quit() + wait()
+            app.processEvents()
+            took = time.time() - t0
+            pump_ms(400)
+            if took > 10 or mock_load.called:
+                ok = False
+                print(f"  !! close@{delay}ms: took={took:.1f}s "
+                      f"loaded={mock_load.called}", flush=True)
+                break
+    check("gitlab: close mid-fetch at 0/5/50/150/300 ms — no deadlock, "
+          "no post-cancel load", ok)
+
+    # 4. Double-click Fetch: second click must be refused, not spawn a
+    #    second thread.
+    d = make_dialog()
+    with unittest.mock.patch(
+        "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+        side_effect=slow_download,
+    ), load_patch:
+        d.ciFetchButton.click()
+        first = d._thread
+        d.ciFetchButton.click()
+        d.ciFetchButton.click()
+        same = d._thread is first
+        check("gitlab: double-click did not spawn a second thread", same)
+        check("gitlab: fetch settled", idle(d))
+    d.close(); app.processEvents()
+
+    # 5. Fetch while a single flash is live on the same window, and
+    #    again while six parallel channels are flashing — the
+    #    cross-dialog concurrency that Phase 4.116 was about.
+    w.flash_button_clicked()
+    pump_ms(100)
+    d = make_dialog()
+    ok = True
+    with unittest.mock.patch(
+        "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+        return_value=b"PK\x03\x04fakezip",
+    ), load_patch:
+        for _ in range(3):
+            d._cancelled = False
+            d.ciFetchButton.click()
+            if not idle(d):
+                ok = False
+                break
+    check("gitlab: 3 fetches beside a live single flash cleaned up", ok)
+    check("gitlab: single flash settled",
+          pump_until(lambda: w.thread is None and w.worker is None))
+    d.close(); app.processEvents()
+
+    panels = select_all_channels(w)
+    n = len(panels)
+    for i in range(n):
+        panels[i]["flash_button"].click()
+    pump_until(lambda: sum(1 for p in panels
+                           if p["phase"] in ("identifying", "flashing")) >= 3,
+               timeout_ms=20000)
+    d = make_dialog()
+    ok = True
+    with unittest.mock.patch(
+        "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+        return_value=b"PK\x03\x04fakezip",
+    ), load_patch:
+        for _ in range(5):
+            d._cancelled = False
+            d.ciFetchButton.click()
+            if not idle(d):
+                ok = False
+                break
+    check("gitlab: 5 fetches beside six live parallel flashes cleaned up", ok)
+    check("gitlab: parallel flashes settled",
+          pump_until(lambda: panel_quiet(panels, range(n))))
+    d.close(); app.processEvents()
+
+    audit_threads("gitlab")
+    w.close()
+    app.processEvents()
+
+
 SECTIONS = {
     "single": section_single,
     "batch": section_batch,
     "parallel": section_parallel,
     "races": section_races,
+    "dialogs": section_dialogs,
+    "gitlab": section_gitlab,
 }
 
 

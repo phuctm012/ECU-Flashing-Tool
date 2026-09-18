@@ -2586,3 +2586,26 @@ Phương án bị bác: (a) `gc.collect()` thủ công trên main thread — kh�
 - Probe hành vi PySide (4 trường hợp A-D + E/F) — kết quả ghi thành test.
 - `tests.test_worker_teardown` + 5 threading suite + `test_flash_controller`: **73/73 pass**.
 - Vòng lặp 25 lần `--section parallel` với crash-catcher trên bản sửa hoàn chỉnh: **25/25 PASS**, 0 crash, 0 treo (trước khi sửa: fail ở lần 2, 3, 8 của các vòng lặp tương ứng — với tỉ lệ nền ~1/6 thì 25 lần liên tiếp sạch chỉ có ~1% khả năng là may mắn).
+
+
+## Phase 4.117: Stress Test Cho Test Connection Dialog và GitLab Dialog
+
+Sau Phase 4.116, fix teardown đụng vào cả 5 chỗ dùng QThread nhưng `tools/stress_test.py` mới chỉ ép nặng Single/Batch/Parallel; Test Connection dialog chỉ được chạy 2 lần, GitLab dialog chưa hề. User yêu cầu stress test luôn 2 chỗ đó.
+
+Thêm 2 section vào `tools/stress_test.py`:
+- **`dialogs`** (Test Connection): 10 probe liên tiếp; đóng dialog giữa chừng ở 5 mốc 0/5/30/120/300 ms (đi qua `closeEvent` → `quit()` + `wait()` — failure mode 2 trong CLAUDE.md); ECU câm (patch `VirtualCanInterface.receive_isotp` → None) phải ra `passed = False` và vẫn dọn thread; 4 probe từ nút Test Connection của panel Parallel **trong lúc 6 channel đang flash**; probe từ menu trong lúc single flash đang chạy. Hai case cuối chính là hình dạng của inversion 4.116: dialog worker bị teardown trong khi main thread đang wire worker kế tiếp.
+- **`gitlab`** (GitLab fetch, mock `gui.gitlab_dialog.gitlab_client.*` nên chạy offline, thread thật): 10 fetch liên tiếp trên 1 dialog; 5 lỗi kết nối; list refs + list jobs; đóng giữa chừng ở 5 mốc với download giả ngủ 0.5 s — kiểm `closeEvent` không deadlock **và** `download_ready` đã xếp hàng không được nạp firmware sau khi cancel (`_cancelled` guard); double-click Fetch không sinh thread thứ 2; 3 fetch trong lúc single flash chạy và 5 fetch trong lúc 6 channel parallel chạy.
+
+Hai lỗi lúc viết script (không phải lỗi app): (1) mốc đóng 240 ms với download ngủ 250 ms — download kịp xong và nạp file hợp lệ trước khi `close()`, check "không nạp sau cancel" sai đối tượng → tăng ngủ lên 0.5 s để mọi mốc đóng đều đi trước lúc xong; (2) biến `ok` dùng lại không reset sau check trước fail. Cả hai chỉ nằm trong script.
+
+### Thay đổi
+
+- **`tools/stress_test.py`**: 2 section mới, 25 checkpoint; tổng 6 section, 74 checkpoint.
+- **`.claude/skills/stress-test/SKILL.md`**, **`CLAUDE.md`** (rule pre-push): liệt kê 2 section mới.
+
+### Đã kiểm tra
+
+- `--section dialogs --section gitlab`: **25/25**, 15 s, 0 cảnh báo Qt.
+- Vòng lặp 30 lần 2 section với crash-catcher (cùng công cụ đã bắt được 4.116): **30/30 PASS**, 0 crash, 0 treo.
+- Chạy đủ 6 section: **74/74 checkpoint, 65 s, 0 cảnh báo Qt**, `STRESS_RESULT=PASS`.
+- `tests.test_gitlab_dialog_threading` + `tests.test_test_connection_dialog`: 18/18 pass.
