@@ -76,32 +76,51 @@ class TestConnectionWorker(QObject):
         self._can_data_bitrate = can_data_bitrate
         self._functional_id = functional_id
 
+        # The FlashWorker whose _setup_uds_client()/_cleanup() run()
+        # borrows. Built and wired HERE, on the thread that constructs
+        # this worker (the main thread), never inside run(): a
+        # `connect()` takes one of Qt's pooled signal/slot mutexes
+        # while the worker thread holds the GIL, which is one half
+        # of the mutex <-> GIL lock-order inversion documented in
+        # gui/worker_teardown.py (the other half is the main thread
+        # destroying any Python-created QObject with the GIL
+        # released). It was a real, intermittent deadlock in
+        # Parallel Flash — Phase 4.116. The inner worker stays on
+        # the main thread; run() only calls its methods and emits
+        # its signals, both of which are thread-safe.
+        self._worker = FlashWorker(
+            steps=[],
+            datablocks=[],
+            use_virtual=use_virtual,
+            security_dll_path=security_dll_path,
+            can_channel=can_channel,
+            can_serial=can_serial,
+            can_tx_id=can_tx_id,
+            can_rx_id=can_rx_id,
+            can_bitrate=can_bitrate,
+            can_fd=can_fd,
+            can_data_bitrate=can_data_bitrate,
+            functional_id=functional_id,
+        )
+        self._worker.trace_message.connect(self.trace_message)
+        self._worker.trace_row.connect(self.trace_row)
+
     # ==========================================
     # Run (called on the worker thread)
     # ==========================================
 
     def run(self):
 
-        worker = FlashWorker(
-            steps=[],
-            datablocks=[],
-            use_virtual=self._use_virtual,
-            security_dll_path=self._security_dll_path,
-            can_channel=self._can_channel,
-            can_serial=self._can_serial,
-            can_tx_id=self._can_tx_id,
-            can_rx_id=self._can_rx_id,
-            can_bitrate=self._can_bitrate,
-            can_fd=self._can_fd,
-            can_data_bitrate=self._can_data_bitrate,
-            functional_id=self._functional_id,
-        )
-        worker.trace_message.connect(self.trace_message)
-        worker.trace_row.connect(self.trace_row)
+        worker = self._worker
 
         try:
             worker._setup_uds_client()
         except Exception as e:
+            # Same reasoning as the finally: below — _cleanup() also
+            # breaks the worker <-> UdsClient cycle so this local
+            # worker dies by refcount when run() returns, not on
+            # some other thread's garbage collection.
+            worker._cleanup()
             self.finished.emit(False, f"Connection failed: {e}")
             return
 

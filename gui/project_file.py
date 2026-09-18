@@ -141,6 +141,9 @@ class ProjectFileMixin:
             "security_dll_path": getattr(
                 self, '_security_dll_path', ''
             ) or "",
+            "security_access_enabled": bool(
+                getattr(self, '_security_access_enabled', False)
+            ),
             "flash_sequence_index": (
                 self.ui.comboBoxFlashSequence.currentIndex()
                 if hasattr(self.ui, 'comboBoxFlashSequence') else 0
@@ -248,6 +251,11 @@ class ProjectFileMixin:
                 self.ui.lineEditSecurityDll.setText(dll_path)
             # Saved path missing/moved — silently leave the
             # field at its default, same as load_profile().
+
+        if hasattr(self, 'set_security_access_enabled'):
+            self.set_security_access_enabled(
+                bool(data.get("security_access_enabled", False))
+            )
 
         if hasattr(self.ui, 'comboBoxFlashSequence'):
             index = data.get("flash_sequence_index", 0)

@@ -138,6 +138,11 @@ class FlashWorker(QObject):
                 self.information_message.emit(
                     f"Connection failed: {e}"
                 )
+                # A UdsClient may already exist if the failure came
+                # after its construction — _cleanup() also breaks
+                # the worker <-> client cycle (see below), which
+                # matters even on this early exit.
+                self._cleanup()
                 self.flash_aborted.emit()
                 return
 
@@ -905,6 +910,25 @@ class FlashWorker(QObject):
                 self._can_interface.disconnect()
             except Exception:
                 pass
+
+        # Break the reference cycle worker -> UdsClient ->
+        # trace_callback (bound method) -> worker. Without this the
+        # worker is only ever freed by Python's cycle collector,
+        # which runs on whichever thread happens to allocate next —
+        # so a worker's C++ QObject (still wired to other QObjects)
+        # could be destroyed from a random Qt worker thread while the
+        # main thread is using those connections. That was a real,
+        # intermittent SIGSEGV/SIGBUS in Parallel Flash (Phase 4.116).
+        # With the cycle broken, dropping the last reference (e.g.
+        # panel["flash_worker"] = None on the main thread, or
+        # TestConnectionWorker.run() returning) frees the worker by
+        # refcount, deterministically, on that same thread. Only
+        # our own client is touched — an injected one keeps its
+        # caller's callback.
+        if (self._uds_client is not None
+                and getattr(self._uds_client, '_trace_callback', None)
+                == self._on_uds_trace):
+            self._uds_client.detach_trace_callback()
 
     # ==========================================
     # Abort

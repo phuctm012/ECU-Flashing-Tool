@@ -512,9 +512,11 @@ class MenuBarMixin:
                 in self.ui.comboBoxFlashSequence.currentText()
             )
 
-        security_dll_path = getattr(
-            self, '_security_dll_path', ''
-        ) or None
+        security_dll_path = (
+            self.get_security_dll_path()
+            if hasattr(self, 'get_security_dll_path')
+            else None
+        )
 
         can_config = (
             self.get_can_config()

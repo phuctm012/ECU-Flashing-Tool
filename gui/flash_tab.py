@@ -16,6 +16,8 @@ from PySide6.QtWidgets import QApplication, QTableWidgetItem, QMessageBox
 from PySide6.QtGui import QColor
 from PySide6.QtCore import QThread, Qt, QPropertyAnimation, QEasingCurve
 
+from gui.worker_teardown import dispose_worker_thread
+
 from core.flash_controller import FlashWorker
 from core.flash_sequence import (
     build_flash_sequence,
@@ -311,6 +313,18 @@ class FlashTabMixin:
                 )
                 return
 
+            # "Active Security Access" ticked on real hardware
+            # with no usable DLL — refuse rather than silently
+            # falling back to the dummy algorithm (see
+            # ConfigureTabMixin.security_access_start_error()).
+            if hasattr(self, 'security_access_start_error'):
+                error = self.security_access_start_error(use_virtual)
+                if error:
+                    QMessageBox.warning(
+                        self, "Security Access Not Configured", error
+                    )
+                    return
+
             # Start
             self.prepare_flash_ui(datablocks)
 
@@ -334,9 +348,11 @@ class FlashTabMixin:
             else:
                 steps = build_flash_sequence(datablocks)
 
-            security_dll_path = getattr(
-                self, '_security_dll_path', ''
-            ) or None
+            security_dll_path = (
+                self.get_security_dll_path()
+                if hasattr(self, 'get_security_dll_path')
+                else None
+            )
 
             can_config = (
                 self.get_can_config()
@@ -388,24 +404,21 @@ class FlashTabMixin:
                 self.thread.quit
             )
 
-            self.worker.flash_finished.connect(
-                self.worker.deleteLater
-            )
-
-            self.worker.flash_aborted.connect(
-                self.worker.deleteLater
-            )
-
             # NOTE: intentionally NOT connecting
+            # worker.flash_finished -> worker.deleteLater, nor
             # thread.finished -> thread.deleteLater here.
-            # _cleanup_thread() below is the single owner
-            # of the QThread's lifetime: it wait()s for the
-            # OS thread to fully stop, THEN drops the last
-            # Python reference. Having both deleteLater()
-            # (deferred, C++-side) and a Python callback
-            # clearing self.thread (immediate, refcount-
-            # triggered) racing on the same finished signal
-            # is what caused "QThread: Destroyed while
+            # _cleanup_thread() below is the single owner of
+            # both lifetimes: it wait()s for the OS thread to
+            # fully stop, THEN destroys thread and worker
+            # synchronously on the main thread (see
+            # gui/worker_teardown.py for why deleteLater on the
+            # worker — a C++ delete on the worker thread with
+            # the GIL released — was a real deadlock, Phase
+            # 4.116). Having both deleteLater() (deferred,
+            # C++-side) and a Python callback clearing
+            # self.thread (immediate, refcount-triggered)
+            # racing on the same finished signal is what
+            # caused "QThread: Destroyed while
             # thread is still running" crashes.
 
             # Connect signals
@@ -455,9 +468,9 @@ class FlashTabMixin:
 
         # thread.finished only fires once the QThread has
         # genuinely stopped, so this is the single safe
-        # place to drop the last references to it.
-        if self.thread is not None:
-            self.thread.wait()
+        # place to destroy it and its worker — synchronously,
+        # here on the main thread (gui/worker_teardown.py).
+        dispose_worker_thread(self.thread, self.worker)
 
         self.thread = None
         self.worker = None

@@ -371,6 +371,21 @@ class UdsClient:
             self._tp_keepalive.stop()
             self._tp_keepalive = None
 
+    def detach_trace_callback(self):
+        """
+        Drop the trace callback. Called by FlashWorker._cleanup()
+        because the callback is normally a bound method of the
+        worker that owns this client — i.e. a reference cycle
+        (worker -> client -> bound method -> worker) that keeps
+        the worker alive until Python's *cycle* collector runs.
+        The collector runs on whichever thread happens to trigger
+        it, so without this the worker's C++ QObject could be
+        destroyed from a random Qt worker thread — see
+        docs/walkthrough.md Phase 4.116.
+        """
+
+        self._trace_callback = None
+
     # ==========================================
     # Security DLL Loader
     # ==========================================

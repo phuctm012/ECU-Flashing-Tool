@@ -9,10 +9,12 @@
 # that (it's a different, thread-lifecycle-focused concern).
 # ==================================================
 
+import gc
 import os
 import sys
 import unittest
 import unittest.mock
+import weakref
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -437,6 +439,101 @@ class TestSecurityDllFailureAbortsGracefully(unittest.TestCase):
 
         self.assertTrue(result["aborted"])
         self.assertFalse(result["finished"])
+
+
+class TestWorkerFreedByRefcountNotCycleGc(unittest.TestCase):
+    """
+    Regression for an intermittent SIGSEGV/SIGBUS in Parallel Flash
+    (docs/walkthrough.md Phase 4.116): FlashWorker used to sit in a
+    reference cycle (worker -> UdsClient -> trace_callback bound
+    method -> worker), so dropping the last reference never freed
+    it — only Python's cycle collector did, on whichever thread
+    happened to trigger it, destroying the worker's C++ QObject
+    from a random Qt worker thread. _cleanup() now breaks the cycle
+    so the worker dies by refcount, deterministically, on the thread
+    that drops it.
+
+    gc is disabled for the duration of each test so a coincidental
+    collection can't mask a regression; the assertion is precisely
+    that the collector was not needed.
+    """
+
+    def setUp(self):
+        self._gc_was_enabled = gc.isenabled()
+        gc.collect()
+        gc.disable()
+
+    def tearDown(self):
+        if self._gc_was_enabled:
+            gc.enable()
+
+    def test_flash_worker_is_freed_by_refcount_after_run(self):
+        worker = FlashWorker(
+            steps=build_flash_sequence([_make_datablock()]),
+            datablocks=[_make_datablock()],
+            use_virtual=True,
+        )
+        _run_worker(worker)
+        ref = weakref.ref(worker)
+        del worker
+        self.assertIsNone(
+            ref(),
+            "FlashWorker survived its last reference — a cycle is "
+            "keeping it alive for the (thread-agnostic) gc to free",
+        )
+
+    def test_flash_worker_freed_after_connection_failure(self):
+        worker = FlashWorker(steps=[], datablocks=[], use_virtual=True)
+
+        def boom():
+            # A fresh exception per call: a single reused instance
+            # as side_effect would keep run()'s frame (and so the
+            # worker) alive through its __traceback__.
+            raise RuntimeError("no bus")
+
+        with unittest.mock.patch.object(
+            worker, '_setup_uds_client', side_effect=boom,
+        ):
+            result = _run_worker(worker)
+        self.assertTrue(result["aborted"])
+        ref = weakref.ref(worker)
+        del worker
+        self.assertIsNone(ref())
+
+    def test_injected_uds_client_keeps_its_own_trace_callback(self):
+        # _cleanup() must only detach *its own* bound-method
+        # callback — a caller-supplied client is the caller's.
+        sentinel = unittest.mock.Mock()
+        mock_uds = unittest.mock.Mock()
+        mock_uds._trace_callback = sentinel
+        worker = FlashWorker(uds_client=mock_uds)
+        worker._cleanup()
+        self.assertIs(mock_uds._trace_callback, sentinel)
+        mock_uds.detach_trace_callback.assert_not_called()
+
+    def test_test_connection_inner_worker_is_freed_when_run_returns(self):
+        from core import test_connection as tc
+        from core.test_connection import TestConnectionWorker
+
+        seen = []
+        real_cls = tc.FlashWorker
+
+        class Spy(real_cls):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                seen.append(weakref.ref(self))
+
+        with unittest.mock.patch.object(tc, 'FlashWorker', Spy):
+            TestConnectionWorker(use_virtual=True).run()
+
+        self.assertEqual(len(seen), 1)
+        self.assertIsNone(
+            seen[0](),
+            "TestConnectionWorker.run()'s local FlashWorker outlived "
+            "the call — it would be destroyed later by gc on an "
+            "arbitrary thread",
+        )
+        self.assertEqual(gc.collect(), 0, "run() left cyclic garbage")
 
 
 if __name__ == "__main__":

@@ -28,6 +28,8 @@ import zipfile
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QSettings, QThread, Signal, Qt
+
+from gui.worker_teardown import dispose_worker_thread
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -893,18 +895,18 @@ class GitLabFetchDialog(QDialog):
         self._worker.error.connect(self._append_log)
 
         self._worker.finished.connect(self._thread.quit)
-        self._worker.finished.connect(self._worker.deleteLater)
 
-        # NOTE: intentionally NOT connecting thread.finished ->
-        # thread.deleteLater here — see module docstring.
+        # NOTE: intentionally NOT connecting worker.finished ->
+        # worker.deleteLater nor thread.finished -> thread.deleteLater
+        # here — _cleanup_thread() destroys both on the main thread
+        # (gui/worker_teardown.py); see module docstring.
         self._thread.finished.connect(self._cleanup_thread)
 
         self._thread.start()
 
     def _cleanup_thread(self):
 
-        if self._thread is not None:
-            self._thread.wait()
+        dispose_worker_thread(self._thread, self._worker)
 
         self._thread = None
         self._worker = None

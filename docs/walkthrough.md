@@ -2522,3 +2522,67 @@ User yêu cầu chạy stress test thêm 1 lần nữa, **nhấn mạnh Parallel
 - Threading tests chạy riêng: `test_flash_threading` 9, `test_parallel_flash_threading` 10, `test_batch_flash_threading` 9, `test_test_connection_dialog` 3, `test_gitlab_dialog_threading` 15 — **46/46 pass**.
 - Thí nghiệm đếm OS thread (`ps -M`) qua 48 lượt flash để chứng minh không rò rỉ thread — số liệu ghi ở trên.
 - Full test suite: **502 test pass, 0 fail, 0 error** (994s).
+
+## Phase 4.115: Checkbox "Active Security Access" — Bật/Tắt Dùng Security DLL
+
+User hỏi Security Access hiện đang được implement kiểu nào, rồi yêu cầu: giữ Security DLL loader và thêm **1 checkbox "Active Security Access"** — tick thì dùng DLL, không tick thì dùng thuật toán dummy như hiện tại.
+
+**Hiện trạng trước đó:** DLL loader (`UdsClient.load_security_dll()`, hai calling convention `GenerateKeyExOpt`/`GenerateKeyEx`) và ô chọn DLL trên Configure đã có sẵn từ lâu. Điểm thiếu là **không có công tắc**: hễ đã Browse tới 1 DLL là mọi FlashWorker trên hardware thật đều dùng nó, muốn quay về thuật toán dummy chỉ có cách xoá path (mà UI lại không có nút xoá). Bảy chỗ trong `gui/` (`flash_tab`, `batch_flash` ×2, `parallel_flash` ×3, `menu_bar`) đều tự đọc `self._security_dll_path` trực tiếp.
+
+**Thiết kế:**
+- Checkbox `checkBoxSecurityAccess` đặt trong `.ui` ngay dưới header (đổi tên từ "Security Access DLL (Optional)" thành "Security Access"), mặc định **không tick** → hành vi y hệt trước khi có checkbox. Ô DLL + nút Browse chỉ enabled khi tick, để nhìn là biết DLL có đang được dùng hay không.
+- Gom việc đọc path về **một** helper `ConfigureTabMixin.get_security_dll_path()` — trả về path khi tick, `None` khi không — và thay cả 7 chỗ đang đọc `_security_dll_path` trực tiếp bằng helper này. Nhờ vậy "không tick = dummy" đúng ở mọi đường flash (Single/Batch/Parallel/Test Connection) chứ không sót chỗ nào.
+- **Tick mà không có DLL dùng được** (chưa chọn, hoặc file đã bị xoá/di chuyển) trên hardware thật → `security_access_start_error()` trả về chuỗi cảnh báo, các entry point flash hiện `QMessageBox.warning` và **không bắt đầu**. Cân nhắc và bác phương án âm thầm rơi về dummy: người vận hành đã tick nghĩa là tin rằng thuật toán thật đang chạy; lặng lẽ dùng dummy sẽ làm flash fail ở SendKey (NRC 0x35) mà không rõ nguyên nhân. Virtual ECU không bao giờ bị chặn vì simulator vốn không dùng DLL.
+- Parallel có 2 lối vào (nút Flash từng panel + Start All) → gom guard vào `_security_access_blocks_start(panels)`: Start All chỉ cảnh báo **một lần** và không start panel nào, thay vì bật 6 hộp thoại.
+- Trạng thái checkbox lưu vào QSettings (`securityDll/enabled`) và file `.sfproj` (`security_access_enabled`), khôi phục qua `set_security_access_enabled()` — đi qua chính checkbox để slot `toggled` giữ flag/enabled-state/profile đồng bộ. Cố ý khôi phục **độc lập với path**: DLL bị mất thì checkbox vẫn tick để guard lúc flash nói rõ chuyện gì sai, thay vì tự bỏ tick rồi flash bằng dummy.
+
+### Thay đổi
+
+- **`gui/main_window.ui`** (+ regenerate `gui/ui_main_window.py`): thêm `checkBoxSecurityAccess`; `lineEditSecurityDll`/`buttonBrowseSecurityDll` mặc định disabled; placeholder rút gọn thành "No DLL selected".
+- **`gui/configure_tab.py`**: `_security_access_enabled`; wiring checkbox trong `setup_security_dll_selector()`; `_on_security_access_toggled()`, `set_security_access_enabled()`, `get_security_dll_path()`, `security_access_start_error()`.
+- **`gui/flash_tab.py`**, **`gui/batch_flash.py`**, **`gui/parallel_flash.py`**, **`gui/menu_bar.py`**: đọc path qua `get_security_dll_path()`; guard trước khi start ở `flash_button_clicked()`, `_batch_main_button_clicked()`, `_on_parallel_flash_clicked()`/`parallel_start_all()` (qua `_security_access_blocks_start()`).
+- **`gui/settings_profile.py`**, **`gui/project_file.py`**: lưu/khôi phục trạng thái checkbox.
+- **`tests/test_gui_smoke.py`**: thêm `TestSecurityAccessCheckbox` (14 test): mặc định, bật/tắt widget, helper trả None/path, guard chỉ chặn hardware thật, worker Single nhận `None` khi không tick và nhận DLL khi tick, Single/Batch/Parallel từ chối start, Start All cảnh báo 1 lần, virtual panel vẫn start, round-trip profile và project file.
+- **`README.md`**: mục D.2 mô tả checkbox; sửa 2 chỗ còn gọi tab là "Miscellaneous" thành "Flash Options".
+
+### Đã kiểm tra
+
+- `tests.test_gui_smoke.TestSecurityAccessCheckbox`: **14/14 pass**.
+- Chạy headless thật: default không tick + widget DLL disabled; tick → flag/widget bật; `get_security_dll_path()` trả `None` khi không tick dù đã set path; guard trả đúng 3 trường hợp (không tick / tick-không-DLL / tick-DLL-mất) và luôn `None` cho virtual; mở cửa sổ mới sau `save_profile()` khôi phục đúng trạng thái tick.
+
+## Phase 4.116: Deadlock/Segfault Ngẫu Nhiên Ở Parallel Flash — Lock-Order Inversion GIL ↔ Qt Mutex
+
+Khi chạy pre-push protocol cho Phase 4.115 (checkbox Security Access) và bump version 3.0, `tools/stress_test.py` **segfault** ở section `parallel` sau round 3 dù full suite (516 test) và 4 threading suite đều xanh. Chạy lại riêng `--section parallel`: cứ ~5-8 lần thì 1 lần fail, lúc thì **SIGSEGV/SIGBUS** (thread đang garbage-collecting, không có Python frame), lúc thì **treo cứng** (deadlock, 0% CPU). Theo đúng rule trong `CLAUDE.md`, không push; user chọn debug ngay.
+
+**Cách truy vết.** faulthandler chỉ cho Python stack — không đủ vì thread crash "không có Python frame". `lldb` bị chặn (chưa đồng ý Xcode license). Giải pháp: script `crash_catcher.py` cài handler SIGSEGV/SIGBUS bằng `ctypes` để thread lỗi **đứng yên (`pause()`) thay vì chết**, rồi dùng `sample <pid>` (có sẵn trên macOS, không cần Xcode) lấy native stack của mọi thread; kèm vòng lặp tự động chạy lại, phát hiện treo (không có output 150s) và sample luôn. Lần bắt được cho stack rõ ràng:
+
+- **Main thread** (đã nhả GIL vì đang trong `QEventLoop.exec`): đang deferred-delete một `QPropertyAnimation` (của cửa sổ cũ bị stress script đóng) → `~QObject` **giữ một mutex signal/slot của Qt** → gọi virtual `disconnectNotify` trên widget target (widget tạo từ Python → `QWidgetWrapper`) → shiboken phải tra override trong Python → `PyGILState_Ensure` → **chờ GIL**.
+- **Worker thread** (đang giữ GIL, chạy Python): `QObject::connect(...)` → `QBasicMutex::lockInternal` → **chờ đúng mutex đó**. Đó là `core/test_connection.py` dòng `worker.trace_message.connect(self.trace_message)` — connect ngay trong `run()` của Identify worker.
+
+Mutex signal/slot của Qt là một **pool nhỏ đánh chỉ số theo hash địa chỉ object**, nên hai object không liên quan vẫn va nhau ngẫu nhiên → giải thích tỉ lệ ~1/6. Lần treo đầu tiên (main kẹt ở `moveToThread` trong `_start_flash_for_panel`) và các lần SIGSEGV/SIGBUS là **cùng một inversion theo chiều ngược lại**: `worker.finished → worker.deleteLater` chạy destructor C++ của worker **trên worker thread, trong event loop, GIL đã nhả** → `~QObject` giữ pooled mutex + chờ GIL, trong khi main thread giữ GIL và gọi `moveToThread()`/`connect()` cho worker của panel kế tiếp → deadlock, hoặc nếu "thắng" race thì hỏng cấu trúc → crash. Sáu panel bàn giao Identify→Flash đồng thời là điều kiện lý tưởng; Single/Batch không bao giờ chồng worker nên không bao giờ thấy.
+
+**Phát hiện phụ trong lúc thí nghiệm (có test ghim lại):** PySide chỉ xoá QObject **đồng bộ khi thread gọi là thread của object**; nếu object còn "sống" trên QThread đã kết thúc thì bỏ reference Python chỉ tạo deferred delete trên thread chết → **không bao giờ chạy = leak âm thầm**. `shiboken6.delete()` cũng vậy. Cách duy nhất xoá đồng bộ: xoá QThread trước (nó ở main thread → đồng bộ, đồng thời làm worker "mồ côi"), rồi `moveToThread(main)` kéo worker về, rồi xoá.
+
+**Sửa (3 tầng, tất cả theo một nguyên tắc: chỉ main thread mới huỷ QObject, và huỷ khi đang giữ GIL):**
+1. **`gui/worker_teardown.py`** (mới) — `dispose_worker_thread(thread, worker)`: `wait()` → `shiboken6.delete(thread)` → `worker.moveToThread(main)` → `shiboken6.delete(worker)`. Gọi từ slot `thread.finished` ở cả 5 chỗ có QThread: `flash_tab._cleanup_thread` (dùng chung Single + Batch flash), `batch_flash._cleanup_identify_thread`, `parallel_flash._cleanup_identify_thread_for_panel` / `_cleanup_flash_thread_for_panel`, `test_connection_dialog._cleanup_thread`, `gitlab_dialog._cleanup_thread`. **Bỏ toàn bộ** `worker.finished → worker.deleteLater`.
+2. **`core/test_connection.py`** — inner `FlashWorker` được tạo và `connect` trong `__init__` (main thread) thay vì trong `run()`; `run()` chỉ gọi method và emit signal (thread-safe, không lấy mutex).
+3. **`core/flash_controller.py` + `communication/uds_client.py`** — `_cleanup()` phá vòng tham chiếu worker → UdsClient → `trace_callback` (bound method) → worker bằng `UdsClient.detach_trace_callback()` (chỉ khi callback đúng là của worker này, client inject từ ngoài giữ nguyên). Trước đó worker chỉ được giải phóng bởi cycle GC — chạy trên thread bất kỳ; giờ chết bằng refcount tại chỗ bỏ reference. Bổ sung `_cleanup()` cho nhánh `_setup_uds_client()` thất bại (cả FlashWorker.run lẫn TestConnectionWorker.run).
+
+Phương án bị bác: (a) `gc.collect()` thủ công trên main thread — không loại được GC chạy sớm ở thread khác; (b) chỉ sửa Parallel — Single/Batch/GitLab/Test Connection dùng cùng pattern deleteLater, chỉ là chưa đủ đồng thời để lộ; (c) `worker.moveToThread(main)` ngay cuối `run()` — chính nó lại lấy pooled mutex khi giữ GIL trên worker thread.
+
+### Thay đổi
+
+- **`gui/worker_teardown.py`** (mới): helper + docstring giải thích cơ chế và thứ tự bắt buộc.
+- **`gui/flash_tab.py`**, **`gui/batch_flash.py`**, **`gui/parallel_flash.py`**, **`gui/test_connection_dialog.py`**, **`gui/gitlab_dialog.py`**: bỏ `worker.deleteLater`, cleanup gọi `dispose_worker_thread()`; docstring module cập nhật (parallel thêm rule 3).
+- **`core/test_connection.py`**: inner FlashWorker tạo/wire trong `__init__`; `_cleanup()` ở nhánh setup thất bại.
+- **`core/flash_controller.py`**: `_cleanup()` phá cycle; `_cleanup()` ở nhánh setup thất bại. **`communication/uds_client.py`**: `detach_trace_callback()`.
+- **`tests/test_worker_teardown.py`** (mới, 6 test): 3 test ghim hành vi PySide quan sát được (bỏ ref → leak; không kéo về được khi QThread còn; xoá QThread → kéo về → xoá đồng bộ), 2 test cho helper, 1 test end-to-end: sau `_cleanup_thread()` FlashWorker thật đã bị huỷ **trên main thread** và wrapper không leak.
+- **`tests/test_flash_controller.py`**: `TestWorkerFreedByRefcountNotCycleGc` (4 test, gc tắt trong lúc test để không bị GC tình cờ che).
+- **`CLAUDE.md`**: "Threading model" thêm failure mode thứ 5 với rule mới.
+
+### Đã kiểm tra
+
+- Tái hiện có kiểm soát: vòng lặp 12 lần trên code cũ → fail ở lần 8 (SIGBUS); trên code chỉ mới phá cycle → treo ở lần 2 và **bắt được native stack** như mô tả trên (bằng chứng trực tiếp, không suy đoán).
+- Probe hành vi PySide (4 trường hợp A-D + E/F) — kết quả ghi thành test.
+- `tests.test_worker_teardown` + 5 threading suite + `test_flash_controller`: **73/73 pass**.
+- Vòng lặp 25 lần `--section parallel` với crash-catcher trên bản sửa hoàn chỉnh: **25/25 PASS**, 0 crash, 0 treo (trước khi sửa: fail ở lần 2, 3, 8 của các vòng lặp tương ứng — với tỉ lệ nền ~1/6 thì 25 lần liên tiếp sạch chỉ có ~1% khả năng là may mắn).

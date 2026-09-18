@@ -137,6 +137,10 @@ class SettingsProfileMixin:
             "securityDll/path",
             getattr(self, '_security_dll_path', '') or ''
         )
+        s.setValue(
+            "securityDll/enabled",
+            bool(getattr(self, '_security_access_enabled', False))
+        )
 
         if hasattr(self.ui, 'lineEditCompressionMethod'):
             text = self.ui.lineEditCompressionMethod.text().strip()
@@ -315,6 +319,15 @@ class SettingsProfileMixin:
             # deleted) — silently leave the field at its
             # built-in-algorithm default rather than pointing
             # at a DLL that no longer exists.
+
+        if hasattr(self, 'set_security_access_enabled'):
+            # Restored independently of the path: a ticked box
+            # with a missing DLL stays ticked so the flash-start
+            # guard tells the operator what's wrong, instead of
+            # silently flashing with the dummy algorithm.
+            self.set_security_access_enabled(
+                s.value("securityDll/enabled", False, type=bool)
+            )
 
         if hasattr(self.ui, 'lineEditCompressionMethod'):
             value = s.value("dataFormat/compression", 0, type=int)

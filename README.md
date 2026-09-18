@@ -1,4 +1,4 @@
-# SFlash (v2.0)
+# SFlash (v3.0)
 
 Ứng dụng desktop (PySide6) để **flash firmware ECU** qua giao thức **UDS (ISO 14229)** trên bus CAN — hỗ trợ chạy với **ECU giả lập** (không cần phần cứng) hoặc với thiết bị **Vector VN1640A / VN1630** thật.
 
@@ -190,9 +190,9 @@ Nếu bỏ qua bước này, kết nối từ tool sẽ báo lỗi kiểu *"no c
 ### D. Sử dụng trong app
 
 1. Tab **Configure → Communication** → bấm **"Refresh"** cạnh combo Hardware để quét lại thiết bị đang cắm, rồi chọn kênh tương ứng vừa xuất hiện. Combo mặc định chỉ có **"Virtual ECU Simulator"** — kênh thật chỉ hiện ra khi có hardware Vector thật sự được nhận diện *và* đã đăng ký ở bước B (không còn danh sách kênh giả cố định như trước).
-2. Nếu ECU yêu cầu thuật toán bảo mật riêng của OEM: tab **Configure → Miscellaneous** → chọn file DLL ở mục **"Security Access DLL"** (Browse...).
+2. Nếu ECU yêu cầu thuật toán bảo mật riêng của OEM: tab **Configure → Flash Options** → mục **"Security Access"** → tick **"Active Security Access"** rồi chọn file DLL (Browse...). Không tick (mặc định) thì app dùng thuật toán seed/key dummy built-in, kể cả khi đã chọn DLL. Nếu tick mà chưa chọn DLL (hoặc file DLL không còn tồn tại), app **từ chối bắt đầu flash** trên hardware thật và báo lỗi — không âm thầm rơi về thuật toán dummy. Virtual ECU Simulator luôn dùng thuật toán dummy bất kể checkbox.
 3. Nếu ECU yêu cầu khai báo compression/encryption method trong RequestDownload: tab **Configure → Data**, bảng **Details** — 2 dòng **Compression Method**/**Encryption Method** giờ gõ trực tiếp được từ bàn phím (1 ký tự hex 0-F, mặc định 0 = None, chữ thường tự động chuyển thành chữ hoa) thay vì chỉ hiển thị, chỉ set nibble tương ứng trong byte `dataFormatIdentifier` gửi cho ECU, **không** tự nén/mã hóa dữ liệu firmware — file nạp vào phải đã ở đúng định dạng đó từ trước nếu chọn giá trị khác 0. Đây là 1 lựa chọn chung cho cả phiên flash, không đổi theo từng datablock nạp vào.
-4. Tester Serial Number ghi vào ECU khi flash (chỉ sequence **Suzuki**, bước "Write Tester Info", DID `0xF198`): tab **Configure → Miscellaneous** → mục **"Fingerprint"** → gõ hex trực tiếp vào **"Tester Serial Number"** (tối đa 20 ký tự hex = 10 byte, mặc định `00112233445566778899`, chữ thường tự động chuyển thành chữ hoa). Sequence **Generic** không dùng field này.
+4. Tester Serial Number ghi vào ECU khi flash (chỉ sequence **Suzuki**, bước "Write Tester Info", DID `0xF198`): tab **Configure → Flash Options** → mục **"Fingerprint"** → gõ hex trực tiếp vào **"Tester Serial Number"** (tối đa 20 ký tự hex = 10 byte, mặc định `00112233445566778899`, chữ thường tự động chuyển thành chữ hoa). Sequence **Generic** không dùng field này.
 5. Nạp file firmware và nhấn **Flash** như trên. Khuyến nghị chạy `test-connection` trước (xem mục [Command Line Interface](#command-line-interface-clipy)) để xác nhận đấu dây/channel/security đúng trước khi flash thật.
 
 ### Nạp Firmware Từ GitLab (CI Artifact / Package Registry)

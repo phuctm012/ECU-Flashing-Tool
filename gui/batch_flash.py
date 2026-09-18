@@ -12,9 +12,11 @@
 #
 # Threading follows the exact lifecycle rules documented in
 # CLAUDE.md's "Threading model": a worker's own *_finished
-# signal connects to thread.quit + worker.deleteLater; only a
-# slot connected to thread.finished (never the worker's own
-# signal) clears self._identify_thread/self._identify_worker or
+# signal connects to thread.quit only; only a slot connected to
+# thread.finished (never the worker's own signal) destroys the
+# thread + worker — synchronously, on the main thread, via
+# gui/worker_teardown.dispose_worker_thread() — and clears
+# self._identify_thread/self._identify_worker or
 # self.thread/self.worker (the latter pair is owned by
 # gui/flash_tab.py's flash_button_clicked() for single-flash,
 # and reused here for the batch Flash step too).
@@ -24,6 +26,8 @@ import html
 from datetime import datetime
 
 from PySide6.QtCore import QThread
+
+from gui.worker_teardown import dispose_worker_thread
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -160,6 +164,17 @@ class BatchFlashMixin:
             )
             return
 
+        use_virtual = True
+        if hasattr(self.ui, 'comboBoxHardware'):
+            use_virtual = self.ui.comboBoxHardware.currentData() is None
+        if hasattr(self, 'security_access_start_error'):
+            error = self.security_access_start_error(use_virtual)
+            if error:
+                QMessageBox.warning(
+                    self, "Security Access Not Configured", error
+                )
+                return
+
         self._start_identify()
 
     def _start_identify(self):
@@ -184,9 +199,11 @@ class BatchFlashMixin:
                 self.ui.comboBoxHardware.currentData() is None
             )
 
-        security_dll_path = getattr(
-            self, '_security_dll_path', ''
-        ) or None
+        security_dll_path = (
+            self.get_security_dll_path()
+            if hasattr(self, 'get_security_dll_path')
+            else None
+        )
 
         use_suzuki_sequence = False
         if hasattr(self.ui, 'comboBoxFlashSequence'):
@@ -234,13 +251,12 @@ class BatchFlashMixin:
         self._identify_worker.finished.connect(
             self._identify_thread.quit
         )
-        self._identify_worker.finished.connect(
-            self._identify_worker.deleteLater
-        )
 
-        # NOTE: intentionally NOT connecting thread.finished ->
-        # thread.deleteLater here — see module docstring and
-        # CLAUDE.md's "Threading model".
+        # NOTE: intentionally NOT connecting worker.finished ->
+        # worker.deleteLater nor thread.finished -> thread.deleteLater
+        # here — _cleanup_identify_thread() destroys both on the
+        # main thread (gui/worker_teardown.py), see module docstring
+        # and CLAUDE.md's "Threading model".
         self._identify_thread.finished.connect(
             self._cleanup_identify_thread
         )
@@ -252,8 +268,7 @@ class BatchFlashMixin:
 
     def _cleanup_identify_thread(self):
 
-        if self._identify_thread is not None:
-            self._identify_thread.wait()
+        dispose_worker_thread(self._identify_thread, self._identify_worker)
 
         self._identify_thread = None
         self._identify_worker = None
@@ -359,9 +374,11 @@ class BatchFlashMixin:
         else:
             steps = build_flash_sequence(datablocks)
 
-        security_dll_path = getattr(
-            self, '_security_dll_path', ''
-        ) or None
+        security_dll_path = (
+            self.get_security_dll_path()
+            if hasattr(self, 'get_security_dll_path')
+            else None
+        )
 
         can_config = (
             self.get_can_config()
@@ -405,8 +422,6 @@ class BatchFlashMixin:
 
         self.worker.flash_finished.connect(self.thread.quit)
         self.worker.flash_aborted.connect(self.thread.quit)
-        self.worker.flash_finished.connect(self.worker.deleteLater)
-        self.worker.flash_aborted.connect(self.worker.deleteLater)
 
         # Same signals flash_button_clicked() connects for a
         # normal single flash, reused as-is - none of these
@@ -431,10 +446,10 @@ class BatchFlashMixin:
         self.worker.flash_finished.connect(self._on_batch_flash_finished)
         self.worker.flash_aborted.connect(self._on_batch_flash_aborted)
 
-        # NOTE: intentionally NOT connecting thread.finished ->
-        # thread.deleteLater - _cleanup_thread() (gui/flash_tab.py,
-        # shared with single-flash) is the single owner of this
-        # QThread's lifetime, same reasoning as flash_button_clicked().
+        # NOTE: intentionally NOT connecting worker.deleteLater nor
+        # thread.finished -> thread.deleteLater - _cleanup_thread()
+        # (gui/flash_tab.py, shared with single-flash) is the single
+        # owner of both lifetimes, same reasoning as flash_button_clicked().
         self.thread.finished.connect(self._cleanup_thread)
 
         self.thread.start()

@@ -17,9 +17,12 @@
 # Every slot follows the exact same QThread lifecycle rules
 # documented in CLAUDE.md's "Threading model", applied independently
 # per panel: a worker's own *_finished/finished signal
-# connects to thread.quit + worker.deleteLater; only a slot
-# connected to thread.finished (never the worker's own signal)
-# clears that slot's own thread/worker references.
+# connects to thread.quit only; only a slot connected to
+# thread.finished (never the worker's own signal) destroys that
+# panel's thread + worker — synchronously, on the main thread, via
+# gui/worker_teardown.dispose_worker_thread() — and clears the
+# panel's references. (Rule 3 below is why it is no longer
+# worker.deleteLater.)
 #
 # Per-panel log/trace display reuses the app's existing, single
 # Information/Trace tabs (outputTabWidget in gui/main_window.ui —
@@ -65,17 +68,28 @@
 #    are fine and used throughout this file.)
 #
 # 2. self.sender() is NOT a reliable way to recover which panel a
-#    shared slot is handling, because every worker here also wires
-#    its own finished/flash_finished signal to its own
-#    deleteLater() (a same-thread direct connection) - by the time
-#    a queued cross-thread slot actually runs on the main thread,
-#    the worker can already be destroyed, and Qt correctly reports
-#    a destroyed sender as None. Instead, each panel gets one
+#    shared slot is handling - a queued cross-thread slot runs on
+#    the main thread some time after the emission, and by then the
+#    emitting worker may already have been torn down (Qt reports a
+#    destroyed sender as None). Instead, each panel gets one
 #    small, permanent _PanelSignalRouter QObject (created once,
 #    living in the main thread for the panel's whole lifetime) whose
 #    bound methods are the actual connection targets; panel context
 #    comes from the router's own plain attribute, never from
 #    inspecting the emitting worker.
+#
+# 3. Workers are never deleteLater()'d, and never destroyed by any
+#    thread but the main one. deleteLater ran the worker's C++
+#    destructor on the *worker* thread with the GIL released; for a
+#    Python-subclassed QObject that destructor holds one of Qt's
+#    pooled signal/slot mutexes while blocking for the GIL
+#    (disconnectNotify override lookup). With six panels handing
+#    Identify over to Flash concurrently, the main thread - holding
+#    the GIL in moveToThread()/connect() for the next worker - hit
+#    the same pooled mutex and deadlocked, or corrupted it (SIGSEGV/
+#    SIGBUS). Real, ~1-in-6 runs of tools/stress_test.py, Phase
+#    4.116. gui/worker_teardown.py has the full mechanism and the
+#    only safe teardown order.
 # ==================================================
 
 import html
@@ -83,6 +97,8 @@ import threading
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QThread
+
+from gui.worker_teardown import dispose_worker_thread
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -521,9 +537,11 @@ class ParallelFlashMixin:
             use_suzuki_sequence = (
                 "Suzuki" in self.ui.comboBoxFlashSequence.currentText()
             )
-        security_dll_path = getattr(
-            self, '_security_dll_path', ''
-        ) or None
+        security_dll_path = (
+            self.get_security_dll_path()
+            if hasattr(self, 'get_security_dll_path')
+            else None
+        )
 
         can_config = {
             "channel": channel,
@@ -995,7 +1013,31 @@ Channel {p['index'] + 1}
             self._abort_panel(panel)
             return
 
+        if self._security_access_blocks_start([panel]):
+            return
+
         self._start_identify_for_panel(panel)
+
+    def _security_access_blocks_start(self, panels):
+        """
+        One shared guard for the per-panel Flash button and
+        Start All: if "Active Security Access" is ticked with
+        no usable DLL and any of `panels` targets real
+        hardware, show the warning once and return True. Virtual
+        panels never trigger it (the simulator ignores the DLL).
+        """
+
+        if not hasattr(self, 'security_access_start_error'):
+            return False
+        for panel in panels:
+            use_virtual = panel["combo"].currentData() is None
+            error = self.security_access_start_error(use_virtual)
+            if error:
+                QMessageBox.warning(
+                    self, "Security Access Not Configured", error
+                )
+                return True
+        return False
 
     def _start_identify_for_panel(self, panel):
 
@@ -1026,9 +1068,11 @@ Channel {p['index'] + 1}
         can_config = (
             self.get_can_config() if hasattr(self, 'get_can_config') else {}
         )
-        security_dll_path = getattr(
-            self, '_security_dll_path', ''
-        ) or None
+        security_dll_path = (
+            self.get_security_dll_path()
+            if hasattr(self, 'get_security_dll_path')
+            else None
+        )
         use_suzuki_sequence = False
         if hasattr(self.ui, 'comboBoxFlashSequence'):
             use_suzuki_sequence = (
@@ -1070,12 +1114,11 @@ Channel {p['index'] + 1}
         panel["identify_worker"].finished.connect(
             panel["identify_thread"].quit
         )
-        panel["identify_worker"].finished.connect(
-            panel["identify_worker"].deleteLater
-        )
-        # NOTE: intentionally NOT connecting thread.finished ->
-        # thread.deleteLater — see module docstring and CLAUDE.md's
-        # "Threading model".
+        # NOTE: intentionally NOT connecting worker.finished ->
+        # worker.deleteLater nor thread.finished -> thread.deleteLater
+        # — _cleanup_identify_thread_for_panel() destroys both on the
+        # main thread (gui/worker_teardown.py); see module docstring
+        # rule 3 and CLAUDE.md's "Threading model".
         panel["identify_thread"].finished.connect(
             router.on_identify_thread_finished
         )
@@ -1085,8 +1128,9 @@ Channel {p['index'] + 1}
 
     def _cleanup_identify_thread_for_panel(self, panel):
 
-        if panel["identify_thread"] is not None:
-            panel["identify_thread"].wait()
+        dispose_worker_thread(
+            panel["identify_thread"], panel["identify_worker"]
+        )
 
         panel["identify_thread"] = None
         panel["identify_worker"] = None
@@ -1240,9 +1284,11 @@ Channel {p['index'] + 1}
         can_config = (
             self.get_can_config() if hasattr(self, 'get_can_config') else {}
         )
-        security_dll_path = getattr(
-            self, '_security_dll_path', ''
-        ) or None
+        security_dll_path = (
+            self.get_security_dll_path()
+            if hasattr(self, 'get_security_dll_path')
+            else None
+        )
         data_format_config = (
             self.get_data_format_config()
             if hasattr(self, 'get_data_format_config')
@@ -1288,12 +1334,6 @@ Channel {p['index'] + 1}
         panel["flash_worker"].flash_aborted.connect(
             panel["flash_thread"].quit
         )
-        panel["flash_worker"].flash_finished.connect(
-            panel["flash_worker"].deleteLater
-        )
-        panel["flash_worker"].flash_aborted.connect(
-            panel["flash_worker"].deleteLater
-        )
 
         panel["flash_worker"].progress_changed.connect(
             router.on_progress_changed
@@ -1332,8 +1372,9 @@ Channel {p['index'] + 1}
 
     def _cleanup_flash_thread_for_panel(self, panel):
 
-        if panel["flash_thread"] is not None:
-            panel["flash_thread"].wait()
+        dispose_worker_thread(
+            panel["flash_thread"], panel["flash_worker"]
+        )
 
         panel["flash_thread"] = None
         panel["flash_worker"] = None
@@ -1394,11 +1435,14 @@ Channel {p['index'] + 1}
 
     def parallel_start_all(self):
 
-        for panel in self._parallel_panels:
-            if panel["phase"] in ("identifying", "flashing"):
-                continue
-            if panel["combo"].currentData() == "not-selected":
-                continue
+        startable = [
+            p for p in self._parallel_panels
+            if p["phase"] not in ("identifying", "flashing")
+            and p["combo"].currentData() != "not-selected"
+        ]
+        if self._security_access_blocks_start(startable):
+            return
+        for panel in startable:
             self._start_identify_for_panel(panel)
 
     def parallel_abort_all(self):

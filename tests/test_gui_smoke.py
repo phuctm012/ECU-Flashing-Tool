@@ -1916,6 +1916,211 @@ class TestFlashButtonCanConflictFeedback(unittest.TestCase):
         self.assertIsNone(self.window.thread)
 
 
+class TestSecurityAccessCheckbox(unittest.TestCase):
+    """
+    Covers the "Active Security Access" checkbox on Configure >
+    Flash Options (checkBoxSecurityAccess, gui/configure_tab.py).
+    Unticked (the default) means every flash path constructs its
+    worker with security_dll_path=None so the built-in dummy
+    seed/key algorithm is used, regardless of whether a DLL has
+    been browsed to; ticked means the selected DLL is used and a
+    real-hardware flash refuses to start without a usable one.
+    """
+
+    REAL_HW = {
+        "label": "VN1640A - Channel 1",
+        "channel": 0, "hw_channel": 0,
+        "serial": None, "is_on_bus": False,
+    }
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.window._load_firmware_file(SAMPLE_HEX)
+
+    def _select_real_hardware(self):
+        combo = self.window.ui.comboBoxHardware
+        combo.addItem(self.REAL_HW["label"], userData=self.REAL_HW)
+        combo.setCurrentIndex(combo.count() - 1)
+
+    def test_defaults_to_unticked_with_dll_widgets_disabled(self):
+        self.assertFalse(self.window.ui.checkBoxSecurityAccess.isChecked())
+        self.assertFalse(self.window._security_access_enabled)
+        self.assertFalse(self.window.ui.lineEditSecurityDll.isEnabled())
+        self.assertFalse(self.window.ui.buttonBrowseSecurityDll.isEnabled())
+
+    def test_ticking_enables_dll_widgets_and_unticking_disables_them(self):
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        self.assertTrue(self.window._security_access_enabled)
+        self.assertTrue(self.window.ui.lineEditSecurityDll.isEnabled())
+        self.assertTrue(self.window.ui.buttonBrowseSecurityDll.isEnabled())
+
+        self.window.ui.checkBoxSecurityAccess.setChecked(False)
+        self.assertFalse(self.window._security_access_enabled)
+        self.assertFalse(self.window.ui.lineEditSecurityDll.isEnabled())
+
+    def test_get_security_dll_path_is_none_while_unticked_even_with_dll(self):
+        self.window._security_dll_path = "/some/security.dll"
+        self.assertIsNone(self.window.get_security_dll_path())
+
+    def test_get_security_dll_path_returns_dll_when_ticked(self):
+        self.window._security_dll_path = "/some/security.dll"
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        self.assertEqual(
+            self.window.get_security_dll_path(), "/some/security.dll"
+        )
+
+    def test_start_error_only_for_real_hardware_when_ticked(self):
+        # Unticked: never an error.
+        self.assertIsNone(self.window.security_access_start_error(False))
+        # Ticked + no DLL: real hardware blocked, virtual fine.
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        self.assertIn(
+            "no DLL is selected",
+            self.window.security_access_start_error(False),
+        )
+        self.assertIsNone(self.window.security_access_start_error(True))
+        # Ticked + DLL path that no longer exists.
+        self.window._security_dll_path = "/no/such/security.dll"
+        self.assertIn(
+            "not found",
+            self.window.security_access_start_error(False),
+        )
+
+    def test_single_flash_worker_gets_none_while_unticked(self):
+        self.window._security_dll_path = "/some/security.dll"
+        with unittest.mock.patch(
+            "gui.flash_tab.QThread"
+        ), unittest.mock.patch(
+            "gui.flash_tab.FlashWorker"
+        ) as mock_worker:
+            self.window.flash_button_clicked()
+        self.assertIsNone(
+            mock_worker.call_args.kwargs["security_dll_path"]
+        )
+
+    def test_single_flash_refuses_to_start_on_real_hw_without_dll(self):
+        self._select_real_hardware()
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        with unittest.mock.patch.object(
+            self.window, 'detect_can_conflict_warning', return_value=None,
+        ), unittest.mock.patch(
+            "gui.flash_tab.QMessageBox.warning"
+        ) as mock_warn, unittest.mock.patch(
+            "gui.flash_tab.FlashWorker"
+        ) as mock_worker:
+            self.window.flash_button_clicked()
+        mock_warn.assert_called_once()
+        self.assertIn("Security Access", mock_warn.call_args.args[1])
+        mock_worker.assert_not_called()
+        self.assertIsNone(self.window.thread)
+
+    def test_single_flash_passes_dll_when_ticked_on_real_hw(self):
+        self._select_real_hardware()
+        with tempfile.NamedTemporaryFile(suffix=".dll", delete=False) as f:
+            dll_path = f.name
+        try:
+            self.window._security_dll_path = dll_path
+            self.window.ui.checkBoxSecurityAccess.setChecked(True)
+            with unittest.mock.patch.object(
+                self.window, 'detect_can_conflict_warning',
+                return_value=None,
+            ), unittest.mock.patch(
+                "gui.flash_tab.QThread"
+            ), unittest.mock.patch(
+                "gui.flash_tab.FlashWorker"
+            ) as mock_worker:
+                self.window.flash_button_clicked()
+            self.assertEqual(
+                mock_worker.call_args.kwargs["security_dll_path"], dll_path
+            )
+        finally:
+            os.unlink(dll_path)
+
+    def test_batch_start_refuses_on_real_hw_without_dll(self):
+        self._select_real_hardware()
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        with unittest.mock.patch(
+            "gui.batch_flash.QMessageBox.warning"
+        ) as mock_warn, unittest.mock.patch.object(
+            self.window, '_start_identify'
+        ) as mock_start:
+            self.window._batch_main_button_clicked()
+        mock_warn.assert_called_once()
+        mock_start.assert_not_called()
+
+    def test_parallel_panel_refuses_on_real_hw_without_dll(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].addItem(self.REAL_HW["label"], userData=self.REAL_HW)
+        panel["combo"].setCurrentIndex(panel["combo"].count() - 1)
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        with unittest.mock.patch(
+            "gui.parallel_flash.QMessageBox.warning"
+        ) as mock_warn, unittest.mock.patch.object(
+            self.window, '_start_identify_for_panel'
+        ) as mock_start:
+            self.window._on_parallel_flash_clicked(panel)
+        mock_warn.assert_called_once()
+        mock_start.assert_not_called()
+
+    def test_parallel_virtual_panel_starts_even_when_ticked_without_dll(self):
+        panel = self.window._parallel_panels[0]
+        panel["combo"].setCurrentIndex(1)  # Virtual ECU Simulator
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        with unittest.mock.patch(
+            "gui.parallel_flash.QMessageBox.warning"
+        ) as mock_warn, unittest.mock.patch.object(
+            self.window, '_start_identify_for_panel'
+        ) as mock_start:
+            self.window._on_parallel_flash_clicked(panel)
+        mock_warn.assert_not_called()
+        mock_start.assert_called_once_with(panel)
+
+    def test_start_all_warns_once_and_starts_nothing(self):
+        for panel in self.window._parallel_panels[:2]:
+            panel["combo"].addItem(self.REAL_HW["label"], userData=self.REAL_HW)
+            panel["combo"].setCurrentIndex(panel["combo"].count() - 1)
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        with unittest.mock.patch(
+            "gui.parallel_flash.QMessageBox.warning"
+        ) as mock_warn, unittest.mock.patch.object(
+            self.window, '_start_identify_for_panel'
+        ) as mock_start:
+            self.window.parallel_start_all()
+        mock_warn.assert_called_once()
+        mock_start.assert_not_called()
+
+    def test_checkbox_state_persists_across_restart(self):
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        self.window.save_profile()
+        window2 = MainWindow()
+        self.assertTrue(window2.ui.checkBoxSecurityAccess.isChecked())
+        self.assertTrue(window2._security_access_enabled)
+        self.assertTrue(window2.ui.lineEditSecurityDll.isEnabled())
+
+    def test_checkbox_state_round_trips_through_project_file(self):
+        self.window.ui.checkBoxSecurityAccess.setChecked(True)
+        path = os.path.join(tempfile.mkdtemp(), "sa.sfproj")
+        with unittest.mock.patch(
+            "gui.project_file.QFileDialog.getSaveFileName",
+            return_value=(path, ""),
+        ):
+            self.window.save_project_as()
+
+        # A fresh window restores the ticked box from the QSettings
+        # profile — untick it so the assertion below proves the
+        # project file (not the profile) is what re-ticks it.
+        window2 = MainWindow()
+        window2.ui.checkBoxSecurityAccess.setChecked(False)
+        self.assertFalse(window2._security_access_enabled)
+        with unittest.mock.patch(
+            "gui.project_file.QFileDialog.getOpenFileName",
+            return_value=(path, ""),
+        ):
+            window2.open_project()
+        self.assertTrue(window2.ui.checkBoxSecurityAccess.isChecked())
+
+
 class TestSettingsProfile(unittest.TestCase):
     """
     Covers SettingsProfileMixin (gui/settings_profile.py) —

@@ -16,13 +16,13 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
     QIcon, QImage, QKeySequence, QLinearGradient,
     QPainter, QPalette, QPixmap, QRadialGradient,
     QTransform)
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QGridLayout,
-    QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMenu, QMenuBar, QProgressBar, QPushButton,
-    QSizePolicy, QSpacerItem, QSpinBox, QStackedWidget,
-    QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
-    QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox,
+    QGridLayout, QGroupBox, QHBoxLayout, QHeaderView,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMainWindow, QMenu, QMenuBar, QProgressBar,
+    QPushButton, QSizePolicy, QSpacerItem, QSpinBox,
+    QStackedWidget, QStatusBar, QTabWidget, QTableWidget,
+    QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -557,16 +557,23 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_misc.addWidget(self.labelSecurityDll)
 
+        self.checkBoxSecurityAccess = QCheckBox(self.pageMisc)
+        self.checkBoxSecurityAccess.setObjectName(u"checkBoxSecurityAccess")
+
+        self.verticalLayout_misc.addWidget(self.checkBoxSecurityAccess)
+
         self.horizontalLayout_securityDll = QHBoxLayout()
         self.horizontalLayout_securityDll.setObjectName(u"horizontalLayout_securityDll")
         self.lineEditSecurityDll = QLineEdit(self.pageMisc)
         self.lineEditSecurityDll.setObjectName(u"lineEditSecurityDll")
+        self.lineEditSecurityDll.setEnabled(False)
         self.lineEditSecurityDll.setReadOnly(True)
 
         self.horizontalLayout_securityDll.addWidget(self.lineEditSecurityDll)
 
         self.buttonBrowseSecurityDll = QPushButton(self.pageMisc)
         self.buttonBrowseSecurityDll.setObjectName(u"buttonBrowseSecurityDll")
+        self.buttonBrowseSecurityDll.setEnabled(False)
 
         self.horizontalLayout_securityDll.addWidget(self.buttonBrowseSecurityDll)
 
@@ -1025,8 +1032,12 @@ class Ui_MainWindow(object):
         self.comboBoxFlashSequence.setItemText(0, QCoreApplication.translate("MainWindow", u"Suzuki SLP1 (Real Trace) (Default)", None))
         self.comboBoxFlashSequence.setItemText(1, QCoreApplication.translate("MainWindow", u"Generic", None))
 
-        self.labelSecurityDll.setText(QCoreApplication.translate("MainWindow", u"Security Access DLL (Optional)", None))
-        self.lineEditSecurityDll.setPlaceholderText(QCoreApplication.translate("MainWindow", u"No DLL selected \u2014 using built-in seed/key algorithm", None))
+        self.labelSecurityDll.setText(QCoreApplication.translate("MainWindow", u"Security Access", None))
+#if QT_CONFIG(tooltip)
+        self.checkBoxSecurityAccess.setToolTip(QCoreApplication.translate("MainWindow", u"Ticked: SecurityAccess (0x27) keys are computed by the external DLL selected below (real hardware only). Unticked: the built-in dummy seed/key algorithm is used.", None))
+#endif // QT_CONFIG(tooltip)
+        self.checkBoxSecurityAccess.setText(QCoreApplication.translate("MainWindow", u"Active Security Access (use external DLL for seed/key)", None))
+        self.lineEditSecurityDll.setPlaceholderText(QCoreApplication.translate("MainWindow", u"No DLL selected", None))
         self.buttonBrowseSecurityDll.setText(QCoreApplication.translate("MainWindow", u"Browse...", None))
         self.labelFingerprint.setText(QCoreApplication.translate("MainWindow", u"Fingerprint", None))
         self.labelTesterSerialNumber.setText(QCoreApplication.translate("MainWindow", u"Tester Serial Number:", None))

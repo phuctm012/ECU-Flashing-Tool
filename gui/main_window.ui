@@ -740,7 +740,17 @@
                 <string notr="true">padding: 5px; font-weight: bold;</string>
                </property>
                <property name="text">
-                <string>Security Access DLL (Optional)</string>
+                <string>Security Access</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="checkBoxSecurityAccess">
+               <property name="toolTip">
+                <string>Ticked: SecurityAccess (0x27) keys are computed by the external DLL selected below (real hardware only). Unticked: the built-in dummy seed/key algorithm is used.</string>
+               </property>
+               <property name="text">
+                <string>Active Security Access (use external DLL for seed/key)</string>
                </property>
               </widget>
              </item>
@@ -748,16 +758,22 @@
               <layout class="QHBoxLayout" name="horizontalLayout_securityDll">
                <item>
                 <widget class="QLineEdit" name="lineEditSecurityDll">
+                 <property name="enabled">
+                  <bool>false</bool>
+                 </property>
                  <property name="readOnly">
                   <bool>true</bool>
                  </property>
                  <property name="placeholderText">
-                  <string>No DLL selected — using built-in seed/key algorithm</string>
+                  <string>No DLL selected</string>
                  </property>
                 </widget>
                </item>
                <item>
                 <widget class="QPushButton" name="buttonBrowseSecurityDll">
+                 <property name="enabled">
+                  <bool>false</bool>
+                 </property>
                  <property name="text">
                   <string>Browse...</string>
                  </property>

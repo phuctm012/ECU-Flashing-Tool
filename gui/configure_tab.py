@@ -48,8 +48,11 @@ class ConfigureTabMixin:
         # Initialize loaded datablocks list
         self._loaded_datablocks = []
 
-        # Security Access DLL (optional, real hardware only)
+        # Security Access DLL (optional, real hardware only).
+        # Only used when the "Active Security Access" checkbox
+        # is ticked — see get_security_dll_path().
         self._security_dll_path = ""
+        self._security_access_enabled = False
 
         self.setup_datablocks_table()
         self.setup_communication_logic()
@@ -788,13 +791,26 @@ class ConfigureTabMixin:
 
     def setup_security_dll_selector(self):
         """
-        Connects the "Browse..." button next to the
-        Security Access DLL field (defined in
-        main_window.ui) to browse_security_dll(). Lets the
-        user point SecurityAccess (0x27) key calculation at
-        an external DLL (real hardware), instead of the
-        built-in seed/key algorithm used by default.
+        Wires the Security Access group on the Flash Options
+        page (defined in main_window.ui):
+
+        - checkBoxSecurityAccess ("Active Security Access")
+          gates whether the DLL is used at all. Unticked
+          (default) → SecurityAccess (0x27) keys come from the
+          built-in dummy seed/key algorithm, exactly as before
+          this checkbox existed. Ticked → keys come from the
+          external DLL selected below (real hardware only —
+          the Virtual ECU Simulator only understands the dummy
+          key, so it always uses that).
+        - The DLL field + "Browse..." are enabled only while
+          the box is ticked, so an unticked box makes it
+          visually obvious the DLL is not in play.
         """
+
+        if hasattr(self.ui, 'checkBoxSecurityAccess'):
+            self.ui.checkBoxSecurityAccess.toggled.connect(
+                self._on_security_access_toggled
+            )
 
         if not hasattr(self.ui, 'buttonBrowseSecurityDll'):
             return
@@ -802,6 +818,88 @@ class ConfigureTabMixin:
         self.ui.buttonBrowseSecurityDll.clicked.connect(
             self.browse_security_dll
         )
+
+    def _on_security_access_toggled(self, checked):
+
+        self._security_access_enabled = bool(checked)
+
+        for name in ('lineEditSecurityDll', 'buttonBrowseSecurityDll'):
+            if hasattr(self.ui, name):
+                getattr(self.ui, name).setEnabled(self._security_access_enabled)
+
+        if hasattr(self, 'log_information'):
+            self.log_information(
+                "Security Access: using external DLL"
+                if self._security_access_enabled
+                else "Security Access: using built-in seed/key algorithm"
+            )
+
+        if hasattr(self, 'save_profile'):
+            self.save_profile()
+
+    def set_security_access_enabled(self, enabled):
+        """
+        Programmatic setter used by load_profile() /
+        project-file load. Goes through the checkbox so the
+        toggled slot keeps the flag, the DLL widgets' enabled
+        state and the profile in sync; falls back to the bare
+        flag when the widget is absent.
+        """
+
+        if hasattr(self.ui, 'checkBoxSecurityAccess'):
+            self.ui.checkBoxSecurityAccess.setChecked(bool(enabled))
+        else:
+            self._security_access_enabled = bool(enabled)
+
+    def get_security_dll_path(self):
+        """
+        The DLL path every FlashWorker / TestConnectionWorker
+        should be constructed with: the selected DLL when
+        "Active Security Access" is ticked, else None. All
+        flash-start paths (Single, Batch, Parallel, Test
+        Connection) must go through this rather than reading
+        _security_dll_path directly, so an unticked box really
+        does mean "dummy algorithm" everywhere.
+        """
+
+        if not getattr(self, '_security_access_enabled', False):
+            return None
+        return getattr(self, '_security_dll_path', '') or None
+
+    def security_access_start_error(self, use_virtual):
+        """
+        Returns a warning string if a flash must not start
+        because Security Access is active but misconfigured,
+        else None. Callers show it in a QMessageBox and bail
+        out before prepare_flash_ui() runs.
+
+        Only real hardware can be blocked: the Virtual ECU
+        Simulator never uses the DLL, so a ticked box with no
+        DLL is harmless there. Falling back to the dummy
+        algorithm silently would defeat the point of ticking
+        the box — the operator would believe the real key
+        algorithm is in use.
+        """
+
+        if use_virtual:
+            return None
+        if not getattr(self, '_security_access_enabled', False):
+            return None
+        path = getattr(self, '_security_dll_path', '') or ''
+        if not path:
+            return (
+                "Security Access is active but no DLL is selected.\n\n"
+                "Select a Security Access DLL in Configure > Flash "
+                "Options, or untick \"Active Security Access\" to use "
+                "the built-in seed/key algorithm."
+            )
+        if not os.path.isfile(path):
+            return (
+                f"Security Access DLL not found:\n{path}\n\n"
+                "Select a valid DLL in Configure > Flash Options, or "
+                "untick \"Active Security Access\"."
+            )
+        return None
 
     def browse_security_dll(self):
 

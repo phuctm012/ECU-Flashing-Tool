@@ -43,9 +43,18 @@ Full stress test before pushing session changes — catches crashes that isolate
 
 ## If you extend the script
 
-Four traps, each of which has already cost a debugging session here:
+Five traps, each of which has already cost a debugging session here:
 
 1. **Never `app.quit()` to end a wait loop.** It closes every window, and `MainWindow.closeEvent()` aborts a running flash — so every step after the first wait would run against a closed window and a cancelled flash. Use a local `QEventLoop` and quit *that*, as `pump_until()` does.
 2. **The theme comes from `main.py`, not `MainWindow`.** Call `app.setStyleSheet(load_stylesheet(...))` if the visual state matters.
 3. **Never connect a lambda to a cross-thread signal.** A lambda has no `QObject` thread affinity, so PySide6 cannot detect that the call needs queuing and it silently runs on the wrong thread. To close a modal dialog, pump the event loop (see `pumped_exec()`).
-4. **Do not judge thread leaks with `threading.active_count()`.** Qt worker threads leave `_DummyThread` placeholders in Python's registry that linger until GC and always report `is_alive() == True`, so that count climbs to a plateau even when nothing leaked. Check what actually matters: no surviving `TesterPresent` keepalive thread (`CLAUDE.md`'s documented leak, which surfaces later as `Signal source has been deleted`), and no real non-Qt worker threads. Ground truth for a suspected leak is the OS thread count (`ps -M <pid>`), which should stay flat across many flashes.
+4. **Never `deleteLater()` a worker, and never call `connect()`/`moveToThread()` from worker-thread code.** Both are one half of a GIL ↔ Qt-mutex lock-order inversion that showed up as a random (~1 in 6) deadlock or SIGSEGV/SIGBUS in the parallel section (Phase 4.116). Teardown goes through `gui/worker_teardown.dispose_worker_thread()` on the main thread; helper QObjects are built and wired in `__init__`. CLAUDE.md "Threading model", fifth failure mode, has the mechanism.
+5. **Do not judge thread leaks with `threading.active_count()`.** Qt worker threads leave `_DummyThread` placeholders in Python's registry that linger until GC and always report `is_alive() == True`, so that count climbs to a plateau even when nothing leaked. Check what actually matters: no surviving `TesterPresent` keepalive thread (`CLAUDE.md`'s documented leak, which surfaces later as `Signal source has been deleted`), and no real non-Qt worker threads. Ground truth for a suspected leak is the OS thread count (`ps -M <pid>`), which should stay flat across many flashes.
+
+## If it crashes or hangs and faulthandler isn't enough
+
+A thread that dies with `<no Python frame>` (or a hang at 0% CPU) needs a **native** stack. `lldb` needs the Xcode licence; macOS's `sample` does not, but only works on a live process. Recipe that found Phase 4.116:
+
+1. Wrap the run so SIGSEGV/SIGBUS **park** the faulting thread instead of killing the process — install a `ctypes.CFUNCTYPE` handler via `libc.signal()` that loops on `libc.pause()`, and stub out `faulthandler.enable` so it doesn't replace yours.
+2. Loop `python tools/stress_test.py --section parallel` in the background; on a caught signal, or no new output for ~150 s, run `sample <pid> 2 -file out.txt`, then kill it.
+3. In the sample, look for one thread in `take_gil` under `~QObject`/`disconnectNotify` and another in `QBasicMutex::lockInternal` under `QObject::connect`/`moveToThread` — that pair is the inversion.
