@@ -2749,3 +2749,21 @@ User (ảnh chụp bản 4.121–4.123 trên Windows): mặc định dialog nên
 - `test_gitlab_dialog_threading` + `TestGitLabFetchDialogConnectionCard`: OK.
 - `tools/stress_test.py --section gitlab`: PASS.
 - Render mặc định: 790×701, bảng 128 px = header + 3 dòng trống; log trống.
+
+## Phase 4.125: Configure > Data — Bảng Datablocks Cố Định 3 Hàng
+
+User (ảnh Windows): bảng Datablocks chỉ lộ 1 hàng rồi Details chiếm hết; muốn Datablocks hiện cố định 3 hàng và Details lùi xuống.
+
+Trước đó `tableWidgetDatablocks` có size policy Expanding, còn `tableWidgetDetails` có `setMinimumHeight(280)` — trên Windows font cao hơn, Details cùng các mục khác đẩy Datablocks xuống chỉ còn ~1 hàng. Sửa theo đúng rule ".ui trước": trong `main_window.ui` đặt vertical policy **Fixed** + minimumHeight 128 cho `tableWidgetDatablocks`; vì chiều cao header/hàng phụ thuộc font từng nền tảng (macOS 31/30 px, Windows cao hơn) nên phần tính pixel chính xác — `_fix_datablocks_table_height(rows=3)` = header + 3 × hàng + khung — nằm trong `configure_tab.py` ở lúc setup (Designer không diễn tả được "3 hàng" theo metric thật). Hàng thứ 4 trở đi cuộn trong bảng.
+
+### Thay đổi
+
+- **`gui/main_window.ui`** (+ regenerate `gui/ui_main_window.py`): sizePolicy Fixed dọc, minimumSize 128, tooltip nói rõ cơ chế.
+- **`gui/configure_tab.py`**: `_fix_datablocks_table_height()`, gọi trong setup ngay sau khi cấu hình header.
+- **`docs/user_guide.html`**: 13/13 ảnh chụp lại (step 1 Flash/Batch chụp trang Data).
+
+### Đã kiểm tra
+
+- `TestMainWindowConstruction`, `TestCheckedDatablocksFilter`, `TestDatablocksContextMenu`, `TestEmptyDatablocksGuard`: OK.
+- Render trang Data với 1 datablock: bảng 123 px = header 31 + 3×30 + khung 2; 3 hàng (file, dòng "Please click here…", trống); Details ngay bên dưới.
+- `capture_guide_screenshots.py --embed`: 13/13.

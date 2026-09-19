@@ -338,6 +338,9 @@ class Ui_MainWindow(object):
         __qtablewidgetitem16 = QTableWidgetItem()
         self.tableWidgetDatablocks.setHorizontalHeaderItem(4, __qtablewidgetitem16)
         self.tableWidgetDatablocks.setObjectName(u"tableWidgetDatablocks")
+        sizePolicy1.setHeightForWidth(self.tableWidgetDatablocks.sizePolicy().hasHeightForWidth())
+        self.tableWidgetDatablocks.setSizePolicy(sizePolicy1)
+        self.tableWidgetDatablocks.setMinimumSize(QSize(0, 128))
 
         self.verticalLayout_dataTab.addWidget(self.tableWidgetDatablocks)
 
@@ -927,6 +930,9 @@ class Ui_MainWindow(object):
         ___qtablewidgetitem14.setText(QCoreApplication.translate("MainWindow", u"Checksum", None))
         ___qtablewidgetitem15 = self.tableWidgetDatablocks.horizontalHeaderItem(4)
         ___qtablewidgetitem15.setText(QCoreApplication.translate("MainWindow", u"Signature", None))
+#if QT_CONFIG(tooltip)
+        self.tableWidgetDatablocks.setToolTip(QCoreApplication.translate("MainWindow", u"Fixed at three rows; scroll for more. The exact pixel height is refined at runtime from the real header/row size (gui/configure_tab.py).", None))
+#endif // QT_CONFIG(tooltip)
         self.labelDetails.setText(QCoreApplication.translate("MainWindow", u"Details", None))
         ___qtablewidgetitem16 = self.tableWidgetDetails.horizontalHeaderItem(0)
         ___qtablewidgetitem16.setText(QCoreApplication.translate("MainWindow", u"Property", None))

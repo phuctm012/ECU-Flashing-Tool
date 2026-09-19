@@ -78,6 +78,14 @@ class ConfigureTabMixin:
             2, QHeaderView.Stretch
         )
 
+        # Exactly three rows tall, always (Phase 4.125): the .ui
+        # declares the Fixed vertical policy and a minimum, but the
+        # real header/row heights depend on platform font metrics
+        # (Windows rows are taller than macOS ones), so the exact
+        # pixel height is computed here. Details then sits directly
+        # below at a stable position; a fourth datablock scrolls.
+        self._fix_datablocks_table_height(rows=3)
+
         # Details table
         if hasattr(self.ui, 'tableWidgetDetails'):
             det_header = self.ui.tableWidgetDetails.horizontalHeader()
@@ -784,6 +792,23 @@ class ConfigureTabMixin:
                 table.setItem(
                     row, 1, QTableWidgetItem(ids["rx_id"])
                 )
+
+    # ==================================================
+    # Datablocks table height
+    # ==================================================
+
+    def _fix_datablocks_table_height(self, rows=3):
+        """
+        Pin tableWidgetDatablocks to header + `rows` rows, using the
+        widget's own metrics (see setup_configure_tab()). Called once
+        at setup; the vertical size policy is Fixed in main_window.ui.
+        """
+
+        table = self.ui.tableWidgetDatablocks
+        row_height = table.verticalHeader().defaultSectionSize()
+        header_height = table.horizontalHeader().sizeHint().height()
+        frame = 2 * table.frameWidth()
+        table.setFixedHeight(header_height + rows * row_height + frame)
 
     # ==================================================
     # Security Access DLL (SecurityAccess key calculation)
