@@ -77,6 +77,7 @@ SHOT_NAMES = (
     "batch-step-1", "batch-step-2", "batch-step-3", "batch-step-4",
     "parallel-step-1", "parallel-step-2", "parallel-step-3",
     "parallel-step-4",
+    "gitlab-dialog",
 )
 
 
@@ -142,10 +143,10 @@ class Capturer:
     # Geometry
     # --------------------------------------------------
 
-    def rect_of(self, widget):
-        """A widget's rectangle in main-window coordinates."""
+    def rect_of(self, widget, window=None):
+        """A widget's rectangle in main-window (or `window`) coordinates."""
 
-        return QRect(widget.mapTo(self.w, QPoint(0, 0)), widget.size())
+        return QRect(widget.mapTo(window or self.w, QPoint(0, 0)), widget.size())
 
     def popup_offset(self, popup):
         """Where a popup sits inside the main window's screenshot."""
@@ -161,18 +162,21 @@ class Capturer:
     # Capture
     # --------------------------------------------------
 
-    def shoot(self, name, targets=(), popups=()):
+    def shoot(self, name, targets=(), popups=(), window=None):
         """Grab the window, paint popups over it, outline the targets.
 
         `targets` are the widgets (or QRects) the guide step is telling
-        the reader to look at.
+        the reader to look at. `window` defaults to the main window; a
+        dialog can be passed to shoot it on its own (targets are then
+        widgets inside that dialog).
         """
 
         assert name in SHOT_NAMES, f"unknown shot name: {name}"
         if self.only is not None and name not in self.only:
             return
 
-        pix = self.w.grab()
+        window = window or self.w
+        pix = window.grab()
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -181,7 +185,8 @@ class Capturer:
             painter.drawPixmap(off.x(), off.y(), popup.grab())
 
         for target in targets:
-            rect = target if isinstance(target, QRect) else self.rect_of(target)
+            rect = (target if isinstance(target, QRect)
+                    else self.rect_of(target, window))
             rect = rect.adjusted(-5, -5, 5, 5)
             painter.setBrush(Qt.NoBrush)
             # White halo first, so the outline stays visible on dark fills.
@@ -435,6 +440,37 @@ def capture_parallel_mode(c):
     c.settle()
 
 
+def capture_gitlab_dialog(c):
+    """Tools > Load from GitLab, offline: the dialog with the team
+    defaults, a Browse table of successful jobs (fed directly, no
+    network) and the first row selected — the Phase 4.123 flow."""
+
+    from gui.gitlab_dialog import GitLabFetchDialog
+
+    d = GitLabFetchDialog(c.w)
+    d.tokenEdit.setText("glpat-" + "x" * 20)
+    d.ciRefEdit.setEditText("Release_DD_05_01_02")
+    d.ciJobEdit.setEditText("")
+    d.show()
+    c.settle()
+
+    jobs = [
+        {"pipeline_id": 1474487, "job_id": job_id, "job_name": name,
+         "ref": "Release_DD_05_01_02", "status": "success",
+         "created_at": "2026-09-17T09:14:00Z", "has_artifacts": True}
+        for job_id, name in ((7, "create_ffi_3p5mb_no_HTSM"),
+                             (5, "dataset-generation"), (1, "build"))
+    ]
+    d.ciBrowseTable.setVisible(True)
+    d._populate_ci_browse_table(jobs)
+    d.ciBrowseTable.setCurrentCell(0, 1)
+    c.settle()
+    c.shoot("gitlab-dialog", window=d,
+            targets=[d.ciBrowseTable, d.ciFetchButton])
+    d.close()
+    c.settle()
+
+
 # ==================================================
 # Embedding into docs/user_guide.html
 # ==================================================
@@ -508,6 +544,7 @@ def main():
     capture_flash_mode(c)
     capture_batch_mode(c)
     capture_parallel_mode(c)
+    capture_gitlab_dialog(c)
     c.w.close()
     c.settle()
 

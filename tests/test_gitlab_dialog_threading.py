@@ -386,6 +386,101 @@ class TestCiBrowseShowsOnlySuccessfulJobs(unittest.TestCase):
         )
 
 
+class TestDownloadSelectedArtifactRealThread(unittest.TestCase):
+    """
+    Phase 4.123 flow: Browse jobs -> click a row (fills Job name and
+    remembers the job) -> Download Selected Artifact downloads that
+    exact job by id. Editing the Job name to something else drops the
+    selection, and the button then resolves by name (latest
+    successful job of that name on the ref).
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.dialog = GitLabFetchDialog(self.window)
+        self.dialog.urlEdit.setText("https://gitlab.com")
+        self.dialog.ciProjectEdit.setText("group/proj")
+        self.dialog.tokenEdit.setText("tok")
+        self.dialog.ciRefEdit.setEditText("Release_DD_05_01_02")
+        self.dialog.ciJobEdit.setEditText("")
+        self.dialog._populate_ci_browse_table([
+            self._job(1, "build"), self._job(7, "create_ffi_3p5mb_no_HTSM"),
+        ])
+
+    def _job(self, job_id, name):
+        return {
+            "pipeline_id": 1474487, "job_id": job_id, "job_name": name,
+            "ref": "Release_DD_05_01_02", "status": "success",
+            "created_at": "2026-09-17T09:14:00Z", "has_artifacts": True,
+        }
+
+    def test_clicking_a_row_fills_job_name_and_remembers_the_job(self):
+        self.dialog.ciBrowseTable.setCurrentCell(1, 1)
+        self.assertEqual(self.dialog.ciJobEdit.currentText(), "create_ffi_3p5mb_no_HTSM")
+        self.assertEqual(self.dialog._ci_selected_job["job_id"], 7)
+        self.assertIn("Selected job #7", self.dialog.logView.toPlainText())
+
+    def test_download_selected_uses_the_clicked_job_id(self):
+        self.dialog.ciBrowseTable.setCurrentCell(1, 1)
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_job_artifact",
+            return_value=b"PK\x03\x04fakezip",
+        ) as by_id, patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+        ) as by_name, patch.object(
+            self.window, '_load_firmware_file', return_value=True
+        ):
+            self.dialog.ciFetchButton.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        by_id.assert_called_once_with(
+            "https://gitlab.com", "group/proj", "tok", job_id=7, ssl_verify=True,
+        )
+        by_name.assert_not_called()
+
+    def test_editing_job_name_drops_selection_and_resolves_by_name(self):
+        self.dialog.ciBrowseTable.setCurrentCell(1, 1)
+        self.dialog.ciJobEdit.setEditText("create_ffi_4mb")
+        self.assertIsNone(self.dialog._ci_selected_job)
+
+        with patch(
+            "gui.gitlab_dialog.gitlab_client.download_latest_artifact",
+            return_value=b"PK\x03\x04fakezip",
+        ) as by_name, patch(
+            "gui.gitlab_dialog.gitlab_client.download_job_artifact",
+        ) as by_id, patch.object(
+            self.window, '_load_firmware_file', return_value=True
+        ):
+            self.dialog.ciFetchButton.click()
+            _run_until(self.app, lambda: self.dialog._thread is None)
+
+        by_name.assert_called_once_with(
+            "https://gitlab.com", "group/proj", "tok",
+            ref="Release_DD_05_01_02", job_name="create_ffi_4mb", ssl_verify=True,
+        )
+        by_id.assert_not_called()
+
+    def test_picking_the_same_name_from_the_combo_keeps_the_selection(self):
+        self.dialog.ciBrowseTable.setCurrentCell(1, 1)
+        self.dialog.ciJobEdit.setCurrentIndex(
+            self.dialog.ciJobEdit.findText("create_ffi_3p5mb_no_HTSM")
+        )
+        self.assertEqual(self.dialog._ci_selected_job["job_id"], 7)
+
+    def test_no_job_at_all_is_refused_without_a_thread(self):
+        with patch("gui.gitlab_dialog.GitLabFetchWorker") as MockWorker:
+            self.dialog.ciFetchButton.click()
+        MockWorker.assert_not_called()
+        self.assertIn("No job selected", self.dialog.statusLabel.text())
+
+    def test_new_browse_results_clear_the_selection(self):
+        self.dialog.ciBrowseTable.setCurrentCell(0, 0)
+        self.assertIsNotNone(self.dialog._ci_selected_job)
+        self.dialog._populate_ci_browse_table([self._job(9, "build")])
+        self.assertIsNone(self.dialog._ci_selected_job)
+
+
 class TestPkgRowDownloadButtonRealThread(unittest.TestCase):
     """
     Covers the per-row "Download" button added to pkgBrowseTable

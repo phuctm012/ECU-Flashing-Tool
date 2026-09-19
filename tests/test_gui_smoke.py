@@ -3833,6 +3833,7 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
         dialog.verifyTlsCheckbox.setChecked(False)
         dialog.ciProjectEdit.setText("group/proj")
         dialog.tokenEdit.setText("tok")
+        dialog.ciJobEdit.setEditText("build_firmware")  # Download Selected needs a job
 
         with unittest.mock.patch(
             "gui.gitlab_dialog.GitLabFetchWorker"
@@ -4096,6 +4097,7 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
         dialog = GitLabFetchDialog(self.window)
         dialog.ciProjectEdit.setText("group/proj")
         dialog.tokenEdit.setText("tok")
+        dialog.ciJobEdit.setEditText("build_firmware")  # Download Selected needs a job
         dialog.downloadFolderEdit.setText("/no/such/folder/sflash_xyz")
 
         with unittest.mock.patch(
@@ -4114,6 +4116,7 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
         dialog = GitLabFetchDialog(self.window)
         dialog.ciProjectEdit.setText("group/proj")
         dialog.tokenEdit.setText("tok")
+        dialog.ciJobEdit.setEditText("build_firmware")  # Download Selected needs a job
         dialog.downloadFolderEdit.setText("")
 
         with unittest.mock.patch(

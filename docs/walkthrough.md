@@ -2704,3 +2704,30 @@ User bấm Fetch Latest Artifact với `Release_DD_05_01_02` + `create_ffi_3p5mb
 
 - `tests.test_gitlab_client` + `tests.test_gitlab_dialog_threading`: **66/66 pass**.
 - Chưa có python-gitlab trên máy dev; user xác nhận với pipeline #1474487 sau khi pull.
+
+## Phase 4.123: GitLab CI Artifact — Chọn Job Trong Bảng Rồi "Download Selected Artifact"
+
+User đề xuất luồng mới cho tab CI Artifact: Browse jobs → bảng chỉ hiện job success (4.121) → **click** vào job cần tải → tool tự điền Job name (hoặc chọn qua dropdown Job name) → bấm **Download Selected Artifact** (thay "Fetch Latest Artifact").
+
+**Thiết kế:**
+- `currentCellChanged` của bảng (click chuột lẫn phím) → `_on_ci_row_selected()`: lưu job dict vào `_ci_selected_job`, điền tên vào `ciJobEdit`, log "Selected job #7 create_ffi_3p5mb_no_HTSM (pipeline #1474487, success)". Bỏ qua row −1 (bảng đang clear).
+- `_on_download_selected_artifact()`: có job đã chọn và tên còn khớp → tải **theo job id** (`download_job_artifact`, chính xác job đó); không → tải theo tên qua `download_latest_artifact` (kèm fallback 4.122); không có gì → cảnh báo "No job selected…" và **không** tạo thread.
+- Gõ/chọn tên khác trong Job name → `_on_ci_job_text_changed()` xoá selection (row không còn mô tả ý người dùng); chọn lại đúng tên từ dropdown thì giữ. Browse lại → xoá selection.
+- Giữ tên attribute `ciFetchButton` (tests, stress script) và alias `_on_fetch_latest_artifact`; chỉ đổi label + handler. Nút Download từng dòng và double-click vẫn giữ làm đường tắt.
+
+3 test cũ bấm nút với Job name rỗng (kiểm folder/TLS) giờ bị guard mới chặn sớm → thêm 1 dòng set job name; guard là đúng vì tên rỗng chỉ có thể 404.
+
+**Guideline:** đoạn CI Artifact viết lại theo luồng mới; ảnh `gitlab-dialog` trong guide trước đây là widget native chưa có stylesheet và nút cũ, lại **không nằm trong `SHOT_NAMES`** của script chụp → thêm `capture_gitlab_dialog()` (offline: bảng nạp thẳng 3 job success, chọn dòng 1, khoanh bảng + nút Download Selected), `shoot()` nhận thêm `window=` để chụp dialog thay vì main window. Từ nay `--embed` sinh lại luôn ảnh này.
+
+### Thay đổi
+
+- **`gui/gitlab_dialog.py`**: `_ci_selected_job`, `_on_ci_row_selected()`, `_on_ci_job_text_changed()`, `_on_download_selected_artifact()`, label nút.
+- **`tests/test_gitlab_dialog_threading.py`**: `TestDownloadSelectedArtifactRealThread` (6 test). **`tests/test_gui_smoke.py`**: 3 test set job name.
+- **`tools/capture_guide_screenshots.py`**: shot `gitlab-dialog`, `shoot(window=)`, `rect_of(window=)`.
+- **`docs/user_guide.html`**: đoạn CI Artifact + ảnh mới 790×803.
+
+### Đã kiểm tra
+
+- `test_gitlab_dialog_threading` + `test_gitlab_client` + `TestGitLabFetchDialogConnectionCard`: OK (tổng 72+ test GitLab).
+- `tools/stress_test.py --section gitlab --section dialogs`: 25/25 PASS.
+- `capture_guide_screenshots.py --only gitlab-dialog --embed`: 1/1 nhúng; nhìn ảnh: bảng 3 job success, dòng 1 đang chọn, Job name đã điền, log "Selected job #7…".

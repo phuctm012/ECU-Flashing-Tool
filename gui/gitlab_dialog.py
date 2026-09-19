@@ -221,6 +221,12 @@ class GitLabFetchDialog(QDialog):
         self._thread = None
         self._worker = None
         self._cancelled = False
+        # The job the operator picked in the Browse table (a job dict
+        # from list_jobs_for_ref()/list_recent_jobs()), or None when
+        # the Job name field is the only thing known. Set by clicking
+        # a row, cleared when the Job name is edited to something
+        # else — see _on_ci_row_selected() / _on_ci_job_text_changed().
+        self._ci_selected_job = None
         # Set for real by _toggle_pkg_browse() when a browse actually
         # runs; the empty default only matters if a row is ever
         # activated without going through that path first (not a
@@ -358,12 +364,16 @@ class GitLabFetchDialog(QDialog):
         # name that's never been browsed still works, this is only
         # a convenience shortcut once real names are known.
         self.ciJobEdit.currentTextChanged.connect(self._save_settings)
+        self.ciJobEdit.currentTextChanged.connect(self._on_ci_job_text_changed)
         grid.addWidget(self.ciJobEdit, 2, 1)
         layout.addLayout(grid)
 
         fetch_row = QHBoxLayout()
-        self.ciFetchButton = QPushButton("Fetch Latest Artifact", page)
-        self.ciFetchButton.clicked.connect(self._on_fetch_latest_artifact)
+        # Attribute name kept as ciFetchButton (tests, tools/stress_test.py);
+        # the label follows the Phase 4.123 flow: Browse jobs... -> click
+        # a row (fills Job name, remembers the job) -> Download Selected.
+        self.ciFetchButton = QPushButton("Download Selected Artifact", page)
+        self.ciFetchButton.clicked.connect(self._on_download_selected_artifact)
         fetch_row.addWidget(self.ciFetchButton)
 
         self.ciBrowseToggle = QPushButton("Browse jobs...", page)
@@ -388,6 +398,7 @@ class GitLabFetchDialog(QDialog):
         self.ciBrowseTable.setMinimumHeight(_BROWSE_TABLE_MIN_HEIGHT)
         self.ciBrowseTable.setVisible(False)
         self.ciBrowseTable.cellDoubleClicked.connect(self._on_ci_row_activated)
+        self.ciBrowseTable.currentCellChanged.connect(self._on_ci_row_selected)
         layout.addWidget(self.ciBrowseTable, 1)
 
         return page
@@ -652,6 +663,8 @@ class GitLabFetchDialog(QDialog):
         hidden = sum(1 for job in jobs if job["status"] != "success")
         jobs = [job for job in jobs if job["status"] == "success"]
 
+        # A fresh list invalidates whatever row was picked before.
+        self._ci_selected_job = None
         self._populate_ci_job_combo(jobs)
 
         self.ciBrowseTable.setRowCount(len(jobs))
@@ -707,13 +720,85 @@ class GitLabFetchDialog(QDialog):
             on_download=self._on_download_ready,
         )
 
-    def _on_fetch_latest_artifact(self):
+    def _on_ci_row_selected(self, row, _col=0, _prev_row=-1, _prev_col=-1):
+        """
+        Single click (or keyboard move) on a Browse row: remember the
+        job and put its name in the Job name field, so "Download
+        Selected Artifact" downloads exactly that job (by id) rather
+        than "the latest job of that name". currentCellChanged also
+        fires with row -1 while the table is being cleared — ignored.
+        """
+
+        if row < 0:
+            return
+        item = self.ciBrowseTable.item(row, 0)
+        if item is None:
+            return
+        job = item.data(Qt.UserRole)
+        if not job:
+            return
+
+        self._ci_selected_job = job
+        if self.ciJobEdit.currentText() != job["job_name"]:
+            self.ciJobEdit.setEditText(job["job_name"])
+        message = (
+            f"Selected job #{job['job_id']} {job['job_name']} "
+            f"(pipeline #{job['pipeline_id']}, {job['status']})."
+        )
+        self.statusLabel.setText(message)
+        self._append_log(message)
+
+    def _on_ci_job_text_changed(self, text):
+        # Typing/picking a different name than the clicked row means
+        # the row no longer describes what the operator wants —
+        # Download Selected then resolves by name instead.
+        job = self._ci_selected_job
+        if job is not None and text != job["job_name"]:
+            self._ci_selected_job = None
+
+    def _on_download_selected_artifact(self):
+        """
+        Download Selected Artifact: the row picked in the Browse table
+        if there is one (exact job, by id); otherwise the newest
+        successful job with the typed name on the chosen ref
+        (download_latest_artifact() and its Phase 4.122 fallback).
+        """
+
+        job_name = self.ciJobEdit.currentText().strip()
+        job = self._ci_selected_job
+
+        if job is not None and job["job_name"] == job_name:
+            if not job["has_artifacts"]:
+                message = (
+                    f"Job #{job['job_id']} ({job['status']}) has no artifact "
+                    f"to download."
+                )
+                self.statusLabel.setText(message)
+                self._append_log(message)
+                return
+            self._run_action(
+                "download_job_artifact", {"job_id": job["job_id"]},
+                on_download=self._on_download_ready,
+            )
+            return
+
+        if not job_name:
+            message = (
+                "No job selected — click Browse jobs... and pick a row, "
+                "or type a job name."
+            )
+            self.statusLabel.setText(message)
+            self._append_log(message)
+            return
 
         self._run_action(
             "fetch_latest_artifact",
-            {"ref": self.ciRefEdit.currentText(), "job_name": self.ciJobEdit.currentText()},
+            {"ref": self.ciRefEdit.currentText(), "job_name": job_name},
             on_download=self._on_download_ready,
         )
+
+    # Kept for callers that still use the old name.
+    _on_fetch_latest_artifact = _on_download_selected_artifact
 
     def _on_download_ready(self, data, suggested_filename):
 
