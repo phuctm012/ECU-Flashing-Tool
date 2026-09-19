@@ -325,22 +325,55 @@ class TestListBranchesAndTags(unittest.TestCase):
             {"name": "v1.0.0", "ref_type": "tag"},
         ])
 
-    def test_fetches_a_single_bounded_page_not_the_whole_history(self):
-        # Same reasoning as list_recent_jobs's equivalent test — must
-        # NOT use _list_all()/get_all=True for either branches or tags.
+    def test_paginates_until_a_short_page(self):
+        # Phase 4.119: one per_page=50 page silently dropped every
+        # branch past the 50th (alphabetical) — must walk pages of
+        # 100 until a short page says there are no more.
         module, gl = _fake_gitlab_module()
         proj = MagicMock()
         gl.projects.get.return_value = proj
-        proj.branches.list.return_value = []
+
+        def branch_pages(page, per_page):
+            sizes = {1: 100, 2: 100, 3: 37}
+            return [self._make_ref(f"b{page}_{i}") for i in range(sizes.get(page, 0))]
+
+        proj.branches.list.side_effect = branch_pages
+        proj.tags.list.side_effect = lambda page, per_page: (
+            [self._make_ref("v1")] if page == 1 else []
+        )
+
+        with _patched_gitlab(module):
+            refs = gitlab_client.list_branches_and_tags(
+                "https://gitlab.com", "group/proj", "tok"
+            )
+
+        branches = [r for r in refs if r["ref_type"] == "branch"]
+        tags = [r for r in refs if r["ref_type"] == "tag"]
+        self.assertEqual(len(branches), 237)
+        self.assertEqual([r["name"] for r in tags], ["v1"])
+        self.assertEqual(proj.branches.list.call_count, 3)   # stopped at the short page
+        self.assertEqual(proj.tags.list.call_count, 1)
+        proj.branches.list.assert_any_call(page=1, per_page=100)
+
+    def test_pagination_is_capped_by_max_refs(self):
+        # A pathological project must not keep the dialog fetching
+        # forever: every page is full, so only ceil(max_refs/100)
+        # pages are requested and the result is cut to max_refs.
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        gl.projects.get.return_value = proj
+        proj.branches.list.side_effect = lambda page, per_page: [
+            self._make_ref(f"b{page}_{i}") for i in range(per_page)
+        ]
         proj.tags.list.return_value = []
 
         with _patched_gitlab(module):
-            gitlab_client.list_branches_and_tags(
-                "https://gitlab.com", "group/proj", "tok", limit=10
+            refs = gitlab_client.list_branches_and_tags(
+                "https://gitlab.com", "group/proj", "tok", max_refs=250
             )
 
-        proj.branches.list.assert_called_once_with(per_page=10)
-        proj.tags.list.assert_called_once_with(per_page=10)
+        self.assertEqual(len(refs), 250)
+        self.assertEqual(proj.branches.list.call_count, 3)
 
     def test_branches_network_error_raises_connectionerror(self):
         module, gl = _fake_gitlab_module()

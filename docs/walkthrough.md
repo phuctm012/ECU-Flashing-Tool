@@ -2630,3 +2630,21 @@ Cũng trong lần dùng này: "Browse jobs" trả `Loaded 0 job(s)` dù nhánh t
 - `tests.test_gitlab_client` + `tests.test_gitlab_dialog_threading`: **59/59 pass**.
 - Stash fix rồi chạy `TestDownloadArtifacts` trên code cũ: fail với `'NonCallableMagicMock' object is not callable` — test tái hiện đúng lỗi thực tế.
 - Chưa có python-gitlab thật trên máy dev để chạy end-to-end; user xác nhận trên máy Windows với server thật.
+
+## Phase 4.119: "Load branches/tags" Chỉ Lấy 50 Branch Đầu
+
+Ngay sau Phase 4.118, user báo "Load branches/tags" không ra đủ nhánh của project thật (log ghi `Loaded 95 branch/tag reference(s)`). Nguyên nhân: `list_branches_and_tags(limit=50)` gọi đúng **một trang** `per_page=50` cho branch và một trang cho tag — 95 = 50 branch + 45 tag (sau khi bỏ trùng tên). GitLab trả branch **theo thứ tự tên**, project có nhiều nhánh feature kiểu `442532_…` (chữ số xếp trước chữ cái) nên chính các nhánh `Release_*` cần dùng bị đẩy ra ngoài trang đầu.
+
+Lý do ban đầu chọn 1 trang là để tránh `get_all=True` quét toàn bộ lịch sử (đúng cho jobs — lịch sử job không có trần). Nhưng branch/tag là **trạng thái hiện tại** của project, có trần tự nhiên, nên phân trang là hợp lý. Thêm helper `_list_pages(manager, per_page=100, max_pages)`: đi từng trang 100 (trần của GitLab API), dừng ở trang ngắn đầu tiên hoặc khi chạm `max_refs` (mặc định 2000 mỗi loại) — project bất thường không làm dialog fetch mãi.
+
+Lưu ý khi sửa test: `test_fetches_a_single_bounded_page_not_the_whole_history` **tồn tại 2 lần** (một trong `TestListRecentJobs`, một trong `TestListBranchesAndTags`); lần thay đầu tiên khớp nhầm vào class jobs và xoá mất cả class header — phải `git checkout` lại file và giới hạn tìm kiếm từ vị trí class branches. Test của jobs vẫn giữ nguyên yêu cầu "chỉ 1 trang".
+
+### Thay đổi
+
+- **`communication/gitlab_client.py`**: `_list_pages()`; `list_branches_and_tags(max_refs=2000)` phân trang, thay `limit=50`.
+- **`tests/test_gitlab_client.py`**: thay test "1 trang" của class branches bằng `test_paginates_until_a_short_page` (237 branch qua 3 trang, dừng đúng ở trang ngắn) và `test_pagination_is_capped_by_max_refs` (250 → 3 trang).
+
+### Đã kiểm tra
+
+- `tests.test_gitlab_client` + `tests.test_gitlab_dialog_threading`: **60/60 pass**.
+- Chưa có python-gitlab trên máy dev; user xác nhận số branch trên server thật sau khi pull.

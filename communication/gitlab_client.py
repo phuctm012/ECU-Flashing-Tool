@@ -146,36 +146,63 @@ def list_recent_jobs(url, project, token, job_name=None, limit=20, ssl_verify=Tr
     return results
 
 
-def list_branches_and_tags(url, project, token, limit=50, ssl_verify=True):
+def _list_pages(manager, per_page=100, max_pages=20, **kwargs):
     """
-    Returns up to `limit` branches PLUS up to `limit` tags for the
-    project (branches first, then tags — the order the reference
-    picker fills its dropdown in), as a list of dicts: name,
-    ref_type ("branch" or "tag"). Used to populate a Branch/tag
-    picker before scoping a job search to one specific ref (see
-    list_jobs_for_ref()).
+    Walks manager.list() page by page (GitLab caps per_page at 100)
+    and stops at the first short page or after `max_pages` pages —
+    i.e. at most per_page*max_pages items. This is the middle ground
+    between _list_all() (unbounded, walks the whole history) and a
+    single per_page= call (silently truncates): right for lists whose
+    size is the project's *current* state, like its live branches and
+    tags, which can easily exceed one page but never grow without
+    bound the way job history does.
+    """
+
+    items = []
+    for page in range(1, max_pages + 1):
+        chunk = list(manager.list(page=page, per_page=per_page, **kwargs))
+        items.extend(chunk)
+        if len(chunk) < per_page:
+            break
+    return items
+
+
+def list_branches_and_tags(url, project, token, max_refs=2000, ssl_verify=True):
+    """
+    Returns every branch PLUS every tag the project currently has
+    (branches first, then tags — the order the reference picker
+    fills its dropdown in), as a list of dicts: name, ref_type
+    ("branch" or "tag"), each side capped at `max_refs`. Used to
+    populate a Branch/tag picker before scoping a job search to one
+    specific ref (see list_jobs_for_ref()).
+
+    Paginated, not a single page: this used to be one
+    per_page=50 call, and GitLab lists branches alphabetically, so a
+    project with more than 50 branches (feature branches named
+    "442532_..." sort before "Release_...") silently dropped the
+    very release branches the operator was looking for — hit for
+    real on gitlab.hella.com, Phase 4.119.
     """
 
     gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
     proj = _get_project(gl, gitlab_module, project)
 
+    per_page = 100
+    max_pages = max(1, -(-max_refs // per_page))   # ceil
+
     try:
-        # Same single-page-not-full-history reasoning as
-        # list_recent_jobs(): a bounded per_page=limit call, never
-        # _list_all()/get_all=True, which would walk every branch/tag
-        # the project has ever had before any limit= ever applies.
-        branches = proj.branches.list(per_page=limit)
+        branches = _list_pages(proj.branches, per_page=per_page, max_pages=max_pages)
     except Exception as e:
         raise GitLabConnectionError(f"Could not list branches: {e}")
 
     try:
-        tags = proj.tags.list(per_page=limit)
+        tags = _list_pages(proj.tags, per_page=per_page, max_pages=max_pages)
     except Exception as e:
         raise GitLabConnectionError(f"Could not list tags: {e}")
 
     return (
-        [{"name": b.name, "ref_type": "branch"} for b in branches]
-        + [{"name": t.name, "ref_type": "tag"} for t in tags]
+        [{"name": b.name, "ref_type": "branch"} for b in branches[:max_refs]]
+        + [{"name": t.name, "ref_type": "tag"} for t in tags[:max_refs]]
     )
 
 
