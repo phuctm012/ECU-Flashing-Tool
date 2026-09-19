@@ -2609,3 +2609,24 @@ Hai lỗi lúc viết script (không phải lỗi app): (1) mốc đóng 240 ms 
 - Vòng lặp 30 lần 2 section với crash-catcher (cùng công cụ đã bắt được 4.116): **30/30 PASS**, 0 crash, 0 treo.
 - Chạy đủ 6 section: **74/74 checkpoint, 65 s, 0 cảnh báo Qt**, `STRESS_RESULT=PASS`.
 - `tests.test_gitlab_dialog_threading` + `tests.test_test_connection_dialog`: 18/18 pass.
+
+## Phase 4.118: Fix "Fetch Latest Artifact" — API python-gitlab Cũ
+
+Lần đầu user dùng "Load from GitLab" với server thật (`gitlab.hella.com`, project `alm/.../SUZ05_APP_Application_Software-Impl`): Load branches/tags OK, Browse jobs liệt kê đúng 16 job của pipeline `Release_DD_05_01_02`, nhưng **Fetch Latest Artifact** báo `Download failed: 'ProjectArtifactManager' object is not callable`.
+
+**Nguyên nhân:** `download_latest_artifact()` gọi `proj.artifacts(ref_name=..., job=...)` — cú pháp của python-gitlab **2.x**. Từ 3.0 `project.artifacts` là `ProjectArtifactManager` với method `download(ref_name=, job=)`; dạng gọi trực tiếp bị deprecated ở 3.x và **bỏ hẳn ở 4.0** — đúng phiên bản `requirements.txt` khuyến nghị (`python-gitlab>=4.0`). Lỗi lọt qua vì máy dev không cài python-gitlab (toàn bộ `tests/test_gitlab_client.py` mock module) và mock `proj` là `MagicMock` — thứ **gọi được với mọi attribute**, nên `proj.artifacts(...)` "chạy" bình thường trong test.
+
+**Sửa:** ưu tiên `proj.artifacts.download(...)`, chỉ rơi về dạng callable khi manager không có `download` (python-gitlab < 3.0). Test: helper `_modern_project()` cho `proj.artifacts` là `NonCallableMagicMock` (đúng hình dạng thật ≥ 3.0) — chạy test mới trên code cũ tái hiện đúng lỗi `not callable`; thêm 1 test cho nhánh legacy.
+
+Cũng trong lần dùng này: "Browse jobs" trả `Loaded 0 job(s)` dù nhánh tồn tại — không phải bug, do ô Job name đang có tên job không tồn tại và Browse dùng ô đó làm bộ lọc khớp chính xác; xoá ô đi là ra đủ 16 job. Đã đề xuất làm thông điệp rõ hơn, chưa làm vì user chưa yêu cầu.
+
+### Thay đổi
+
+- **`communication/gitlab_client.py`**: `download_latest_artifact()` dùng `artifacts.download()` với fallback.
+- **`tests/test_gitlab_client.py`**: `_modern_project()`, 3 test download chuyển sang hình dạng manager, thêm `test_download_latest_artifact_legacy_callable_api`.
+
+### Đã kiểm tra
+
+- `tests.test_gitlab_client` + `tests.test_gitlab_dialog_threading`: **59/59 pass**.
+- Stash fix rồi chạy `TestDownloadArtifacts` trên code cũ: fail với `'NonCallableMagicMock' object is not callable` — test tái hiện đúng lỗi thực tế.
+- Chưa có python-gitlab thật trên máy dev để chạy end-to-end; user xác nhận trên máy Windows với server thật.

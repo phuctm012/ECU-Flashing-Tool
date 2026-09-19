@@ -11,7 +11,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, NonCallableMagicMock
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -468,13 +468,27 @@ class TestListJobsForRef(unittest.TestCase):
                 )
 
 
+def _modern_project():
+    """
+    A project whose .artifacts is shaped like python-gitlab >= 3.0's
+    ProjectArtifactManager: NOT callable, with a download() method.
+    A plain MagicMock is callable for anything, which is exactly how
+    the pre-Phase-4.118 code — calling project.artifacts(...) directly,
+    an API removed in python-gitlab 4.0 — passed these tests while
+    failing against a real 4.x install.
+    """
+    proj = MagicMock()
+    proj.artifacts = NonCallableMagicMock()
+    return proj
+
+
 class TestDownloadArtifacts(unittest.TestCase):
 
     def test_download_latest_artifact_returns_bytes(self):
         module, gl = _fake_gitlab_module()
-        proj = MagicMock()
+        proj = _modern_project()
         gl.projects.get.return_value = proj
-        proj.artifacts.return_value = b"PK\x03\x04zipbytes"
+        proj.artifacts.download.return_value = b"PK\x03\x04zipbytes"
 
         with _patched_gitlab(module):
             data = gitlab_client.download_latest_artifact(
@@ -483,13 +497,33 @@ class TestDownloadArtifacts(unittest.TestCase):
             )
 
         self.assertEqual(data, b"PK\x03\x04zipbytes")
+        proj.artifacts.download.assert_called_once_with(
+            ref_name="main", job="build_firmware"
+        )
+
+    def test_download_latest_artifact_legacy_callable_api(self):
+        # python-gitlab < 3.0: project.artifacts is itself the
+        # callable and has no download() — the fallback path.
+        module, gl = _fake_gitlab_module()
+        proj = MagicMock()
+        proj.artifacts = MagicMock(spec=lambda ref_name, job: None)
+        proj.artifacts.return_value = b"PK\x03\x04legacy"
+        gl.projects.get.return_value = proj
+
+        with _patched_gitlab(module):
+            data = gitlab_client.download_latest_artifact(
+                "https://gitlab.com", "group/proj", "tok",
+                ref="main", job_name="build_firmware",
+            )
+
+        self.assertEqual(data, b"PK\x03\x04legacy")
         proj.artifacts.assert_called_once_with(ref_name="main", job="build_firmware")
 
     def test_download_latest_artifact_no_match_raises_notfounderror(self):
         module, gl = _fake_gitlab_module()
-        proj = MagicMock()
+        proj = _modern_project()
         gl.projects.get.return_value = proj
-        proj.artifacts.side_effect = module.exceptions.GitlabGetError(
+        proj.artifacts.download.side_effect = module.exceptions.GitlabGetError(
             "404", response_code=404
         )
 
@@ -532,9 +566,9 @@ class TestDownloadArtifacts(unittest.TestCase):
 
     def test_download_latest_artifact_network_error_raises_connectionerror(self):
         module, gl = _fake_gitlab_module()
-        proj = MagicMock()
+        proj = _modern_project()
         gl.projects.get.return_value = proj
-        proj.artifacts.side_effect = OSError("Connection reset by peer")
+        proj.artifacts.download.side_effect = OSError("Connection reset by peer")
 
         with _patched_gitlab(module):
             with self.assertRaises(GitLabConnectionError):

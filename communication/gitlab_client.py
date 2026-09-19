@@ -249,8 +249,21 @@ def download_latest_artifact(url, project, token, ref, job_name, ssl_verify=True
     gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
     proj = _get_project(gl, gitlab_module, project)
 
+    # python-gitlab >= 3.0 exposes project.artifacts as a
+    # ProjectArtifactManager whose download() takes ref_name/job;
+    # the older "call project.artifacts(...) directly" form was
+    # deprecated in 3.x and removed in 4.0 — on a 4.x install it
+    # fails with "'ProjectArtifactManager' object is not callable"
+    # (hit for real against gitlab.hella.com, Phase 4.118). Prefer
+    # the manager API; fall back to the callable form only when the
+    # manager has no download() at all (python-gitlab < 3.0).
+    artifacts = proj.artifacts
+    download = getattr(artifacts, "download", None)
+
     try:
-        return proj.artifacts(ref_name=ref, job=job_name)
+        if callable(download):
+            return download(ref_name=ref, job=job_name)
+        return artifacts(ref_name=ref, job=job_name)
     except gitlab_module.exceptions.GitlabGetError as e:
         if getattr(e, "response_code", None) == 404:
             raise GitLabNotFoundError(
