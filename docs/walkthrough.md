@@ -2731,3 +2731,21 @@ User đề xuất luồng mới cho tab CI Artifact: Browse jobs → bảng ch�
 - `test_gitlab_dialog_threading` + `test_gitlab_client` + `TestGitLabFetchDialogConnectionCard`: OK (tổng 72+ test GitLab).
 - `tools/stress_test.py --section gitlab --section dialogs`: 25/25 PASS.
 - `capture_guide_screenshots.py --only gitlab-dialog --embed`: 1/1 nhúng; nhìn ảnh: bảng 3 job success, dòng 1 đang chọn, Job name đã điền, log "Selected job #7…".
+
+## Phase 4.124: GitLab Dialog — Bảng Browse Luôn Hiện, Cao Đúng 3 Dòng
+
+User (ảnh chụp bản 4.121–4.123 trên Windows): mặc định dialog nên hiện sẵn bảng job (trống nếu chưa Browse), tối thiểu 3 dòng — không phải khoảng trống lớn như khi bảng chiếm hết chiều cao dư.
+
+**Sửa:** hai bảng Browse (CI + Package) **luôn visible**, `_BROWSE_TABLE_MIN_HEIGHT` 230 → 128 (header 31 + 3 dòng × 30 + khung); dialog mặc định 790×780 → **790×700** để bảng nhận đúng mức tối thiểu và không còn vùng trống; tab area vẫn nhận stretch nên kéo dialog cao hơn thì bảng cao theo. "Browse jobs..." / "Browse versions..." không còn toggle ẩn/hiện mà chỉ (re)load — mỗi lần bấm là fetch lại; giữ tên `_toggle_*`/`*BrowseToggle` để không đụng tests và stress script.
+
+### Thay đổi
+
+- **`gui/gitlab_dialog.py`**: bỏ `setVisible(False)` ban đầu của 2 bảng, bỏ logic toggle, min height, kích thước dialog.
+- **`tests/test_gui_smoke.py`**: 2 test `*_starts_hidden` → `*_is_always_visible_and_browse_reloads` (bảng hiện, 0 dòng, min height ≥ header + 3 dòng, 2 lần bấm = 2 lần fetch).
+- **`tools/capture_guide_screenshots.py`**: bỏ `setVisible(True)` thừa; **`docs/user_guide.html`**: ảnh `gitlab-dialog` chụp lại (790×701).
+
+### Đã kiểm tra
+
+- `test_gitlab_dialog_threading` + `TestGitLabFetchDialogConnectionCard`: OK.
+- `tools/stress_test.py --section gitlab`: PASS.
+- Render mặc định: 790×701, bảng 128 px = header + 3 dòng trống; log trống.

@@ -461,7 +461,6 @@ def capture_gitlab_dialog(c):
         for job_id, name in ((7, "create_ffi_3p5mb_no_HTSM"),
                              (5, "dataset-generation"), (1, "build"))
     ]
-    d.ciBrowseTable.setVisible(True)
     d._populate_ci_browse_table(jobs)
     d.ciBrowseTable.setCurrentCell(0, 1)
     c.settle()

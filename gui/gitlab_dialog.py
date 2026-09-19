@@ -70,9 +70,11 @@ _CI_ACTIONS = {
 }
 
 
-# Minimum height of an opened Browse table: header + ~6 rows. With the
-# tab area taking all spare height, a larger dialog shows more.
-_BROWSE_TABLE_MIN_HEIGHT = 230
+# Minimum height of a Browse table: header + 3 rows (Phase 4.124: the
+# tables are always shown, empty until Browse has run, and the dialog's
+# default size is tuned so they get exactly this — the tab area still
+# takes any spare height, so a taller dialog shows more rows).
+_BROWSE_TABLE_MIN_HEIGHT = 128
 
 
 def _short_timestamp(iso):
@@ -211,11 +213,10 @@ class GitLabFetchDialog(QDialog):
         super().__init__(parent)
 
         self.setWindowTitle("Load from GitLab")
-        # Tall enough that an opened Browse table shows several rows
-        # without the operator resizing (Phase 4.121 — at 600 px the
-        # table got header + one clipped row); the tab area is the
-        # part that grows, see _build_ui().
-        self.resize(790, 780)
+        # Sized so the (always visible) Browse table shows its 3-row
+        # minimum without a large empty area below it (Phase 4.124);
+        # the tab area is the part that grows, see _build_ui().
+        self.resize(790, 700)
 
         self._main_window = parent
         self._thread = None
@@ -396,7 +397,9 @@ class GitLabFetchDialog(QDialog):
             self.ciBrowseTable.setColumnWidth(column, width)
         header.setStretchLastSection(False)
         self.ciBrowseTable.setMinimumHeight(_BROWSE_TABLE_MIN_HEIGHT)
-        self.ciBrowseTable.setVisible(False)
+        # Always visible — empty until "Browse jobs..." has run, so the
+        # dialog's shape never jumps and the operator sees where the
+        # jobs will appear (Phase 4.124).
         self.ciBrowseTable.cellDoubleClicked.connect(self._on_ci_row_activated)
         self.ciBrowseTable.currentCellChanged.connect(self._on_ci_row_selected)
         layout.addWidget(self.ciBrowseTable, 1)
@@ -437,7 +440,6 @@ class GitLabFetchDialog(QDialog):
         )
         self.pkgBrowseTable.horizontalHeader().setStretchLastSection(True)
         self.pkgBrowseTable.setMinimumHeight(_BROWSE_TABLE_MIN_HEIGHT)
-        self.pkgBrowseTable.setVisible(False)
         self.pkgBrowseTable.cellDoubleClicked.connect(self._on_pkg_row_activated)
         layout.addWidget(self.pkgBrowseTable, 1)
 
@@ -596,30 +598,31 @@ class GitLabFetchDialog(QDialog):
         self._append_log(f"Loaded {len(names)} branch/tag reference(s).")
 
     def _toggle_ci_browse(self):
+        """
+        "Browse jobs...": (re)load the job list into the always-visible
+        table. The name predates Phase 4.124, when this also toggled the
+        table's visibility; kept so callers/tests need no change.
+        """
 
-        opening = not self.ciBrowseTable.isVisible()
-        self.ciBrowseTable.setVisible(opening)
+        ref = self.ciRefEdit.currentText()
+        job_name = self.ciJobEdit.currentText() or None
 
-        if opening:
-            ref = self.ciRefEdit.currentText()
-            job_name = self.ciJobEdit.currentText() or None
-
-            if ref:
-                # A branch/tag is selected — scope the job list to
-                # that ref's own pipeline(s), matching the reference
-                # tool's "pick ref, then load jobs for it" flow,
-                # instead of the project-wide recent-jobs list.
-                self._run_action(
-                    "list_jobs_for_ref", {"ref": ref, "job_name": job_name},
-                    on_list=self._populate_ci_browse_table,
-                )
-            else:
-                # No ref chosen — unchanged, original behavior:
-                # recent jobs across the whole project.
-                self._run_action(
-                    "list_jobs", {"job_name": job_name},
-                    on_list=self._populate_ci_browse_table,
-                )
+        if ref:
+            # A branch/tag is selected — scope the job list to
+            # that ref's own pipeline(s), matching the reference
+            # tool's "pick ref, then load jobs for it" flow,
+            # instead of the project-wide recent-jobs list.
+            self._run_action(
+                "list_jobs_for_ref", {"ref": ref, "job_name": job_name},
+                on_list=self._populate_ci_browse_table,
+            )
+        else:
+            # No ref chosen — unchanged, original behavior:
+            # recent jobs across the whole project.
+            self._run_action(
+                "list_jobs", {"job_name": job_name},
+                on_list=self._populate_ci_browse_table,
+            )
 
     def _populate_ci_job_combo(self, jobs):
         """
@@ -918,21 +921,19 @@ class GitLabFetchDialog(QDialog):
     # ==================================================
 
     def _toggle_pkg_browse(self):
+        """(Re)load the package versions into the always-visible table
+        — see _toggle_ci_browse() about the name."""
 
-        opening = not self.pkgBrowseTable.isVisible()
-        self.pkgBrowseTable.setVisible(opening)
-
-        if opening:
-            # Stash the package name actually used for this browse,
-            # so a later row activation uses the name the list was
-            # fetched for — not whatever packageNameEdit says at
-            # click time, which the user may have since edited (see
-            # _on_pkg_row_activated()).
-            self._pkg_browse_name = self.packageNameEdit.text()
-            self._run_action(
-                "list_packages", {"package_name": self._pkg_browse_name},
-                on_list=self._populate_pkg_browse_table,
-            )
+        # Stash the package name actually used for this browse,
+        # so a later row activation uses the name the list was
+        # fetched for — not whatever packageNameEdit says at
+        # click time, which the user may have since edited (see
+        # _on_pkg_row_activated()).
+        self._pkg_browse_name = self.packageNameEdit.text()
+        self._run_action(
+            "list_packages", {"package_name": self._pkg_browse_name},
+            on_list=self._populate_pkg_browse_table,
+        )
 
     def _populate_pkg_browse_table(self, versions):
 

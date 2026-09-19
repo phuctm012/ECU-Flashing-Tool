@@ -3869,20 +3869,28 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
         self.assertEqual(dialog.tabs.tabText(0), "CI Artifact")
         self.assertEqual(dialog.tabs.tabText(1), "Package Registry")
 
-    def test_ci_browse_table_starts_hidden(self):
+    def test_ci_browse_table_is_always_visible_and_browse_reloads(self):
+        # Phase 4.124: the table is shown (empty) from the start, sized
+        # for 3 rows, and "Browse jobs..." just (re)loads it — every
+        # click fetches, none of them hides the table.
         from gui.gitlab_dialog import GitLabFetchDialog
         dialog = GitLabFetchDialog(self.window)
         dialog.show()
         self.app.processEvents()
-        self.assertFalse(dialog.ciBrowseTable.isVisible())
-        # _run_action() is mocked out here — expanding Browse also
-        # starts a real fetch (a real QThread), which this test has
-        # no way to wait for/clean up; this test only cares about
-        # the visibility toggle. The real fetch-and-populate
-        # behavior (including full QThread lifecycle) is covered by
-        # tests/test_gitlab_dialog_threading.py, which does wait.
-        with unittest.mock.patch.object(dialog, '_run_action'):
+        self.assertTrue(dialog.ciBrowseTable.isVisible())
+        self.assertEqual(dialog.ciBrowseTable.rowCount(), 0)
+        self.assertGreaterEqual(
+            dialog.ciBrowseTable.minimumHeight(),
+            dialog.ciBrowseTable.horizontalHeader().height()
+            + 3 * dialog.ciBrowseTable.verticalHeader().defaultSectionSize(),
+        )
+        # _run_action() is mocked out — a real click starts a real
+        # QThread this test can't wait for; the fetch path itself is
+        # covered by tests/test_gitlab_dialog_threading.py.
+        with unittest.mock.patch.object(dialog, '_run_action') as run:
             dialog.ciBrowseToggle.click()
+            dialog.ciBrowseToggle.click()
+        self.assertEqual(run.call_count, 2)
         self.assertTrue(dialog.ciBrowseTable.isVisible())
 
     def test_ci_row_download_button_disabled_when_job_has_no_artifacts(self):
@@ -4167,27 +4175,29 @@ class TestGitLabFetchDialogPackageTab(unittest.TestCase):
         dialog2 = GitLabFetchDialog(self.window)
         self.assertEqual(dialog2.packageNameEdit.text(), "suzuki-slp1-radar-firmware")
 
-    def test_package_browse_table_starts_hidden(self):
+    def test_package_browse_table_is_always_visible_and_browse_reloads(self):
         from gui.gitlab_dialog import GitLabFetchDialog
         dialog = GitLabFetchDialog(self.window)
         # dialog.show() + processEvents() are required here: Qt's
         # isVisible() on a child widget is always False while the
         # top-level ancestor has never been shown, on any platform
         # (not offscreen-specific) — Task 4's identical
-        # test_ci_browse_table_starts_hidden shipped without this
+        # the CI-table equivalent of this test shipped without this
         # and had to go through a fix round for exactly this reason.
         dialog.show()
         self.app.processEvents()
         # Package table is on Tab 1, so switch to it to test visibility
         dialog.tabs.setCurrentIndex(1)
         self.app.processEvents()
-        self.assertFalse(dialog.pkgBrowseTable.isVisible())
-        # Same reasoning as test_ci_browse_table_starts_hidden above
-        # — _run_action() starts a real QThread this test can't wait
+        self.assertTrue(dialog.pkgBrowseTable.isVisible())   # Phase 4.124: always shown
+        self.assertEqual(dialog.pkgBrowseTable.rowCount(), 0)
+        # _run_action() starts a real QThread this test can't wait
         # for, so it's mocked out; the real fetch path is covered by
         # tests/test_gitlab_dialog_threading.py.
-        with unittest.mock.patch.object(dialog, '_run_action'):
+        with unittest.mock.patch.object(dialog, '_run_action') as run:
             dialog.pkgBrowseToggle.click()
+            dialog.pkgBrowseToggle.click()
+        self.assertEqual(run.call_count, 2)
         self.assertTrue(dialog.pkgBrowseTable.isVisible())
 
     def test_pkg_row_activation_uses_browsed_name_not_live_edit_text(self):
