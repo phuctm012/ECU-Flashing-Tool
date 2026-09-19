@@ -2686,3 +2686,21 @@ Test cũ `test_ci_row_download_button_disabled_when_job_has_no_artifacts` dùng 
 
 - `tests.test_gitlab_dialog_threading` + `TestGitLabFetchDialogConnectionCard`: 46/46 pass; `tests.test_gui_smoke` đầy đủ: OK (chạy nền).
 - Render offscreen với đúng 9 job của pipeline #1474487: 3 success hiện đủ tên, log đếm 6 ẩn, main window vẫn 1100×850.
+
+## Phase 4.122: "Fetch Latest Artifact" 404 Khi Pipeline Bị Blocked
+
+User bấm Fetch Latest Artifact với `Release_DD_05_01_02` + `create_ffi_3p5mb_no_HTSM` (job đã success, nút Download trên dòng đó đang bật) → `No artifact found ...: 404 Not found`.
+
+**Nguyên nhân:** endpoint "latest artifact" của GitLab (`…/jobs/artifacts/<ref>/download?job=<name>`) chỉ nhìn vào **pipeline thành công gần nhất** của ref. Pipeline #1474487 đang **Blocked** (job manual `create_ffi_3p5mb` chưa chạy) nên với GitLab nó không phải "success", dù job cần lấy đã xanh → 404. Với pipeline có manual job thì đây là trạng thái thường trực, không phải ngoại lệ.
+
+**Sửa:** `download_latest_artifact()` khi gặp 404 → `_find_latest_successful_job()` duyệt tối đa 5 pipeline gần nhất của ref (cùng cách `list_jobs_for_ref()` đã làm), lấy job **mới nhất** cùng tên có `status == "success"` và còn `artifacts_file`, rồi tải theo job id (`proj.jobs.get(id).artifacts()` — cùng đường của nút Download từng dòng; `pipeline.jobs.list()` trả `ProjectPipelineJob` không có `artifacts()` nên phải `jobs.get`). Không có job nào phù hợp → `GitLabNotFoundError` như cũ; job tìm được nhưng artifact hết hạn → thông báo nói rõ "(expired?)".
+
+### Thay đổi
+
+- **`communication/gitlab_client.py`**: fallback + helper `_find_latest_successful_job()`.
+- **`tests/test_gitlab_client.py`**: 3 test — fallback chọn đúng job success mới nhất (bỏ qua manual/failed cùng tên); bỏ qua job success nhưng artifact đã hết hạn để lấy pipeline cũ hơn; không có job phù hợp → NotFound và không gọi `jobs.get`.
+
+### Đã kiểm tra
+
+- `tests.test_gitlab_client` + `tests.test_gitlab_dialog_threading`: **66/66 pass**.
+- Chưa có python-gitlab trên máy dev; user xác nhận với pipeline #1474487 sau khi pull.

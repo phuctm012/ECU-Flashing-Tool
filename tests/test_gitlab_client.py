@@ -597,6 +597,106 @@ class TestDownloadArtifacts(unittest.TestCase):
                     "https://gitlab.com", "group/proj", "tok", job_id=999999,
                 )
 
+    def _pipeline_with_jobs(self, pipeline_id, jobs):
+        pipeline = MagicMock()
+        pipeline.id = pipeline_id
+        pipeline.jobs.list.return_value = jobs
+        return pipeline
+
+    def _pipeline_job(self, job_id, name, status, has_artifacts=True):
+        job = MagicMock()
+        job.id = job_id
+        job.name = name
+        job.status = status
+        job.artifacts_file = {"filename": "artifacts.zip"} if has_artifacts else None
+        return job
+
+    def test_falls_back_to_newest_successful_job_when_pipeline_is_not_successful(self):
+        # Phase 4.122: the "latest artifact" endpoint 404s when the
+        # ref's latest pipeline is Blocked/running/failed even though
+        # the wanted job inside it succeeded — walk the pipelines and
+        # download that job by id instead.
+        module, gl = _fake_gitlab_module()
+        proj = _modern_project()
+        gl.projects.get.return_value = proj
+        proj.artifacts.download.side_effect = module.exceptions.GitlabGetError(
+            "404 Not found", response_code=404
+        )
+        proj.pipelines.list.return_value = [
+            self._pipeline_with_jobs(1474487, [
+                self._pipeline_job(1, "build", "success"),
+                self._pipeline_job(2, "create_ffi_3p5mb", "manual"),
+                self._pipeline_job(7, "create_ffi_3p5mb_no_HTSM", "success"),
+                self._pipeline_job(6, "create_ffi_3p5mb_no_HTSM", "failed"),
+            ]),
+        ]
+        full_job = MagicMock()
+        full_job.id = 7
+        full_job.artifacts.return_value = b"PK\x03\x04from-job-7"
+        proj.jobs.get.return_value = full_job
+
+        with _patched_gitlab(module):
+            data = gitlab_client.download_latest_artifact(
+                "https://gitlab.com", "group/proj", "tok",
+                ref="Release_DD_05_01_02", job_name="create_ffi_3p5mb_no_HTSM",
+            )
+
+        self.assertEqual(data, b"PK\x03\x04from-job-7")
+        proj.pipelines.list.assert_called_once_with(
+            ref="Release_DD_05_01_02", order_by="id", sort="desc", per_page=5,
+        )
+        proj.jobs.get.assert_called_once_with(7)
+
+    def test_fallback_skips_successful_job_whose_artifact_expired(self):
+        module, gl = _fake_gitlab_module()
+        proj = _modern_project()
+        gl.projects.get.return_value = proj
+        proj.artifacts.download.side_effect = module.exceptions.GitlabGetError(
+            "404", response_code=404
+        )
+        proj.pipelines.list.return_value = [
+            self._pipeline_with_jobs(2, [
+                self._pipeline_job(20, "build_firmware", "success", has_artifacts=False),
+            ]),
+            self._pipeline_with_jobs(1, [
+                self._pipeline_job(10, "build_firmware", "success"),
+            ]),
+        ]
+        full_job = MagicMock(); full_job.id = 10
+        full_job.artifacts.return_value = b"older-but-present"
+        proj.jobs.get.return_value = full_job
+
+        with _patched_gitlab(module):
+            data = gitlab_client.download_latest_artifact(
+                "https://gitlab.com", "group/proj", "tok",
+                ref="main", job_name="build_firmware",
+            )
+
+        self.assertEqual(data, b"older-but-present")
+        proj.jobs.get.assert_called_once_with(10)
+
+    def test_fallback_with_no_successful_job_raises_notfounderror(self):
+        module, gl = _fake_gitlab_module()
+        proj = _modern_project()
+        gl.projects.get.return_value = proj
+        proj.artifacts.download.side_effect = module.exceptions.GitlabGetError(
+            "404", response_code=404
+        )
+        proj.pipelines.list.return_value = [
+            self._pipeline_with_jobs(1, [
+                self._pipeline_job(1, "build_firmware", "failed"),
+                self._pipeline_job(2, "other_job", "success"),
+            ]),
+        ]
+
+        with _patched_gitlab(module):
+            with self.assertRaises(GitLabNotFoundError):
+                gitlab_client.download_latest_artifact(
+                    "https://gitlab.com", "group/proj", "tok",
+                    ref="main", job_name="build_firmware",
+                )
+        proj.jobs.get.assert_not_called()
+
     def test_download_latest_artifact_network_error_raises_connectionerror(self):
         module, gl = _fake_gitlab_module()
         proj = _modern_project()

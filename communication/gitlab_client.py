@@ -268,9 +268,21 @@ def list_jobs_for_ref(url, project, token, ref, job_name=None, limit=20, ssl_ver
 
 def download_latest_artifact(url, project, token, ref, job_name, ssl_verify=True):
     """
-    Downloads the latest successful job artifact archive for the
-    given ref+job name (GitLab's "download latest artifact" API).
-    Returns raw bytes.
+    Downloads the artifact archive of the most recent successful run
+    of `job_name` on `ref`. Returns raw bytes.
+
+    First try is GitLab's "download latest artifact" API
+    (…/jobs/artifacts/<ref>/download?job=<name>). That endpoint only
+    looks at the latest *successful pipeline* of the ref — a pipeline
+    that is blocked (a manual job still pending), running or failed
+    is not "successful" even when the wanted job inside it is, and
+    GitLab answers 404. Hit for real (Phase 4.122): pipeline
+    #1474487 on Release_DD_05_01_02 was Blocked on a manual job while
+    create_ffi_3p5mb_no_HTSM had already succeeded. So on 404 fall
+    back to walking the ref's recent pipelines for the newest
+    successful job of that name that still has an artifact, and
+    download it by job id — the same path the per-row Download
+    button uses.
     """
 
     gl, gitlab_module = _connect(url, token, ssl_verify=ssl_verify)
@@ -292,13 +304,67 @@ def download_latest_artifact(url, project, token, ref, job_name, ssl_verify=True
             return download(ref_name=ref, job=job_name)
         return artifacts(ref_name=ref, job=job_name)
     except gitlab_module.exceptions.GitlabGetError as e:
+        if getattr(e, "response_code", None) != 404:
+            raise GitLabConnectionError(f"Download failed: {e}")
+        latest_error = e
+    except Exception as e:
+        raise GitLabConnectionError(f"Download failed: {e}")
+
+    job = _find_latest_successful_job(gl, gitlab_module, proj, ref, job_name)
+    if job is None:
+        raise GitLabNotFoundError(
+            f"No artifact found for ref '{ref}', job '{job_name}': "
+            f"{latest_error}"
+        )
+
+    try:
+        return job.artifacts()
+    except gitlab_module.exceptions.GitlabGetError as e:
         if getattr(e, "response_code", None) == 404:
             raise GitLabNotFoundError(
-                f"No artifact found for ref '{ref}', job '{job_name}': {e}"
+                f"Job #{job.id} ({job_name}) on '{ref}' has no artifact "
+                f"(expired?): {e}"
             )
         raise GitLabConnectionError(f"Download failed: {e}")
     except Exception as e:
         raise GitLabConnectionError(f"Download failed: {e}")
+
+
+def _find_latest_successful_job(gl, gitlab_module, proj, ref, job_name, pipelines=5):
+    """
+    Newest job named `job_name` with status "success" and an
+    artifact, across the ref's `pipelines` most recent pipelines
+    (newest first) — regardless of the pipelines' own status. None
+    if there is no such job. Same bounded pipelines->jobs walk as
+    list_jobs_for_ref().
+    """
+
+    try:
+        recent = proj.pipelines.list(
+            ref=ref, order_by="id", sort="desc", per_page=pipelines,
+        )
+    except Exception as e:
+        raise GitLabConnectionError(f"Could not list pipelines for ref '{ref}': {e}")
+
+    for pipeline in recent:
+        try:
+            jobs = pipeline.jobs.list(per_page=100)
+        except Exception as e:
+            raise GitLabConnectionError(
+                f"Could not list jobs for pipeline #{pipeline.id}: {e}"
+            )
+        candidates = [
+            j for j in jobs
+            if j.name == job_name and j.status == "success"
+            and getattr(j, "artifacts_file", None)
+        ]
+        if candidates:
+            newest = max(candidates, key=lambda j: j.id)
+            # pipeline.jobs.list() returns ProjectPipelineJob objects,
+            # which have no artifacts(); fetch the ProjectJob by id.
+            return proj.jobs.get(newest.id)
+
+    return None
 
 
 def download_job_artifact(url, project, token, job_id, ssl_verify=True):
