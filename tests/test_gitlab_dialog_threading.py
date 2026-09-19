@@ -329,6 +329,63 @@ class TestCiRowDownloadButtonRealThread(unittest.TestCase):
         )
 
 
+class TestCiBrowseShowsOnlySuccessfulJobs(unittest.TestCase):
+    """
+    Phase 4.121: Browse jobs lists only status == "success" jobs —
+    the only ones with a downloadable artifact — and says how many
+    it hid, so a short list is never mistaken for an empty branch.
+    """
+
+    def setUp(self):
+        self.app = get_app()
+        self.window = MainWindow()
+        self.dialog = GitLabFetchDialog(self.window)
+
+    def _job(self, job_id, name, status):
+        return {
+            "pipeline_id": 1474487, "job_id": job_id, "job_name": name,
+            "ref": "Release_DD_05_01_02", "status": status,
+            "created_at": "2026-09-17T09:14:00Z",
+            "has_artifacts": status == "success",
+        }
+
+    def test_non_success_jobs_are_hidden_and_counted(self):
+        self.dialog._populate_ci_browse_table([
+            self._job(1, "build", "success"),
+            self._job(2, "cpputest_delta", "skipped"),
+            self._job(3, "create_ffi_3p5mb", "manual"),
+            self._job(4, "create_ffi_3p5mb_no_HTSM", "success"),
+            self._job(5, "create_ffi_4mb", "created"),
+            self._job(6, "create_ffi_4mb_failed", "failed"),
+        ])
+        table = self.dialog.ciBrowseTable
+        self.assertEqual(table.rowCount(), 2)
+        self.assertEqual(
+            [table.item(r, 1).text() for r in range(2)],
+            ["build", "create_ffi_3p5mb_no_HTSM"],
+        )
+        names = [self.dialog.ciJobEdit.itemText(i)
+                 for i in range(self.dialog.ciJobEdit.count())]
+        self.assertEqual(names, ["build", "create_ffi_3p5mb_no_HTSM"])
+        self.assertIn(
+            "Loaded 2 successful job(s) (4 not successful hidden).",
+            self.dialog.logView.toPlainText(),
+        )
+
+    def test_all_success_keeps_plain_log_line(self):
+        self.dialog._populate_ci_browse_table([
+            self._job(1, "build", "success"),
+        ])
+        self.assertEqual(self.dialog.ciBrowseTable.rowCount(), 1)
+        self.assertIn("Loaded 1 job(s).", self.dialog.logView.toPlainText())
+
+    def test_timestamps_are_shortened(self):
+        self.dialog._populate_ci_browse_table([self._job(1, "build", "success")])
+        self.assertEqual(
+            self.dialog.ciBrowseTable.item(0, 4).text(), "2026-09-17 09:14"
+        )
+
+
 class TestPkgRowDownloadButtonRealThread(unittest.TestCase):
     """
     Covers the per-row "Download" button added to pkgBrowseTable

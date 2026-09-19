@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -67,6 +68,20 @@ _CI_ACTIONS = {
     "list_jobs", "fetch_latest_artifact", "download_job_artifact",
     "list_branches_and_tags", "list_jobs_for_ref",
 }
+
+
+# Minimum height of an opened Browse table: header + ~6 rows. With the
+# tab area taking all spare height, a larger dialog shows more.
+_BROWSE_TABLE_MIN_HEIGHT = 230
+
+
+def _short_timestamp(iso):
+    """'2026-09-17T09:14:00.123Z' -> '2026-09-17 09:14' for the
+    Browse tables; anything unexpected is shown untouched."""
+    text = str(iso or "")
+    if len(text) >= 16 and text[10] == "T":
+        return text[:10] + " " + text[11:16]
+    return text
 
 
 class GitLabFetchWorker(QObject):
@@ -196,7 +211,11 @@ class GitLabFetchDialog(QDialog):
         super().__init__(parent)
 
         self.setWindowTitle("Load from GitLab")
-        self.resize(620, 600)
+        # Tall enough that an opened Browse table shows several rows
+        # without the operator resizing (Phase 4.121 — at 600 px the
+        # table got header + one clipped row); the tab area is the
+        # part that grows, see _build_ui().
+        self.resize(790, 780)
 
         self._main_window = parent
         self._thread = None
@@ -228,7 +247,9 @@ class GitLabFetchDialog(QDialog):
         self.tabs = QTabWidget(self)
         self.tabs.addTab(self._build_ci_tab(), "CI Artifact")
         self.tabs.addTab(self._build_package_tab(), "Package Registry")
-        layout.addWidget(self.tabs)
+        # Stretch factor 1: any spare height goes to the tab area (and
+        # so to the Browse tables), never to the fixed-height cards.
+        layout.addWidget(self.tabs, 1)
 
         self.pickerPanel = self._build_picker_panel()
         self.pickerPanel.setVisible(False)
@@ -354,12 +375,21 @@ class GitLabFetchDialog(QDialog):
         self.ciBrowseTable.setHorizontalHeaderLabels(
             ["Pipeline", "Job", "Ref", "Status", "When", "Download"]
         )
-        self.ciBrowseTable.horizontalHeader().setStretchLastSection(True)
+        # The job name is what the operator is scanning for — it gets
+        # every spare pixel; the others get fixed, content-sized widths
+        # (ResizeToContents on Ref/When would claim the width first and
+        # squeeze Job back to a few characters).
+        header = self.ciBrowseTable.horizontalHeader()
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        for column, width in ((0, 72), (2, 158), (3, 64), (4, 118), (5, 104)):
+            header.setSectionResizeMode(column, QHeaderView.Interactive)
+            self.ciBrowseTable.setColumnWidth(column, width)
+        header.setStretchLastSection(False)
+        self.ciBrowseTable.setMinimumHeight(_BROWSE_TABLE_MIN_HEIGHT)
         self.ciBrowseTable.setVisible(False)
         self.ciBrowseTable.cellDoubleClicked.connect(self._on_ci_row_activated)
-        layout.addWidget(self.ciBrowseTable)
+        layout.addWidget(self.ciBrowseTable, 1)
 
-        layout.addStretch(1)
         return page
 
     def _build_package_tab(self):
@@ -395,11 +425,11 @@ class GitLabFetchDialog(QDialog):
             ["Version", "Uploaded", "Download"]
         )
         self.pkgBrowseTable.horizontalHeader().setStretchLastSection(True)
+        self.pkgBrowseTable.setMinimumHeight(_BROWSE_TABLE_MIN_HEIGHT)
         self.pkgBrowseTable.setVisible(False)
         self.pkgBrowseTable.cellDoubleClicked.connect(self._on_pkg_row_activated)
-        layout.addWidget(self.pkgBrowseTable)
+        layout.addWidget(self.pkgBrowseTable, 1)
 
-        layout.addStretch(1)
         return page
 
     def _build_picker_panel(self):
@@ -613,16 +643,31 @@ class GitLabFetchDialog(QDialog):
         if self._cancelled:
             return
 
+        # Only successful jobs are listed: they are the only ones
+        # whose artifact "Fetch Latest Artifact" / Download can get.
+        # A pipeline's 16 jobs are mostly build/test/manual/skipped
+        # noise around the one or two release jobs the operator is
+        # looking for (Phase 4.121). The hidden count is logged so
+        # "Loaded 1 job(s)" is never mistaken for an empty branch.
+        hidden = sum(1 for job in jobs if job["status"] != "success")
+        jobs = [job for job in jobs if job["status"] == "success"]
+
         self._populate_ci_job_combo(jobs)
 
         self.ciBrowseTable.setRowCount(len(jobs))
 
         for row, job in enumerate(jobs):
             self.ciBrowseTable.setItem(row, 0, QTableWidgetItem(str(job["pipeline_id"])))
-            self.ciBrowseTable.setItem(row, 1, QTableWidgetItem(job["job_name"]))
-            self.ciBrowseTable.setItem(row, 2, QTableWidgetItem(job["ref"]))
+            job_item = QTableWidgetItem(job["job_name"])
+            job_item.setToolTip(job["job_name"])     # full name if elided
+            self.ciBrowseTable.setItem(row, 1, job_item)
+            ref_item = QTableWidgetItem(job["ref"])
+            ref_item.setToolTip(job["ref"])
+            self.ciBrowseTable.setItem(row, 2, ref_item)
             self.ciBrowseTable.setItem(row, 3, QTableWidgetItem(job["status"]))
-            self.ciBrowseTable.setItem(row, 4, QTableWidgetItem(job["created_at"]))
+            self.ciBrowseTable.setItem(
+                row, 4, QTableWidgetItem(_short_timestamp(job["created_at"]))
+            )
             self.ciBrowseTable.item(row, 0).setData(Qt.UserRole, job)
 
             # Per-row Download button — matches the originally-
@@ -639,7 +684,13 @@ class GitLabFetchDialog(QDialog):
             )
             self.ciBrowseTable.setCellWidget(row, 5, button)
 
-        self._append_log(f"Loaded {len(jobs)} job(s).")
+        if hidden:
+            self._append_log(
+                f"Loaded {len(jobs)} successful job(s) "
+                f"({hidden} not successful hidden)."
+            )
+        else:
+            self._append_log(f"Loaded {len(jobs)} job(s).")
 
     def _on_ci_row_activated(self, row, _col):
 
@@ -807,7 +858,9 @@ class GitLabFetchDialog(QDialog):
 
         for row, version in enumerate(versions):
             self.pkgBrowseTable.setItem(row, 0, QTableWidgetItem(version["version"]))
-            self.pkgBrowseTable.setItem(row, 1, QTableWidgetItem(version["created_at"]))
+            self.pkgBrowseTable.setItem(
+                row, 1, QTableWidgetItem(_short_timestamp(version["created_at"]))
+            )
             self.pkgBrowseTable.item(row, 0).setData(Qt.UserRole, version)
 
             # Per-row Download button — matches the originally-

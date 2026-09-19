@@ -3888,13 +3888,15 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
         # Regression test for final-review Fix 5's per-row Download
         # button on ciBrowseTable — must stay disabled for a
         # has_artifacts: False row, same as _on_ci_row_activated()'s
-        # existing guard for the double-click path.
+        # existing guard for the double-click path. Since Phase 4.121
+        # only successful jobs are listed at all, so the case that
+        # remains is a successful job whose artifact has expired.
         from gui.gitlab_dialog import GitLabFetchDialog
         dialog = GitLabFetchDialog(self.window)
         dialog._populate_ci_browse_table([
             {
-                "pipeline_id": 101, "job_id": 4822, "job_name": "lint",
-                "ref": "main", "status": "failed",
+                "pipeline_id": 101, "job_id": 4822, "job_name": "build_old",
+                "ref": "main", "status": "success",
                 "created_at": "2026-08-27T09:15:00Z", "has_artifacts": False,
             },
         ])

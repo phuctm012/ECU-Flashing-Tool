@@ -2665,3 +2665,24 @@ Ba hằng `DEFAULT_GITLAB_URL` / `DEFAULT_GITLAB_CI_PROJECT` / `DEFAULT_GITLAB_P
 
 - `TestGitLabFetchDialogConnectionCard` + `test_gitlab_dialog_threading`: 43/43 pass.
 - Mở dialog headless với QSettings trống: 3 ô hiện đúng 3 giá trị mặc định.
+
+## Phase 4.121: GitLab Dialog — Cao Hơn, Bảng Browse Jobs Chỉ Job Success
+
+Dùng thật với pipeline 16 job trên `gitlab.hella.com`, user báo (1) dialog 620×600 quá thấp: mở Browse jobs chỉ thấy header + một dòng bị cắt; (2) yêu cầu chỉ hiện job **success**. Ràng buộc user nêu rõ: chỉ chỉnh dialog "Load from GitLab", **không** đổi kích thước main window.
+
+**Kích thước/bố cục** (`gui/gitlab_dialog.py`, không đụng `.ui` — dialog này xây bằng Python vì nội dung động): `resize(790, 780)`; tab area nhận stretch 1 trong layout chính và bảng Browse nhận stretch 1 trong page (bỏ `addStretch` sau bảng) → mọi chiều cao dư đổ vào bảng; `setMinimumHeight(230)` ≈ 6 dòng. Cột: Job = `Stretch` (thứ người vận hành đang tìm), các cột còn lại `Interactive` với bề rộng cố định (72/158/64/118/104) — thử `ResizeToContents` cho Ref/When trước, kết quả ngược lại vì chúng chiếm hết bề rộng và ép Job xuống vài ký tự. Timestamp rút gọn `2026-09-17T09:14:00.123Z` → `2026-09-17 09:14` (`_short_timestamp()`, áp cho cả bảng Package). Tooltip cho ô Job/Ref khi vẫn bị elide. Render offscreen qua `dialog.grab()` từng bước để nhìn tận mắt (5 lần lặp).
+
+**Lọc success:** `_populate_ci_browse_table()` giữ lại `status == "success"` — chỉ những job này mới có artifact để Fetch/Download; combo Job name cũng chỉ gợi ý các job đó. Số job bị ẩn ghi vào log: `Loaded 3 successful job(s) (6 not successful hidden).` để "3 job" không bị hiểu nhầm là nhánh trống (đúng cái bẫy đã gặp ở Phase 4.118). Lọc ở dialog, không ở `gitlab_client` — client vẫn trả đủ cho chỗ khác (CLI/test).
+
+Test cũ `test_ci_row_download_button_disabled_when_job_has_no_artifacts` dùng job `failed` để kiểm nút Download bị disable — giờ job đó bị ẩn hẳn; đổi sang trường hợp còn ý nghĩa: job `success` nhưng artifact đã hết hạn (`has_artifacts=False`).
+
+### Thay đổi
+
+- **`gui/gitlab_dialog.py`**: kích thước, stretch, min height, cột, `_short_timestamp()`, tooltip, lọc success + log đếm job ẩn.
+- **`tests/test_gitlab_dialog_threading.py`**: `TestCiBrowseShowsOnlySuccessfulJobs` (3 test: lọc + đếm + combo; log thường khi toàn success; timestamp rút gọn).
+- **`tests/test_gui_smoke.py`**: test nút Download disable chuyển sang case artifact hết hạn.
+
+### Đã kiểm tra
+
+- `tests.test_gitlab_dialog_threading` + `TestGitLabFetchDialogConnectionCard`: 46/46 pass; `tests.test_gui_smoke` đầy đủ: OK (chạy nền).
+- Render offscreen với đúng 9 job của pipeline #1474487: 3 success hiện đủ tên, log đếm 6 ẩn, main window vẫn 1100×850.
