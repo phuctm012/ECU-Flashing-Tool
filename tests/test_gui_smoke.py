@@ -48,6 +48,9 @@ from config.settings import (
     SUCCESS_COLOR_DARK,
     DISABLED_BUTTON_FG,
     DISABLED_BUTTON_FG_DARK,
+    DEFAULT_GITLAB_URL,
+    DEFAULT_GITLAB_CI_PROJECT,
+    DEFAULT_GITLAB_PACKAGE_PROJECT,
 )
 from parsers.auto_parser import parse_firmware_file
 
@@ -3758,13 +3761,28 @@ class TestGitLabFetchDialogConnectionCard(unittest.TestCase):
     def test_defaults_when_nothing_saved(self):
         from gui.gitlab_dialog import GitLabFetchDialog
         dialog = GitLabFetchDialog(self.window)
-        self.assertEqual(dialog.urlEdit.text(), "https://gitlab.com")
+        self.assertEqual(dialog.urlEdit.text(), DEFAULT_GITLAB_URL)
         self.assertEqual(dialog.tokenEdit.text(), "")
-        self.assertEqual(dialog.ciProjectEdit.text(), "")
-        self.assertEqual(dialog.pkgProjectEdit.text(), "")
+        self.assertEqual(dialog.ciProjectEdit.text(), DEFAULT_GITLAB_CI_PROJECT)
+        self.assertEqual(dialog.pkgProjectEdit.text(), DEFAULT_GITLAB_PACKAGE_PROJECT)
         self.assertEqual(
             dialog.tokenEdit.echoMode(), dialog.tokenEdit.EchoMode.Password
         )
+
+    def test_empty_saved_project_falls_back_to_team_default(self):
+        # _save_settings() writes every key on any change, so an
+        # untouched field is stored as "" — the default must still
+        # apply then, while a real saved value always wins.
+        from gui.gitlab_dialog import GitLabFetchDialog
+        dialog = GitLabFetchDialog(self.window)
+        dialog.ciProjectEdit.setText("other/team-ci")
+        dialog.pkgProjectEdit.setText("")
+        dialog._save_settings()
+        dialog.close()
+
+        dialog2 = GitLabFetchDialog(self.window)
+        self.assertEqual(dialog2.ciProjectEdit.text(), "other/team-ci")
+        self.assertEqual(dialog2.pkgProjectEdit.text(), DEFAULT_GITLAB_PACKAGE_PROJECT)
 
     def test_fields_persist_across_dialog_instances(self):
         from gui.gitlab_dialog import GitLabFetchDialog

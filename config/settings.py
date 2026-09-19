@@ -7,6 +7,21 @@ APP_VERSION = "3.0"
 APP_AUTHOR = "tranph9"
 APP_AUTHOR_NAME = "TRAN Phuc"
 
+# Defaults for Tools > Load from GitLab. Only the instance host goes in
+# the URL; each project is its full namespace path (everything after the
+# host, no leading slash, no .git). They pre-fill the dialog on first
+# run and whenever the saved field is empty — a saved, non-empty value
+# always wins, so other teams just type their own project once.
+DEFAULT_GITLAB_URL = "https://gitlab.hella.com"
+DEFAULT_GITLAB_CI_PROJECT = (
+    "alm/projects_group/e-ad_group/e-ad_radar_cust_suz05_group/"
+    "SUZ05_APP_Application_Software-Impl"
+)
+DEFAULT_GITLAB_PACKAGE_PROJECT = (
+    "alm/projects_group/e-ad_group/e-ad_radar_cust_suz05_group/"
+    "e-ad-radar-cust-suz05-conan-prod"
+)
+
 # --------------------------------------------------
 # Default Communication Settings
 # --------------------------------------------------

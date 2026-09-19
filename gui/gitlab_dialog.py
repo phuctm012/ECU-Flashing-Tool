@@ -53,7 +53,11 @@ from PySide6.QtWidgets import (
 )
 
 from communication import gitlab_client
-from config.settings import APP_AUTHOR, APP_NAME
+from config.settings import (
+    APP_AUTHOR, APP_NAME,
+    DEFAULT_GITLAB_URL, DEFAULT_GITLAB_CI_PROJECT,
+    DEFAULT_GITLAB_PACKAGE_PROJECT,
+)
 from parsers.auto_parser import FIRMWARE_EXTENSIONS as RECOGNIZED_FIRMWARE_EXTENSIONS
 
 # Which GitLabFetchWorker actions belong to the CI Artifact tab (use
@@ -466,13 +470,25 @@ class GitLabFetchDialog(QDialog):
 
         try:
             s = self._settings
-            self.urlEdit.setText(s.value("gitlab/instanceUrl", "https://gitlab.com", type=str))
+            # `or DEFAULT` rather than QSettings' own default: every
+            # _save_settings() writes all keys, so an untouched field
+            # is stored as "" (not absent) and QSettings would never
+            # fall back on its own — the team default has to apply to
+            # an empty saved value too.
+            self.urlEdit.setText(
+                s.value("gitlab/instanceUrl", "", type=str) or DEFAULT_GITLAB_URL
+            )
             self.tokenEdit.setText(s.value("gitlab/token", "", type=str))
             self.verifyTlsCheckbox.setChecked(s.value("gitlab/verifyTls", True, type=bool))
-            self.ciProjectEdit.setText(s.value("gitlab/ciProject", "", type=str))
+            self.ciProjectEdit.setText(
+                s.value("gitlab/ciProject", "", type=str) or DEFAULT_GITLAB_CI_PROJECT
+            )
             self.ciRefEdit.setEditText(s.value("gitlab/ciRef", "main", type=str))
             self.ciJobEdit.setEditText(s.value("gitlab/ciJobName", "", type=str))
-            self.pkgProjectEdit.setText(s.value("gitlab/packageProject", "", type=str))
+            self.pkgProjectEdit.setText(
+                s.value("gitlab/packageProject", "", type=str)
+                or DEFAULT_GITLAB_PACKAGE_PROJECT
+            )
             self.packageNameEdit.setText(s.value("gitlab/packageName", "", type=str))
             self.downloadFolderEdit.setText(s.value("gitlab/downloadFolder", "", type=str))
         finally:

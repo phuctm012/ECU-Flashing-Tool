@@ -2648,3 +2648,20 @@ Lưu ý khi sửa test: `test_fetches_a_single_bounded_page_not_the_whole_histor
 
 - `tests.test_gitlab_client` + `tests.test_gitlab_dialog_threading`: **60/60 pass**.
 - Chưa có python-gitlab trên máy dev; user xác nhận số branch trên server thật sau khi pull.
+
+## Phase 4.120: Cấu Hình Mặc Định Repo GitLab Của Team
+
+User yêu cầu đặt sẵn repo mặc định cho "Load from GitLab": instance `https://gitlab.hella.com`, CI Artifact project `alm/projects_group/e-ad_group/e-ad_radar_cust_suz05_group/SUZ05_APP_Application_Software-Impl`, Package Registry project `.../e-ad-radar-cust-suz05-conan-prod`.
+
+Ba hằng `DEFAULT_GITLAB_URL` / `DEFAULT_GITLAB_CI_PROJECT` / `DEFAULT_GITLAB_PACKAGE_PROJECT` đặt trong `config/settings.py` (cùng chỗ với metadata app, không chôn trong dialog). Điểm tinh tế: `_save_settings()` ghi **mọi** key mỗi lần có thay đổi, nên ô chưa đụng tới được lưu là `""` chứ không phải "vắng mặt" — default của `QSettings.value()` sẽ không bao giờ kích hoạt trên máy đã từng mở dialog (đúng máy của user: `gitlab/packageProject` đã là `""`). Vì vậy dùng `saved or DEFAULT`: chuỗi rỗng → default, giá trị đã lưu khác rỗng → giữ nguyên. Hệ quả: người dùng cố ý xoá trắng ô sẽ thấy default quay lại ở lần mở sau — chấp nhận được với mục đích "repo mặc định của team", team khác chỉ cần gõ project của mình một lần.
+
+### Thay đổi
+
+- **`config/settings.py`**: 3 hằng mặc định.
+- **`gui/gitlab_dialog.py`**: `_load_settings()` dùng `saved or DEFAULT` cho URL/CI project/Package project.
+- **`tests/test_gui_smoke.py`**: `test_defaults_when_nothing_saved` so với hằng; thêm `test_empty_saved_project_falls_back_to_team_default` (ô rỗng → default, ô đã lưu → giữ).
+
+### Đã kiểm tra
+
+- `TestGitLabFetchDialogConnectionCard` + `test_gitlab_dialog_threading`: 43/43 pass.
+- Mở dialog headless với QSettings trống: 3 ô hiện đúng 3 giá trị mặc định.
