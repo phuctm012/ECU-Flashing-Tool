@@ -2787,4 +2787,4 @@ Lần probe đầu của tôi còn cho kết quả sai lệch: `git stash push <
 
 - `TestMenuBar`: 24/24 pass.
 - Đo minimumSizeHint 3 trạng thái: không stylesheet 800, light 822, dark 822.
-- Full protocol chạy lại sau khi sửa: xem kết quả ở cuối phase.
+- Full protocol chạy lại sau khi sửa: **full suite 541 test OK** (2 skipped, 1336 s), **threading 61/61**, **stress 74/74 checkpoint / 6 section / 63 s / 0 cảnh báo Qt** → merge vào `main`.
