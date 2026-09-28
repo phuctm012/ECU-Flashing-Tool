@@ -2767,3 +2767,24 @@ Trước đó `tableWidgetDatablocks` có size policy Expanding, còn `tableWidg
 - `TestMainWindowConstruction`, `TestCheckedDatablocksFilter`, `TestDatablocksContextMenu`, `TestEmptyDatablocksGuard`: OK.
 - Render trang Data với 1 datablock: bảng 123 px = header 31 + 3×30 + khung 2; 3 hàng (file, dòng "Please click here…", trống); Details ngay bên dưới.
 - `capture_guide_screenshots.py --embed`: 13/13.
+
+## Phase 4.126: Sửa Hệ Quả Của 4.125 — "Resize Medium" Thấp Hơn Minimum Mới
+
+Chạy lại full protocol trước khi merge vào `main`: threading 61/61 OK, stress 74/74 PASS, nhưng **full suite fail 1 test** — `TestMenuBar.test_resize_after_full_screen_exits_full_screen_first` mong `(1366, 789)` nhưng nhận `(1366, 822)`. Theo rule pre-push: dừng, không merge, truy nguyên nhân.
+
+**Nguyên nhân là chính Phase 4.125.** Ghim bảng Datablocks cố định 3 hàng làm chiều cao tối thiểu của cửa sổ tăng. Đo bằng cách checkout đúng 3 file của 4.125 về commit cha rồi so sánh: minimum **779 → 800** (không stylesheet). Đo tiếp với stylesheet thật (`main.py` áp lúc khởi động — bản offscreen bỏ qua bước này nên ra số nhỏ hơn): **822**. Đó là lý do full suite thấy 822 còn probe cô lập ban đầu thấy 800 — không phải test "chập chờn".
+
+Lần probe đầu của tôi còn cho kết quả sai lệch: `git stash push <file>` trên cây **sạch** không lưu gì, nên cả hai lần đo đều chạy trên code mới và cùng ra 800. Cách đúng là `git checkout <commit>~1 -- <file>`.
+
+**Sửa:** hằng `action_resize_medium()` 789 → **822** (giữ đúng convention đã ghi trong chính comment của nó: literal này phải bám sát minimum thật, nếu không menu "Medium" âm thầm làm việc khác điều nó nói — Qt tự kẹp cửa sổ đã show lên minimum). Test cửa sổ **chưa show** (không bị kẹp) so khớp chính xác 1366×822; test cửa sổ **đã show** đổi sang `max(822, minimumSizeHint().height())` — đúng pattern mà test kế bên đã dùng kèm cảnh báo "giá trị pixel này đã trôi 4 lần".
+
+### Thay đổi
+
+- **`gui/menu_bar.py`**: `_resize_window(1366, 822)`, comment ghi rõ cách đo (có stylesheet) và vì sao 4.125 làm nó đổi.
+- **`tests/test_gui_smoke.py`**: `test_resize_medium_sets_exact_size` → 822; `test_resize_after_full_screen_exits_full_screen_first` → `max(822, minimumSizeHint())` thay literal.
+
+### Đã kiểm tra
+
+- `TestMenuBar`: 24/24 pass.
+- Đo minimumSizeHint 3 trạng thái: không stylesheet 800, light 822, dark 822.
+- Full protocol chạy lại sau khi sửa: xem kết quả ở cuối phase.

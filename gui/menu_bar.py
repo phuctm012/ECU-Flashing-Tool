@@ -401,14 +401,18 @@ class MenuBarMixin:
 
     def action_resize_medium(self):
 
-        # 789 -- the panel-layout compaction that let the 6-channel/
-        # 3-row Parallel Flash grid fit (docs/walkthrough.md) dropped
-        # the window's true minimum height back down to the same
-        # value as the original 4-channel/2-row layout; same "keep
-        # this synced to reality" reasoning as this constant's prior
-        # changes (see tests/test_gui_smoke.py's
-        # test_resize_medium_sets_exact_size).
-        self._resize_window(1366, 789)
+        # 822 -- the window's true minimum height, measured with the
+        # app stylesheet applied (main.py applies it; without it the
+        # minimum is only 800, which is why an offscreen probe that
+        # skips setStyleSheet() reports a smaller number). Pinning the
+        # Datablocks table to three rows (Phase 4.125) took it from
+        # 789 to this; same "keep this synced to reality" reasoning as
+        # this constant's prior changes (see tests/test_gui_smoke.py's
+        # test_resize_medium_sets_exact_size). Asking for less is not
+        # a bug -- Qt clamps a shown window back up to its minimum --
+        # but then the menu item silently does something other than
+        # what it says.
+        self._resize_window(1366, 822)
 
     def action_resize_large(self):
 

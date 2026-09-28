@@ -2992,14 +2992,14 @@ class TestMenuBar(unittest.TestCase):
 
     def test_resize_medium_sets_exact_size(self):
         self.window.ui.actionResizeMedium.trigger()
-        # 789 -- see gui/menu_bar.py's action_resize_medium() for why
+        # 822 -- see gui/menu_bar.py's action_resize_medium() for why
         # this literal tracks the window's true minimum height. A
         # never-shown window (this test never calls .show()) isn't
         # clamped to that minimum regardless -- see the sibling
         # comment on test_resize_after_maximize_un_maximizes_first
         # for the case that IS.
         self.assertEqual(
-            self.window.size().toTuple(), (1366, 789)
+            self.window.size().toTuple(), (1366, 822)
         )
 
     def test_resize_large_sets_exact_size(self):
@@ -3045,8 +3045,19 @@ class TestMenuBar(unittest.TestCase):
         self.window.ui.actionResizeMedium.trigger()
 
         self.assertFalse(self.window.isFullScreen())
+        # Same clamp as test_resize_default_after_maximize_restores_size
+        # above: once shown, Qt raises any resize() below the window's
+        # true minimum back up to it, and that minimum moves whenever a
+        # page's layout changes (pinning the Datablocks table to three
+        # rows in Phase 4.125 took it from 779 to 800, which is what
+        # made the old hardcoded 789 here fail). Assert against
+        # max(requested, minimumSizeHint()) so the test keeps checking
+        # what it is about — full screen was exited and Resize Medium
+        # was applied — instead of a pixel literal that drifts.
+        self.assertEqual(self.window.width(), 1366)
         self.assertEqual(
-            self.window.size().toTuple(), (1366, 789)
+            self.window.height(),
+            max(822, self.window.minimumSizeHint().height()),
         )
 
     def test_export_report_action_calls_export_report(self):
