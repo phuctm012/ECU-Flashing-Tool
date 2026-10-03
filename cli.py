@@ -20,11 +20,18 @@
 # Usage:
 #   python cli.py info tests/sample.hex
 #   python cli.py flash tests/sample.hex
-#   python cli.py flash firmware.s3 --hardware vector --channel 1 \
+#   python cli.py flash app.s3 calib.s3 --hardware vector --channel 1 \
 #       --sequence suzuki --radar-side s1
 #   python cli.py list-hardware
 #   python cli.py test-connection --hardware vector --channel 0 \
 #       --sequence suzuki --verbose
+#   python cli.py batch firmware.s3 --count 5 --pause \
+#       --report batch.html
+#   python cli.py parallel firmware.s3 \
+#       --unit "name=Left,channel=0,side=s0" \
+#       --unit "name=Right,channel=1,side=s1"
+#   python cli.py gitlab jobs --ref main --success-only
+#   python cli.py flash --project line1.sfproj
 #
 # Note: real Vector hardware (VN1640A/VN1630) requires the
 # Vector XL Driver Library, which is Windows-only — the
@@ -34,6 +41,7 @@
 # ==================================================
 
 import argparse
+import os
 import sys
 
 from PySide6.QtWidgets import QApplication
@@ -45,6 +53,7 @@ from config.settings import (
 )
 from parsers.auto_parser import parse_firmware_file
 from parsers.hex_parser import HexParseError
+from communication.security_dll import bitness_mismatch
 from communication.vector_can import (
     detect_vector_channels,
     detect_vector_channels_with_error,
@@ -55,6 +64,25 @@ from core.flash_sequence import (
     build_suzuki_slp1_flash_sequence,
 )
 from core.flash_controller import FlashWorker
+from core.batch_runner import BatchRunner
+from core.flash_unit import (
+    UnitSpecError,
+    build_units,
+    load_units_file,
+    parse_unit_spec,
+)
+from core.parallel_runner import ParallelRunner
+from core.project_config import ProjectFileError, load_project
+from core.report import (
+    RESULT_ABORTED,
+    RESULT_FAIL,
+    RESULT_PASS,
+    RunRecord,
+    write_json_summary,
+    write_report_html,
+    write_trace_csv,
+)
+from cli_gitlab import add_gitlab_subparser
 
 
 # ==================================================
@@ -92,11 +120,16 @@ def _parse_hex_bytes(value):
         )
 
 
-def _make_trace_handlers(verbose):
+def _make_trace_handlers(verbose, record=None):
     """
-    Returns (on_trace_message, on_trace_row) print callbacks
-    for FlashWorker.trace_message/trace_row — shared by any
-    command that wants --verbose CAN/UDS trace output.
+    Returns (on_trace_message, on_trace_row) callbacks for
+    FlashWorker.trace_message/trace_row — shared by any command
+    that wants --verbose CAN/UDS trace output.
+
+    Printing is gated on --verbose, but recording into `record`
+    is not: --report/--trace-csv must contain the full trace
+    whether or not the operator also wanted it on screen (the
+    GUI's Trace tab fills unconditionally too).
     """
 
     def on_trace_message(message):
@@ -104,6 +137,8 @@ def _make_trace_handlers(verbose):
             print(f"      TRACE: {message}")
 
     def on_trace_row(row):
+        if record is not None:
+            record.add_trace_row(row)
         if not verbose:
             return
         req = f"{row.get('req_target') or '':<16} {row.get('req_data') or ''}"
@@ -114,6 +149,261 @@ def _make_trace_handlers(verbose):
         print(f"      TRACE: {req}{resp}")
 
     return on_trace_message, on_trace_row
+
+
+# ==================================================
+# --project / option resolution
+# ==================================================
+#
+# Every option a .sfproj can supply is declared with
+# default=None, so "not given on the command line" is
+# distinguishable from "given, and happens to equal the
+# default". _resolve_config() then fills each one in priority
+# order: explicit flag > project file > built-in default.
+# Without --project the project layer is simply empty, which is
+# why plain `cli.py flash file.hex` behaves exactly as before.
+# ==================================================
+
+PROJECT_OVERRIDABLE_DEFAULTS = {
+    "hardware": "virtual",
+    "channel": 0,
+    "serial": None,
+    "sequence": "suzuki",
+    "radar_side": "s0",
+    "can_fd": False,
+    "security_dll": None,
+    "compression": 0x00,
+    "encryption": 0x00,
+    "tester_serial": None,
+}
+
+# .sfproj key -> CLI option name, for the subset above that a
+# project actually stores.
+_PROJECT_KEY_TO_OPTION = {
+    "hardware": "hardware",
+    "channel": "channel",
+    "serial": "serial",
+    "sequence": "sequence",
+    "radar_side": "radar_side",
+    "can_fd": "can_fd",
+    "security_dll": "security_dll",
+    "compression": "compression",
+    "encryption": "encryption",
+    "tester_serial": "tester_serial",
+}
+
+
+def _resolve_config(args):
+    """
+    Mutates `args` in place, resolving every
+    PROJECT_OVERRIDABLE_DEFAULTS option and attaching the loaded
+    project (if any) as args.project_data.
+
+    Returns None on success, or an exit code if --project could
+    not be read — an unreadable project is fatal: silently
+    falling back to the built-in defaults could flash the wrong
+    ECU with the wrong firmware.
+    """
+
+    project = None
+
+    if getattr(args, "project", None):
+        try:
+            project = load_project(args.project)
+        except ProjectFileError as e:
+            print(f"Project error: {e}", file=sys.stderr)
+            return 2
+
+        if project["missing_files"]:
+            print("Project error: firmware file(s) missing:",
+                  file=sys.stderr)
+            for path in project["missing_files"]:
+                print(f"  {path}", file=sys.stderr)
+            return 2
+
+    args.project_data = project
+
+    for key, default in PROJECT_OVERRIDABLE_DEFAULTS.items():
+        if getattr(args, key, None) is not None:
+            continue
+        option = _PROJECT_KEY_TO_OPTION.get(key)
+        if project is not None and option is not None:
+            value = project.get(key)
+            if value is not None:
+                setattr(args, key, value)
+                continue
+        setattr(args, key, default)
+
+    return _check_security_dll(args)
+
+
+def _check_security_dll(args):
+    """
+    Refuses to start when --security-dll points at something that
+    cannot possibly load, before any CAN traffic happens — the
+    headless twin of ConfigureTabMixin.security_access_start_error().
+
+    Only real hardware is checked: FlashWorker never loads the DLL
+    for the Virtual ECU Simulator (it always uses the built-in
+    algorithm), so a stale --security-dll is harmless there.
+
+    The case worth failing fast on is a 32-bit Seed&Key DLL in a
+    64-bit SFlash, which no amount of retrying fixes — and which,
+    in a PyInstaller build, otherwise surfaces as PyInstaller's
+    misleading "not found when the application was frozen".
+    """
+
+    path = getattr(args, "security_dll", None)
+
+    if not path or getattr(args, "hardware", "virtual") == "virtual":
+        return None
+
+    if not os.path.isfile(path):
+        print(
+            f"Security DLL not found: {path}", file=sys.stderr,
+        )
+        return 2
+
+    mismatch = bitness_mismatch(path)
+    if mismatch:
+        print(
+            f"Cannot load Security DLL "
+            f"{os.path.basename(path)}: {mismatch}",
+            file=sys.stderr,
+        )
+        return 2
+
+    return None
+
+
+def _project_firmware_files(args):
+    """
+    The firmware paths a command should use: the positional
+    files when given, else the project's ticked files. Explicit
+    paths win so a project can be reused for a one-off file
+    without editing it.
+    """
+
+    files = list(getattr(args, "file", None) or [])
+
+    if files:
+        return files
+
+    project = getattr(args, "project_data", None)
+    if project is not None:
+        return list(project["firmware_files"])
+
+    return []
+
+
+def _load_datablocks(args, quiet=False):
+    """
+    Parses every firmware file for this run, in the order given.
+    Returns (datablocks, exit_code) — exit_code is None on
+    success, 2 on a parse error or when there's nothing to flash
+    (both of which the GUI surfaces as a dialog before any CAN
+    traffic happens).
+    """
+
+    paths = _project_firmware_files(args)
+
+    if not paths:
+        print(
+            "No firmware file given. Pass one or more file paths, "
+            "or --project <file>.sfproj.",
+            file=sys.stderr,
+        )
+        return [], 2
+
+    datablocks = []
+
+    for path in paths:
+        try:
+            datablocks.append(
+                parse_firmware_file(
+                    path, base_address=args.base_address
+                )
+            )
+        except HexParseError as e:
+            print(f"Parse error ({path}): {e}", file=sys.stderr)
+            return [], 2
+
+    if not quiet:
+        for datablock in datablocks:
+            _print_datablock_info(datablock)
+
+    return datablocks, None
+
+
+# ==================================================
+# Report artefacts (--report / --trace-csv / --json-summary)
+# ==================================================
+
+def _config_rows(args, units=None):
+    """The Summary table's rows, mirroring the GUI report's."""
+
+    if units:
+        target = ", ".join(unit.describe() for unit in units)
+    elif args.hardware == "virtual":
+        target = "Virtual ECU Simulator"
+    else:
+        target = f"Vector channel {args.channel}"
+        if args.serial:
+            target += f" (serial {args.serial})"
+
+    rows = [
+        ("Hardware", target),
+        ("Radar Side", args.radar_side),
+        ("Flash Sequence", args.sequence),
+        (
+            "Security Access DLL",
+            (
+                f"{args.security_dll} "
+                f"({args.security_dll_signature} contract)"
+                if args.security_dll else "Built-in algorithm"
+            ),
+        ),
+        ("Bitrate", f"{args.bitrate} bps"),
+        ("CAN FD", "Yes" if args.can_fd else "No"),
+    ]
+
+    if getattr(args, "project", None):
+        rows.append(("Project", args.project))
+
+    return rows
+
+
+def _write_report_artefacts(args, record):
+    """
+    Writes whichever of --report / --trace-csv / --json-summary
+    were asked for. A write failure is reported but never
+    changes the run's exit code — the flash already happened,
+    and reporting its result as a failure because a report file
+    couldn't be written would be worse than the missing file.
+    """
+
+    for option, writer, label in (
+        ("report", write_report_html, "HTML report"),
+        ("trace_csv", None, "Trace CSV"),
+        ("json_summary", write_json_summary, "JSON summary"),
+    ):
+        path = getattr(args, option, None)
+        if not path:
+            continue
+
+        try:
+            if option == "trace_csv":
+                write_trace_csv(path, record.trace_rows)
+            else:
+                writer(path, record)
+        except OSError as e:
+            print(
+                f"Warning: could not write {label} to {path}: {e}",
+                file=sys.stderr,
+            )
+            continue
+
+        print(f"{label} written to {path}")
 
 
 def _resolve_can_ids(args):
@@ -204,15 +494,30 @@ def _print_datablock_info(datablock, indent=""):
 
 def cmd_info(args):
 
-    try:
-        datablock = parse_firmware_file(
-            args.file, base_address=args.base_address
-        )
-    except HexParseError as e:
-        print(f"Parse error: {e}", file=sys.stderr)
-        return 2
+    datablocks = []
 
-    _print_datablock_info(datablock)
+    for path in args.file:
+        try:
+            datablocks.append(
+                parse_firmware_file(
+                    path, base_address=args.base_address
+                )
+            )
+        except HexParseError as e:
+            print(f"Parse error ({path}): {e}", file=sys.stderr)
+            return 2
+
+    for datablock in datablocks:
+        _print_datablock_info(datablock)
+
+    if len(datablocks) > 1:
+        total = sum(db.total_size for db in datablocks)
+        segments = sum(db.segment_count for db in datablocks)
+        print(
+            f"\nTotal: {len(datablocks)} datablock(s), "
+            f"{segments} segment(s), {total} bytes"
+        )
+
     return 0
 
 
@@ -278,17 +583,13 @@ def _build_steps(args, datablocks):
 
 def cmd_flash(args):
 
-    try:
-        datablock = parse_firmware_file(
-            args.file, base_address=args.base_address
-        )
-    except HexParseError as e:
-        print(f"Parse error: {e}", file=sys.stderr)
-        return 2
+    exit_code = _resolve_config(args)
+    if exit_code is not None:
+        return exit_code
 
-    if not args.quiet:
-        _print_datablock_info(datablock)
-    datablocks = [datablock]
+    datablocks, exit_code = _load_datablocks(args, quiet=args.quiet)
+    if exit_code is not None:
+        return exit_code
 
     steps = _build_steps(args, datablocks)
 
@@ -318,11 +619,16 @@ def cmd_flash(args):
 
     app = QApplication.instance() or QApplication(sys.argv)
 
+    record = RunRecord("flash", _config_rows(args))
+    record.datablocks = datablocks
+
     worker = FlashWorker(
         steps=steps,
         datablocks=datablocks,
         use_virtual=use_virtual,
         security_dll_path=args.security_dll,
+        security_dll_signature=args.security_dll_signature,
+        security_dll_variant=args.security_dll_variant,
         keepalive_functional=(args.sequence == "suzuki"),
         can_channel=args.channel,
         can_serial=args.serial,
@@ -342,6 +648,7 @@ def cmd_flash(args):
 
     def on_step_started(description):
         step_counter["n"] += 1
+        record.add_step(description)
         if not args.quiet:
             print(f"  [{step_counter['n']}/{total_steps}] {description}")
 
@@ -349,7 +656,9 @@ def cmd_flash(args):
         if not args.quiet:
             print(f"    {message}")
 
-    on_trace_message, on_trace_row = _make_trace_handlers(args.verbose)
+    on_trace_message, on_trace_row = _make_trace_handlers(
+        args.verbose, record
+    )
 
     def on_segment_progress(seg_idx, sent, total):
         if args.quiet or total <= 0:
@@ -389,13 +698,19 @@ def cmd_flash(args):
         worker.run()
     except KeyboardInterrupt:
         print("\nInterrupted by user.", file=sys.stderr)
+        record.finish(RESULT_ABORTED)
+        _write_report_artefacts(args, record)
         return 130
 
     if result["finished"]:
+        record.finish(RESULT_PASS)
         print("\nFlash completed successfully.")
+        _write_report_artefacts(args, record)
         return 0
 
+    record.finish(RESULT_FAIL)
     print("\nFlash aborted / failed.", file=sys.stderr)
+    _write_report_artefacts(args, record)
     return 1
 
 
@@ -416,6 +731,10 @@ def cmd_flash(args):
 
 def cmd_test_connection(args):
 
+    exit_code = _resolve_config(args)
+    if exit_code is not None:
+        return exit_code
+
     tx_id, rx_id = _resolve_can_ids(args)
     use_virtual = args.hardware == "virtual"
     functional = (args.sequence == "suzuki")
@@ -434,7 +753,11 @@ def cmd_test_connection(args):
 
     app = QApplication.instance() or QApplication(sys.argv)
 
-    on_trace_message, on_trace_row = _make_trace_handlers(args.verbose)
+    record = RunRecord("test-connection", _config_rows(args))
+
+    on_trace_message, on_trace_row = _make_trace_handlers(
+        args.verbose, record
+    )
 
     # Reuses FlashWorker only for its CAN/UDS connection setup
     # (virtual vs. Vector, Security DLL loading, trace
@@ -448,6 +771,8 @@ def cmd_test_connection(args):
         datablocks=[],
         use_virtual=use_virtual,
         security_dll_path=args.security_dll,
+        security_dll_signature=args.security_dll_signature,
+        security_dll_variant=args.security_dll_variant,
         can_channel=args.channel,
         can_serial=args.serial,
         can_tx_id=tx_id,
@@ -463,12 +788,16 @@ def cmd_test_connection(args):
         worker._setup_uds_client()
     except Exception as e:
         print(f"Connection failed: {e}", file=sys.stderr)
+        record.add_step(f"Connection failed: {e}")
+        record.finish(RESULT_FAIL)
+        _write_report_artefacts(args, record)
         return 1
 
     uds = worker._uds_client
     ok = True
 
     def step(label):
+        record.add_step(label)
         if not args.quiet:
             print(f"  [OK] {label}")
 
@@ -536,10 +865,501 @@ def cmd_test_connection(args):
         worker._cleanup()
 
     if ok:
+        record.finish(RESULT_PASS)
         print("\nConnection test PASSED — ECU reachable.")
+        _write_report_artefacts(args, record)
         return 0
 
+    record.finish(RESULT_FAIL)
+    _write_report_artefacts(args, record)
     return 1
+
+
+# ==================================================
+# Commands: batch / parallel (multi-ECU)
+# ==================================================
+#
+# Both resolve their ECU list the same way (--unit specs, a
+# --units-file, or --count copies of the global flags), load the
+# same firmware, and report the same way — they differ only in
+# whether the units run one after another (batch, with an
+# Identify step per unit like the GUI's Batch Flash) or all at
+# once (parallel, one CAN channel each like Parallel Flash).
+# ==================================================
+
+def _resolve_units(args, name_prefix):
+    """
+    Returns (units, exit_code). --units-file and --unit may be
+    combined (file first, then the inline ones), so a standing
+    line definition can be extended for one run without editing
+    the file.
+    """
+
+    field_dicts = []
+
+    try:
+        if getattr(args, "units_file", None):
+            field_dicts.extend(load_units_file(args.units_file))
+        for spec in getattr(args, "unit", None) or []:
+            field_dicts.append(parse_unit_spec(spec))
+    except UnitSpecError as e:
+        print(f"Unit error: {e}", file=sys.stderr)
+        return [], 2
+
+    tx_id, rx_id = _resolve_can_ids(args)
+
+    defaults = {
+        "hardware": args.hardware,
+        "channel": args.channel,
+        "serial": args.serial,
+        "side": args.radar_side,
+        "functional_id": 0x700,
+    }
+
+    # Only pass the resolved IDs along as defaults when the
+    # operator actually pinned them; otherwise each unit derives
+    # its own from its own side.
+    if args.tx_id is not None:
+        defaults["tx_id"] = tx_id
+    if args.rx_id is not None:
+        defaults["rx_id"] = rx_id
+
+    try:
+        units = build_units(
+            field_dicts, defaults,
+            count=getattr(args, "count", 1) or 1,
+            name_prefix=name_prefix,
+        )
+    except (UnitSpecError, TypeError) as e:
+        print(f"Unit error: {e}", file=sys.stderr)
+        return [], 2
+
+    return units, None
+
+
+def _print_unit_table(units):
+
+    print(f"{len(units)} unit(s):")
+    for i, unit in enumerate(units, 1):
+        print(f"  [{i}] {unit.label}: {unit.describe()}")
+    print()
+
+
+def _unit_summary(results):
+    """Prints the per-unit tally and returns the exit code."""
+
+    counts = {RESULT_PASS: 0, RESULT_FAIL: 0, RESULT_ABORTED: 0}
+    for record in results:
+        counts[record["result"]] = counts.get(record["result"], 0) + 1
+
+    print()
+    print("=" * 52)
+    for record in results:
+        reason = f" — {record['reason']}" if record["reason"] else ""
+        serial = f" [{record['serial']}]" if record["serial"] else ""
+        print(
+            f"  {record['result']:<8} {record['name']}{serial} "
+            f"({record['duration']}s){reason}"
+        )
+    print("=" * 52)
+    print(
+        f"  PASS {counts[RESULT_PASS]} | "
+        f"FAIL {counts[RESULT_FAIL]} | "
+        f"ABORTED {counts[RESULT_ABORTED]}"
+    )
+
+    if not results:
+        return 1
+
+    return 0 if counts[RESULT_FAIL] == 0 and counts[RESULT_ABORTED] == 0 else 1
+
+
+class _CliRunListener:
+    """
+    Prints a multi-ECU run as it happens. Every hook is called
+    with the unit it belongs to so parallel output stays
+    attributable — ParallelRunner holds its output lock across
+    each call, so a line never interleaves with another
+    channel's.
+    """
+
+    def __init__(self, args, record, show_progress=True):
+        self.args = args
+        self.record = record
+        self.show_progress = show_progress
+        self._on_trace_message, self._on_trace_row = (
+            _make_trace_handlers(args.verbose, record)
+        )
+        self._segment_pct = {}
+
+    def _prefix(self, unit):
+        return f"[{unit.label}]"
+
+    def on_unit_started(self, index, total, unit):
+        if self.args.quiet:
+            return
+        print(
+            f"\n=== Unit {index}/{total}: {unit.label} "
+            f"({unit.describe()}) ==="
+        )
+
+    def on_identify_step(self, unit, message):
+        if not self.args.quiet:
+            print(f"  {self._prefix(unit)} identify: {message}")
+
+    def on_identify_result(self, unit, passed, message, info):
+        self.record.add_step(
+            f"{unit.label}: identify "
+            f"{'PASSED' if passed else 'FAILED'}"
+        )
+        if not self.args.quiet:
+            print(f"  {self._prefix(unit)} {message}")
+
+    def on_step_started(self, unit, index, total, description):
+        self.record.add_step(f"{unit.label}: {description}")
+        if not self.args.quiet:
+            print(
+                f"  {self._prefix(unit)} [{index}/{total}] "
+                f"{description}"
+            )
+
+    def on_information(self, unit, message):
+        if not self.args.quiet:
+            print(f"    {self._prefix(unit)} {message}")
+
+    def on_trace_message(self, unit, message):
+        self._on_trace_message(message)
+
+    def on_trace_row(self, unit, row):
+        self._on_trace_row(row)
+
+    def on_segment_progress(self, unit, seg_index, sent, total):
+        if self.args.quiet or not self.show_progress or total <= 0:
+            return
+        pct = int((sent / total) * 100)
+        key = (unit.label, seg_index)
+        if self._segment_pct.get(key, -10) >= pct - 10 and pct < 100:
+            return
+        self._segment_pct[key] = pct
+        print(
+            f"      {self._prefix(unit)} segment {seg_index + 1}: "
+            f"{pct}% ({sent}/{total} bytes)"
+        )
+
+    def on_unit_finished(self, unit, result, duration, reason):
+        suffix = f" — {reason}" if reason else ""
+        print(
+            f"  {self._prefix(unit)} {result} in {duration}s{suffix}"
+        )
+
+
+def _make_pause_hook(args):
+    """
+    --pause waits for the operator to swap in the next ECU, the
+    way Batch Flash's "Next" button does. Returns None when not
+    asked for, so a scripted run never blocks on stdin.
+    """
+
+    if not args.pause:
+        return None
+
+    def pause(index, total, unit):
+        try:
+            input(
+                f"\nSwap in unit {index}/{total} "
+                f"({unit.label}), then press Enter "
+                f"(Ctrl+C to stop here)... "
+            )
+        except (EOFError, KeyboardInterrupt):
+            print("\nStopping the batch here.", file=sys.stderr)
+            return False
+        return True
+
+    return pause
+
+
+def cmd_batch(args):
+
+    exit_code = _resolve_config(args)
+    if exit_code is not None:
+        return exit_code
+
+    units, exit_code = _resolve_units(args, "Unit")
+    if exit_code is not None:
+        return exit_code
+
+    datablocks, exit_code = _load_datablocks(args, quiet=args.quiet)
+    if exit_code is not None:
+        return exit_code
+
+    if args.dry_run:
+        steps = _build_steps(args, datablocks)
+        _print_unit_table(units)
+        print(f"Flash sequence per unit: {len(steps)} step(s)"
+              f" ({args.sequence})")
+        for i, step in enumerate(steps, 1):
+            print(f"  [{i}/{len(steps)}] {step.description}")
+        print("\n--dry-run: nothing was sent to any ECU.")
+        return 0
+
+    _warn_can_conflict(args)
+
+    if not args.quiet:
+        _print_unit_table(units)
+
+    app = QApplication.instance() or QApplication(sys.argv)
+
+    record = RunRecord("batch", _config_rows(args, units))
+    record.datablocks = datablocks
+    listener = _CliRunListener(args, record)
+
+    runner = BatchRunner(
+        units,
+        datablocks,
+        sequence=args.sequence,
+        tester_serial=args.tester_serial,
+        security_dll_path=args.security_dll,
+        security_dll_signature=args.security_dll_signature,
+        security_dll_variant=args.security_dll_variant,
+        bitrate=args.bitrate,
+        can_fd=args.can_fd,
+        data_bitrate=args.data_bitrate,
+        compression=args.compression,
+        encryption=args.encryption,
+        identify=not args.no_identify,
+        stop_on_fail=args.stop_on_fail,
+        listener=listener,
+        pause_hook=_make_pause_hook(args),
+    )
+
+    try:
+        results = runner.run()
+    except KeyboardInterrupt:
+        results = runner.results
+        print("\nInterrupted by user.", file=sys.stderr)
+
+    for entry in results:
+        record.add_unit(
+            entry["name"], entry["result"],
+            duration=entry["duration"], serial=entry["serial"],
+            reason=entry["reason"],
+        )
+
+    exit_code = _unit_summary(results)
+    record.finish(RESULT_PASS if exit_code == 0 else RESULT_FAIL)
+    _write_report_artefacts(args, record)
+
+    return exit_code
+
+
+def cmd_parallel(args):
+
+    exit_code = _resolve_config(args)
+    if exit_code is not None:
+        return exit_code
+
+    units, exit_code = _resolve_units(args, "Channel")
+    if exit_code is not None:
+        return exit_code
+
+    duplicate = _duplicate_target(units)
+    if duplicate is not None:
+        print(
+            f"Unit error: two units share the same target "
+            f"({duplicate}). Flashing one ECU from two threads "
+            f"at once would corrupt both sessions — give each "
+            f"unit its own channel or CAN IDs.",
+            file=sys.stderr,
+        )
+        return 2
+
+    datablocks, exit_code = _load_datablocks(args, quiet=args.quiet)
+    if exit_code is not None:
+        return exit_code
+
+    if args.dry_run:
+        steps = _build_steps(args, datablocks)
+        _print_unit_table(units)
+        print(f"Flash sequence per channel: {len(steps)} step(s)"
+              f" ({args.sequence})")
+        for i, step in enumerate(steps, 1):
+            print(f"  [{i}/{len(steps)}] {step.description}")
+        print("\n--dry-run: nothing was sent to any ECU.")
+        return 0
+
+    _warn_can_conflict(args)
+
+    if not args.quiet:
+        _print_unit_table(units)
+
+    app = QApplication.instance() or QApplication(sys.argv)
+
+    record = RunRecord("parallel", _config_rows(args, units))
+    record.datablocks = datablocks
+    listener = _CliRunListener(args, record)
+
+    runner = ParallelRunner(
+        units,
+        datablocks,
+        sequence=args.sequence,
+        tester_serial=args.tester_serial,
+        security_dll_path=args.security_dll,
+        security_dll_signature=args.security_dll_signature,
+        security_dll_variant=args.security_dll_variant,
+        bitrate=args.bitrate,
+        can_fd=args.can_fd,
+        data_bitrate=args.data_bitrate,
+        compression=args.compression,
+        encryption=args.encryption,
+        listener=listener,
+    )
+
+    results = runner.run()
+
+    for entry in results:
+        record.add_unit(
+            entry["name"], entry["result"],
+            duration=entry["duration"], serial=entry["serial"],
+            reason=entry["reason"],
+        )
+
+    exit_code = _unit_summary(results)
+    record.finish(RESULT_PASS if exit_code == 0 else RESULT_FAIL)
+    _write_report_artefacts(args, record)
+
+    return exit_code
+
+
+def _duplicate_target(units):
+    """
+    Returns a description of the first duplicated (hardware,
+    channel, serial, tx_id) target among `units`, or None.
+
+    Parallel Flash's GUI makes this impossible by construction —
+    one panel per physical channel, each with its own combo. On
+    the command line nothing stops `--unit channel=0 --unit
+    channel=0`, and two FlashWorkers sharing one physical ECU
+    would interleave their UDS sessions and fail in a way that
+    looks like a hardware fault, so it's rejected up front.
+    Virtual units are exempt: each gets its own in-memory bus
+    and simulator, so N identical virtual units are a legitimate
+    (and useful) way to smoke-test concurrency.
+    """
+
+    seen = {}
+
+    for unit in units:
+        if unit.use_virtual:
+            continue
+        key = (unit.channel, unit.serial, unit.tx_id)
+        if key in seen:
+            return (
+                f"{seen[key]} and {unit.label}: channel "
+                f"{unit.channel}, Tx=0x{unit.tx_id:X}"
+            )
+        seen[key] = unit.label
+
+    return None
+
+
+# ==================================================
+# Command: check-security-dll
+# ==================================================
+#
+# A read-only diagnosis of a Seed&Key DLL: architecture, this
+# build's architecture, exported entry point, and an actual load
+# attempt. Exists because the failure it diagnoses is invisible
+# otherwise — in a PyInstaller build every load error is rewritten
+# by PyInstaller's ctypes hook into "not found when the
+# application was frozen", which sends the operator looking for a
+# packaging problem instead of a 32-bit DLL. Nothing here touches
+# CAN or an ECU.
+# ==================================================
+
+def cmd_check_security_dll(args):
+
+    from communication.security_dll import (
+        SecurityDllError,
+        describe_pe_machine,
+        host_bitness_name,
+        load_security_dll,
+        read_pe_exports,
+        read_pe_imports,
+    )
+    from communication.uds_client import UdsClient
+
+    path = args.file
+
+    print(f"File:              {path}")
+    print(f"Exists:            {os.path.isfile(path)}")
+    if os.path.isfile(path):
+        print(f"Size:              {os.path.getsize(path)} bytes")
+
+    architecture = describe_pe_machine(path)
+    print(
+        f"DLL architecture:  "
+        f"{architecture or 'unknown (not a Windows PE file?)'}"
+    )
+    print(f"SFlash running as: {host_bitness_name()}")
+
+    exports = read_pe_exports(path)
+    imports = read_pe_imports(path)
+
+    print(f"\nExports ({len(exports)}):")
+    for name in exports or ["  (none found)"]:
+        print(f"  {name}" if exports else name)
+
+    print(f"\nDepends on ({len(imports)}):")
+    for name in imports or ["  (none found)"]:
+        print(f"  {name}" if imports else name)
+
+    # Which contract load_security_dll(signature="auto") would
+    # pick, worked out from the same export names — printed
+    # before the load attempt so it is still useful when the DLL
+    # can't be loaded on this machine at all (e.g. inspecting a
+    # Windows DLL from macOS/Linux).
+    if "GenerateKeyExOpt" in exports:
+        contract = "vector_opt (8 args, byte arrays + iOptions)"
+    elif exports:
+        contract = "vector (7 args, byte arrays)"
+    else:
+        contract = "unknown"
+    print(f"\nContract 'auto' would use: {contract}")
+    if exports and "GenerateKeyExOpt" not in exports:
+        print(
+            "  If this DLL is really the older "
+            "uint32 -> uint32 kind, pass "
+            "--security-dll-signature uint32 — calling one "
+            "contract as the other crashes the process."
+        )
+
+    print()
+
+    try:
+        dll = load_security_dll(path)
+    except SecurityDllError as e:
+        print(f"RESULT: CANNOT LOAD\n\n{e}", file=sys.stderr)
+        return 1
+
+    print("RESULT: LOADED OK")
+
+    for name in ("GenerateKeyExOpt", args.function_name):
+        if name and getattr(dll, name, None) is not None:
+            print(f"Entry point found:  {name}")
+            break
+    else:
+        print(
+            f"WARNING: neither 'GenerateKeyExOpt' nor "
+            f"'{args.function_name}' could be resolved — the DLL "
+            f"loads but SFlash would not find a key function in "
+            f"it. Exported names are listed above; pass the right "
+            f"one with --function-name.",
+            file=sys.stderr,
+        )
+        return 1
+
+    assert UdsClient.SECURITY_DLL_AUTO == "auto"
+    return 0
 
 
 # ==================================================
@@ -550,11 +1370,11 @@ def _add_can_args(parser):
     """Shared CAN/UDS connection options for flash + test-connection."""
 
     parser.add_argument(
-        "--hardware", choices=["virtual", "vector"], default="virtual",
+        "--hardware", choices=["virtual", "vector"], default=None,
         help="Target: Virtual ECU Simulator (default) or real Vector hardware",
     )
     parser.add_argument(
-        "--channel", type=int, default=0,
+        "--channel", type=int, default=None,
         help="Vector hardware channel number, 0-based (default 0). "
              "With --serial, this is the hardware channel on that "
              "device; without --serial, it is the application "
@@ -567,13 +1387,13 @@ def _add_can_args(parser):
              "channel mapping in Vector Hardware Config",
     )
     parser.add_argument(
-        "--sequence", choices=["generic", "suzuki"], default="suzuki",
+        "--sequence", choices=["generic", "suzuki"], default=None,
         help="Protocol variant: suzuki (default — Suzuki Radar, "
              "functional addressing for the pre-security steps, "
              "reverse-engineered from a real trace log) or generic",
     )
     parser.add_argument(
-        "--radar-side", choices=["s0", "s1"], default="s0",
+        "--radar-side", choices=["s0", "s1"], default=None,
         help="Suzuki Radar physical CAN ID preset (default s0) — "
              "ignored if --tx-id/--rx-id are given",
     )
@@ -590,7 +1410,7 @@ def _add_can_args(parser):
         help="CAN bitrate in bit/s (default 500000)",
     )
     parser.add_argument(
-        "--can-fd", action="store_true",
+        "--can-fd", action="store_true", default=None,
         help="Use CAN FD instead of classic CAN",
     )
     parser.add_argument(
@@ -603,7 +1423,30 @@ def _add_can_args(parser):
              "If not given, uses the built-in dummy seed/key algorithm.",
     )
     parser.add_argument(
-        "--compression", type=_parse_hex_int, default=0x00,
+        "--security-dll-signature",
+        choices=["auto", "vector", "vector_opt", "uint32"],
+        default="auto",
+        help="Calling contract of the DLL's key function: "
+             "vector (Vector/ASAM GenerateKeyEx, 7 args, byte "
+             "arrays), vector_opt (the ODX variant, 8 args), or "
+             "uint32 (this project's older uint32->uint32 "
+             "wrapper). Default auto resolves by export name and "
+             "is correct for both Vector forms — pass uint32 "
+             "explicitly for a 1-argument DLL. Getting this "
+             "wrong crashes the process, so it is never guessed "
+             "beyond the published name mapping; run "
+             "`check-security-dll` to see what a DLL exports",
+    )
+    parser.add_argument(
+        "--security-dll-variant", default="",
+        help="iVariant string passed to the Vector contracts — "
+             "an OEM/ODX variant name a multi-ECU Security DLL "
+             "uses to pick which algorithm to apply. Empty by "
+             "default, which is what a single-purpose DLL "
+             "expects",
+    )
+    parser.add_argument(
+        "--compression", type=_parse_hex_int, default=None,
         help="RequestDownload dataFormatIdentifier compressionMethod "
              "nibble, 0-15 (default 0 = none). Only changes what the "
              "ECU is told the data format is — does not actually "
@@ -611,7 +1454,7 @@ def _add_can_args(parser):
              "already be in that format.",
     )
     parser.add_argument(
-        "--encryption", type=_parse_hex_int, default=0x00,
+        "--encryption", type=_parse_hex_int, default=None,
         help="RequestDownload dataFormatIdentifier encryptingMethod "
              "nibble, 0-15 (default 0 = none). Same caveat as "
              "--compression — does not actually encrypt the file.",
@@ -624,12 +1467,77 @@ def _add_can_args(parser):
              "Suzuki sequence's 'Write Tester Info' step.",
     )
     parser.add_argument(
+        "--project", default=None,
+        help="Load firmware list + configuration from a .sfproj "
+             "saved by the GUI's File > Save Project As.... Any "
+             "flag given explicitly still wins over the project",
+    )
+    parser.add_argument(
         "-q", "--quiet", action="store_true",
         help="Only print the final result and errors",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true",
         help="Also print CAN/UDS trace (TX/RX frames)",
+    )
+    _add_report_args(parser)
+
+
+def _add_report_args(parser):
+    """
+    The headless equivalents of the GUI's Tools > Export
+    Report... and the Trace tab's right-click Save Log. Written
+    after the run finishes, whatever its result — a failed flash
+    is exactly when the report matters.
+    """
+
+    parser.add_argument(
+        "--report", default=None,
+        help="Write an HTML report (Summary/Firmware/Steps/Trace, "
+             "plus per-unit results for batch/parallel) to this path",
+    )
+    parser.add_argument(
+        "--trace-csv", default=None,
+        help="Write the CAN/UDS trace table to this path as CSV, "
+             "same columns as the GUI's Trace tab Save Log",
+    )
+    parser.add_argument(
+        "--json-summary", default=None,
+        help="Write a machine-readable JSON summary of the run "
+             "to this path (for CI assertions)",
+    )
+
+
+def _add_base_address_arg(parser):
+
+    parser.add_argument(
+        "--base-address", type=_parse_hex_int, default=0x0000,
+        help="Start address for .bin files (hex or decimal, "
+             "default 0x0000). Applies to every .bin given",
+    )
+
+
+def _add_unit_args(parser, noun):
+    """
+    The --unit/--units-file pair shared by batch and parallel.
+    `noun` only changes the help text ("unit" vs "channel") —
+    the option names stay the same so one units file works for
+    both commands.
+    """
+
+    parser.add_argument(
+        "--unit", action="append", default=None, metavar="SPEC",
+        help=f"Describe one {noun} as key=value pairs, repeatable: "
+             f'--unit "name=Left,channel=0,serial=123456,side=s0". '
+             f"Fields: name, hardware, channel, serial, side, "
+             f"tx_id, rx_id, functional_id. Anything omitted "
+             f"falls back to this command's own flags",
+    )
+    parser.add_argument(
+        "--units-file", default=None, metavar="PATH",
+        help=f"JSON file describing the {noun}s — a list of the "
+             f"same objects --unit takes, or an object with a "
+             f'"units" list. Combined with any --unit specs',
     )
 
 
@@ -650,7 +1558,10 @@ def build_arg_parser():
     p_info = subparsers.add_parser(
         "info", help="Parse a firmware file and print segment info"
     )
-    p_info.add_argument("file", help="Path to .hex/.s19/.s3/.../.bin file")
+    p_info.add_argument(
+        "file", nargs="+",
+        help="One or more paths to .hex/.s19/.s3/.../.bin files",
+    )
     p_info.add_argument(
         "--base-address", type=_parse_hex_int, default=0x0000,
         help="Start address for .bin files (hex or decimal, default 0x0000)",
@@ -667,11 +1578,14 @@ def build_arg_parser():
     p_flash = subparsers.add_parser(
         "flash", help="Flash a firmware file to an ECU"
     )
-    p_flash.add_argument("file", help="Path to .hex/.s19/.s3/.../.bin file")
     p_flash.add_argument(
-        "--base-address", type=_parse_hex_int, default=0x0000,
-        help="Start address for .bin files (hex or decimal, default 0x0000)",
+        "file", nargs="*",
+        help="One or more paths to .hex/.s19/.s3/.../.bin files, "
+             "flashed as separate datablocks in the order given "
+             "(the GUI's Datablocks table). May be omitted when "
+             "--project supplies the firmware list",
     )
+    _add_base_address_arg(p_flash)
     _add_can_args(p_flash)
     p_flash.add_argument(
         "--dry-run", action="store_true",
@@ -679,6 +1593,77 @@ def build_arg_parser():
              "connecting to any ECU",
     )
     p_flash.set_defaults(func=cmd_flash)
+
+    # --- batch ---
+    p_batch = subparsers.add_parser(
+        "batch",
+        help="Flash several ECUs one after another on the same "
+             "tester, Identifying each first — the CLI side of "
+             "the GUI's Batch Flash mode",
+    )
+    p_batch.add_argument(
+        "file", nargs="*",
+        help="Firmware file(s) flashed into every unit (or use "
+             "--project)",
+    )
+    _add_base_address_arg(p_batch)
+    _add_can_args(p_batch)
+    _add_unit_args(p_batch, "unit")
+    p_batch.add_argument(
+        "--count", type=int, default=1,
+        help="Number of units to flash with the same settings, "
+             "when no --unit/--units-file is given (default 1)",
+    )
+    p_batch.add_argument(
+        "--pause", action="store_true",
+        help="Wait for Enter between units so the operator can "
+             "swap the ECU (the GUI's Next button). Off by "
+             "default so scripted runs never block on stdin",
+    )
+    p_batch.add_argument(
+        "--no-identify", action="store_true",
+        help="Skip the per-unit Identify probe (which is what "
+             "captures each ECU's serial number for the report)",
+    )
+    p_batch.add_argument(
+        "--stop-on-fail", action="store_true",
+        help="Stop the series at the first unit that fails "
+             "(default: carry on and report every unit)",
+    )
+    p_batch.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the units and the flash sequence, then exit "
+             "without connecting to any ECU",
+    )
+    p_batch.set_defaults(func=cmd_batch)
+
+    # --- parallel ---
+    p_parallel = subparsers.add_parser(
+        "parallel",
+        help="Flash several ECUs simultaneously, one per CAN "
+             "channel — the CLI side of the Parallel Flash tab",
+    )
+    p_parallel.add_argument(
+        "file", nargs="*",
+        help="Firmware file(s) flashed into every channel (or "
+             "use --project)",
+    )
+    _add_base_address_arg(p_parallel)
+    _add_can_args(p_parallel)
+    _add_unit_args(p_parallel, "channel")
+    p_parallel.add_argument(
+        "--count", type=int, default=1,
+        help="Number of identical channels to run when no "
+             "--unit/--units-file is given (default 1). Only "
+             "useful with --hardware virtual, where each unit "
+             "gets its own simulator",
+    )
+    p_parallel.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the channels and the flash sequence, then "
+             "exit without connecting to any ECU",
+    )
+    p_parallel.set_defaults(func=cmd_parallel)
 
     # --- test-connection ---
     p_test = subparsers.add_parser(
@@ -688,6 +1673,24 @@ def build_arg_parser():
     )
     _add_can_args(p_test)
     p_test.set_defaults(func=cmd_test_connection)
+
+    # --- check-security-dll ---
+    p_dll = subparsers.add_parser(
+        "check-security-dll",
+        help="Diagnose a Security Access DLL (architecture, "
+             "dependencies, entry point) without touching an ECU",
+    )
+    p_dll.add_argument("file", help="Path to the Seed&Key DLL")
+    p_dll.add_argument(
+        "--function-name", default="GenerateKeyEx",
+        help="Legacy uint32->uint32 entry point to look for when "
+             "'GenerateKeyExOpt' isn't exported (default "
+             "GenerateKeyEx)",
+    )
+    p_dll.set_defaults(func=cmd_check_security_dll)
+
+    # --- gitlab ---
+    add_gitlab_subparser(subparsers)
 
     return parser
 

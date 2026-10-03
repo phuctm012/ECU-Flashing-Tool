@@ -390,110 +390,219 @@ class UdsClient:
     # Security DLL Loader
     # ==========================================
 
+    # Security DLL calling contracts, in the three forms that
+    # turn up in practice. `signature=` on load_security_dll()
+    # picks one; "auto" resolves by export name.
+    SECURITY_DLL_AUTO = "auto"
+    SECURITY_DLL_VECTOR = "vector"          # 7 args, byte arrays
+    SECURITY_DLL_VECTOR_OPT = "vector_opt"  # 8 args, + iOptions
+    SECURITY_DLL_UINT32 = "uint32"          # 1 arg, uint32 -> uint32
+
+    SECURITY_DLL_SIGNATURES = (
+        SECURITY_DLL_AUTO,
+        SECURITY_DLL_VECTOR,
+        SECURITY_DLL_VECTOR_OPT,
+        SECURITY_DLL_UINT32,
+    )
+
     def load_security_dll(
         self,
         dll_path,
         function_name="GenerateKeyEx",
+        signature=SECURITY_DLL_AUTO,
+        variant="",
     ):
         """
-        Load an external DLL for security key
-        calculation.
+        Load an external DLL for security key calculation.
 
-        Only the exact export name
-        ``"GenerateKeyExOpt"`` is ever tried with the
-        new ODX/ASAM byte-buffer signature (seed of
-        any length):
-            GenerateKeyExOpt(
-                iSeedArray, iSeedLen,
-                iSecurityLevel, iVariant,
-                oKeyArray,  iMaxKeyLen,
-                oKeyLen) -> int
+        Three calling contracts exist in the wild, and calling
+        one as another is not a soft failure — it reads
+        arguments off the caller's stack and writes the key
+        through whatever that garbage says, so it crashes the
+        process. Hence an explicit `signature`:
 
-        ``function_name`` (default "GenerateKeyEx") is
-        always treated as the legacy
-        UINT32 -> UINT32 wrapper, never probed with the
-        byte-buffer signature — a real DLL built to this
-        project's previously documented contract may
-        already export a plain 1-argument function under
-        that exact name (or any custom name a caller
-        passes here), and there is no reliable way to
-        tell the two calling conventions apart from the
-        exported symbol alone. Guessing wrong crashes the
-        process (mismatched C calling convention), so
-        only the unambiguous new name opts into the new
-        behavior.
+        ``vector`` — the Vector/ASAM standard, 7 args::
+
+            GenerateKeyEx(
+                const unsigned char* iSeedArray,
+                unsigned int         iSeedArraySize,
+                const unsigned int   iSecurityLevel,
+                const char*          iVariant,
+                unsigned char*       ioKeyArray,
+                unsigned int         iMaxKeyArraySize,
+                unsigned int*        oActualKeyArraySize) -> int
+
+        ``vector_opt`` — the newer ODX variant, same plus an
+        ``const char* iOptions`` after ``iVariant`` (8 args).
+
+        ``uint32`` — this project's own older documented
+        contract, a plain ``uint32 seed -> uint32 key`` wrapper.
+
+        ``auto`` (the default) resolves by export name: an
+        exported ``GenerateKeyExOpt`` means ``vector_opt``,
+        otherwise ``GenerateKeyEx`` means ``vector``. That
+        mapping is the published one — a real Seed&Key DLL
+        inspected for this project (32-bit, cdecl, single
+        export ``GenerateKeyEx``) reads its 7th argument at
+        ``[ebp+0x20]``, i.e. it is the Vector form, and calling
+        it with one argument is what the crash above describes.
+        A ``uint32`` DLL must therefore say so explicitly, or
+        pass its own ``function_name``.
 
         Args:
             dll_path: Path to the DLL file.
-            function_name: Legacy entry point to use if
-                "GenerateKeyExOpt" isn't exported.
+            function_name: Export to use for the ``vector`` /
+                ``uint32`` contracts (default
+                "GenerateKeyEx").
+            signature: One of SECURITY_DLL_SIGNATURES.
+            variant: The ``iVariant`` string the Vector
+                contracts take — an OEM/ODX variant name that
+                tells a multi-ECU DLL which algorithm to apply.
+                Empty (the default) is what most single-purpose
+                DLLs expect; a DLL that serves several ECUs may
+                return an error code until given the right one.
+                Ignored by the ``uint32`` contract, which has no
+                such parameter.
         """
 
         import ctypes
 
-        try:
-            dll = ctypes.CDLL(dll_path)
-        except Exception as e:
+        from communication.security_dll import (
+            SecurityDllError,
+            load_security_dll as _load_dll,
+        )
+
+        if signature not in self.SECURITY_DLL_SIGNATURES:
             raise UdsError(
-                f"Failed to load security DLL: {e}"
+                f"Unknown Security DLL signature "
+                f"{signature!r} — choose one of "
+                f"{', '.join(self.SECURITY_DLL_SIGNATURES)}"
             )
 
-        opt_func = getattr(dll, "GenerateKeyExOpt", None)
+        # Loading is delegated so a failure says *why*: a frozen
+        # build's ctypes hook rewrites every load error into
+        # "not found when the application was frozen", which is
+        # wrong for an operator-chosen external DLL and hides the
+        # real cause (almost always a 32-bit DLL in a 64-bit
+        # process, or a missing dependent DLL). See
+        # communication/security_dll.py.
+        try:
+            dll = _load_dll(dll_path)
+        except SecurityDllError as e:
+            raise UdsError(str(e))
 
-        if opt_func is not None:
-            opt_func.argtypes = [
-                ctypes.POINTER(ctypes.c_uint8),
-                ctypes.c_uint32,
-                ctypes.c_uint32,
-                ctypes.c_char_p,
-                ctypes.POINTER(ctypes.c_uint8),
-                ctypes.c_uint32,
-                ctypes.POINTER(ctypes.c_uint32),
-            ]
-            opt_func.restype = ctypes.c_int32
+        resolved = signature
+        if resolved == self.SECURITY_DLL_AUTO:
+            if getattr(dll, "GenerateKeyExOpt", None) is not None:
+                resolved = self.SECURITY_DLL_VECTOR_OPT
+            else:
+                resolved = self.SECURITY_DLL_VECTOR
 
-            def _dll_key_func(seed_bytes, level=1):
-                n = len(seed_bytes)
-                seed_arr = (ctypes.c_uint8 * n)(
-                    *seed_bytes
-                )
-                max_key = max(n, 128)
-                key_arr = (ctypes.c_uint8 * max_key)()
-                key_len = ctypes.c_uint32(0)
-                rc = opt_func(
-                    seed_arr, n, level,
-                    b"", key_arr, max_key,
-                    ctypes.byref(key_len),
-                )
-                if rc != 0:
-                    raise UdsError(
-                        f"Security DLL returned "
-                        f"error {rc}"
-                    )
-                return bytes(
-                    key_arr[: key_len.value]
-                )
-
-            self._security_dll_func = _dll_key_func
-            self._security_dll_is_bytes = True
+        if resolved == self.SECURITY_DLL_UINT32:
+            self._load_uint32_key_func(
+                ctypes, dll, dll_path, function_name
+            )
         else:
-            fn = getattr(dll, function_name, None)
-            if fn is None:
-                raise UdsError(
-                    f"Security DLL has no "
-                    f"'{function_name}' export"
-                )
-            fn.argtypes = [ctypes.c_uint32]
-            fn.restype = ctypes.c_uint32
-            self._security_dll_func = fn
-            self._security_dll_is_bytes = False
+            with_options = (
+                resolved == self.SECURITY_DLL_VECTOR_OPT
+            )
+            export = (
+                "GenerateKeyExOpt" if with_options
+                else function_name
+            )
+            self._load_vector_key_func(
+                ctypes, dll, dll_path, export, with_options,
+                variant,
+            )
 
         if self._trace_callback:
             self._trace_callback(
                 "INFO",
-                f"Security DLL loaded: "
-                f"{dll_path}".encode()
+                f"Security DLL loaded: {dll_path} "
+                f"({resolved} contract)".encode()
             )
+
+    def _load_vector_key_func(
+        self, ctypes, dll, dll_path, export, with_options,
+        variant="",
+    ):
+        """
+        Wires the Vector/ASAM byte-array contract (7 args, or 8
+        with iOptions). Both write the key into a caller-owned
+        buffer and return a status code, so the wrapper has to
+        own the buffer and read the written length back.
+        """
+
+        fn = getattr(dll, export, None)
+        if fn is None:
+            raise UdsError(
+                f"Security DLL has no '{export}' export "
+                f"({dll_path})"
+            )
+
+        argtypes = [
+            ctypes.POINTER(ctypes.c_uint8),   # iSeedArray
+            ctypes.c_uint32,                  # iSeedArraySize
+            ctypes.c_uint32,                  # iSecurityLevel
+            ctypes.c_char_p,                  # iVariant
+        ]
+        if with_options:
+            argtypes.append(ctypes.c_char_p)  # iOptions
+        argtypes += [
+            ctypes.POINTER(ctypes.c_uint8),   # ioKeyArray
+            ctypes.c_uint32,                  # iMaxKeyArraySize
+            ctypes.POINTER(ctypes.c_uint32),  # oActualKeyArraySize
+        ]
+
+        fn.argtypes = argtypes
+        fn.restype = ctypes.c_int32
+
+        variant_bytes = (variant or "").encode("latin-1")
+
+        def _dll_key_func(seed_bytes, level=1):
+            n = len(seed_bytes)
+            seed_arr = (ctypes.c_uint8 * n)(*seed_bytes)
+            max_key = max(n, 128)
+            key_arr = (ctypes.c_uint8 * max_key)()
+            key_len = ctypes.c_uint32(0)
+
+            args = [seed_arr, n, level, variant_bytes]
+            if with_options:
+                args.append(b"")
+            args += [key_arr, max_key, ctypes.byref(key_len)]
+
+            rc = fn(*args)
+            if rc != 0:
+                raise UdsError(
+                    f"Security DLL returned error {rc}"
+                )
+            if key_len.value == 0 or key_len.value > max_key:
+                raise UdsError(
+                    f"Security DLL reported an impossible key "
+                    f"length ({key_len.value}) — it may expect a "
+                    f"different calling contract than "
+                    f"'{export}' implies"
+                )
+            return bytes(key_arr[: key_len.value])
+
+        self._security_dll_func = _dll_key_func
+        self._security_dll_is_bytes = True
+
+    def _load_uint32_key_func(
+        self, ctypes, dll, dll_path, function_name
+    ):
+        """This project's older uint32 -> uint32 contract."""
+
+        fn = getattr(dll, function_name, None)
+        if fn is None:
+            raise UdsError(
+                f"Security DLL has no '{function_name}' export "
+                f"({dll_path})"
+            )
+        fn.argtypes = [ctypes.c_uint32]
+        fn.restype = ctypes.c_uint32
+        self._security_dll_func = fn
+        self._security_dll_is_bytes = False
 
     # ==========================================
     # DiagnosticSessionControl (0x10)
@@ -762,11 +871,20 @@ class UdsClient:
         """Call a uint32->uint32 key function,
         requiring a 4-byte seed."""
         if len(seed_bytes) != 4:
+            # Only reachable on the uint32 contract now. Seen in
+            # the field with a 16-byte seed, back when every
+            # GenerateKeyEx export was assumed to be this
+            # 1-argument kind — so point at the contract, not at
+            # the DLL: a Vector-style DLL takes any seed length.
             raise UdsError(
-                f"{name} expects a 4-byte seed but "
-                f"ECU sent {len(seed_bytes)} bytes. "
-                f"Use a Security DLL that supports "
-                f"variable-length seeds."
+                f"{name} was called as a uint32 -> uint32 "
+                f"function (1 argument), which only accepts a "
+                f"4-byte seed, but the ECU sent "
+                f"{len(seed_bytes)} bytes. A Vector/ASAM-style "
+                f"DLL takes any seed length — drop "
+                f"--security-dll-signature uint32 (or run "
+                f"`cli.py check-security-dll <dll>` to see which "
+                f"contract its exports imply)."
             )
         seed_int = struct.unpack(">I", seed_bytes)[0]
         key_int = func(seed_int)

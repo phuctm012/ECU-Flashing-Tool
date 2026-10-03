@@ -1990,6 +1990,39 @@ class TestSecurityAccessCheckbox(unittest.TestCase):
             self.window.security_access_start_error(False),
         )
 
+    def test_start_error_blocks_a_wrong_bitness_dll(self):
+        # A 32-bit Seed&Key DLL can never load into 64-bit
+        # SFlash, so say so BEFORE any CAN traffic rather than
+        # letting the flash die on the SecurityAccess step and
+        # leave the ECU mid-session. Reported in the field as
+        # PyInstaller's misleading "not found when the
+        # application was frozen" — see
+        # tests/test_security_dll.py.
+        import struct
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "SeedKey.dll")
+            data = bytearray(b"\x00" * 0xC0)
+            data[0:2] = b"MZ"
+            struct.pack_into("<I", data, 0x3C, 0x80)
+            data[0x80:0x84] = b"PE\x00\x00"
+            struct.pack_into("<H", data, 0x84, 0x014C)   # i386
+            with open(path, "wb") as f:
+                f.write(bytes(data))
+
+            self.window.ui.checkBoxSecurityAccess.setChecked(True)
+            self.window._security_dll_path = path
+
+            with unittest.mock.patch(
+                "communication.security_dll.host_bitness_name",
+                return_value="64-bit (x64)",
+            ):
+                message = self.window.security_access_start_error(False)
+
+        self.assertIsNotNone(message)
+        self.assertIn("32-bit", message)
+
     def test_single_flash_worker_gets_none_while_unticked(self):
         self.window._security_dll_path = "/some/security.dll"
         with unittest.mock.patch(

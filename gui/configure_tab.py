@@ -27,6 +27,7 @@ from config.settings import (
     SUZUKI_RADAR_CAN_IDS,
 )
 
+from communication.security_dll import bitness_mismatch
 from parsers.auto_parser import parse_firmware_file
 from parsers.hex_parser import HexParseError
 from parsers.srec_parser import SrecParseError
@@ -924,6 +925,26 @@ class ConfigureTabMixin:
                 "Select a valid DLL in Configure > Flash Options, or "
                 "untick \"Active Security Access\"."
             )
+
+        # Catch an architecture mismatch here rather than letting
+        # the flash start and die on the SecurityAccess step: a
+        # 32-bit Seed&Key DLL (common — they ship beside
+        # CANoe/CANape tooling) can never load into a 64-bit
+        # SFlash, so re-picking the file will not help and the
+        # operator needs to be told exactly that. Reported before
+        # any CAN traffic happens, which also means the ECU is
+        # never left mid-session over a configuration problem.
+        mismatch = bitness_mismatch(path)
+        if mismatch:
+            return (
+                f"Security Access DLL cannot be loaded:\n{path}\n\n"
+                f"{mismatch[0].upper()}{mismatch[1:]}\n\n"
+                "Select a DLL built for this architecture in "
+                "Configure > Flash Options, or untick \"Active "
+                "Security Access\" to use the built-in seed/key "
+                "algorithm."
+            )
+
         return None
 
     def browse_security_dll(self):

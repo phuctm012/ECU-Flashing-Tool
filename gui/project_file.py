@@ -21,8 +21,13 @@ import os
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
+# One source of truth for the on-disk format number, shared with
+# core/project_config.py — cli.py's --project reads the same files
+# this mixin writes, so the two must never disagree about which
+# versions they understand.
+from core.project_config import PROJECT_FORMAT_VERSION
+
 PROJECT_FILE_FILTER = "SFlash Project (*.sfproj);;All Files (*)"
-PROJECT_FORMAT_VERSION = 1
 
 
 class ProjectFileMixin:

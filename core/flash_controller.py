@@ -55,6 +55,8 @@ class FlashWorker(QObject):
         uds_client=None,
         use_virtual=True,
         security_dll_path=None,
+        security_dll_signature="auto",
+        security_dll_variant="",
         security_lock=None,
         keepalive_functional=False,
         can_channel=0,
@@ -76,6 +78,16 @@ class FlashWorker(QObject):
         self._uds_client = uds_client
         self._use_virtual = use_virtual
         self._security_dll_path = security_dll_path
+        # Which calling contract the DLL's key function uses —
+        # see UdsClient.load_security_dll(). "auto" resolves by
+        # export name and is right for both Vector/ASAM forms;
+        # only this project's older uint32 -> uint32 DLLs need
+        # to be told explicitly.
+        self._security_dll_signature = security_dll_signature
+        # iVariant for the Vector contracts — see
+        # UdsClient.load_security_dll(); "" suits a
+        # single-purpose DLL.
+        self._security_dll_variant = security_dll_variant
         self._security_lock = security_lock
         self._keepalive_functional = keepalive_functional
 
@@ -346,7 +358,9 @@ class FlashWorker(QObject):
         if self._security_dll_path and not self._use_virtual:
 
             self._uds_client.load_security_dll(
-                self._security_dll_path
+                self._security_dll_path,
+                signature=self._security_dll_signature,
+                variant=self._security_dll_variant,
             )
 
             self.information_message.emit(

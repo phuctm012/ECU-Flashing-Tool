@@ -2788,3 +2788,118 @@ Lần probe đầu của tôi còn cho kết quả sai lệch: `git stash push <
 - `TestMenuBar`: 24/24 pass.
 - Đo minimumSizeHint 3 trạng thái: không stylesheet 800, light 822, dark 822.
 - Full protocol chạy lại sau khi sửa: **full suite 541 test OK** (2 skipped, 1336 s), **threading 61/61**, **stress 74/74 checkpoint / 6 section / 63 s / 0 cảnh báo Qt** → merge vào `main`.
+
+## Phase 4.127: CLI Ngang Bằng GUI — `batch`, `parallel`, `gitlab`, `--project`, `--report`
+
+Câu hỏi của user: "CLI của tôi đã đầy đủ chức năng chưa?". Rà lại thì CLI chỉ phủ được luồng Single Flash: tầng CAN/UDS đã ngang GUI (channel/serial, tx/rx, bitrate, CAN FD, sequence, radar side, Security DLL, compression/encryption, tester serial), nhưng thiếu 6 thứ — chỉ nhận **đúng 1 file** firmware (GUI cho nhiều datablock + tick chọn), không có Batch Flash, không có Parallel Flash, không có Load from GitLab, không export được report, và không đọc được `.sfproj`. User yêu cầu bổ sung **tất cả**.
+
+**Lý do phải viết lại chứ không tái dùng mixin:** `gui/batch_flash.py`, `gui/parallel_flash.py`, `gui/report_export.py`, `gui/project_file.py` đều **là** state machine của UI — luồng của chúng do click nút và signal Qt queued-về-GUI-thread điều khiển, và mọi bước đều đọc/ghi widget. Headless thì không có event loop để chuyển signal, cũng không có widget để đọc. Nên phần lõi được **diễn đạt lại** trong `core/` (không phải refactor GUI): cùng `FlashWorker`/`TestConnectionWorker`, cùng tham số — đó là thứ giữ cho hai entry point flash y như nhau. Riêng `communication/gitlab_client.py` vốn đã không phụ thuộc GUI nên `cli_gitlab.py` chỉ là argparse + in ra.
+
+**Phát hiện quyết định thiết kế `parallel`:** probe thử trước khi code — QObject tạo ở main thread, `emit()` gọi từ `threading.Thread`, slot là callable Python thường → **nhận 0/3 signal**, không lỗi gì. Không có event loop thì signal cross-thread bị queue rồi mất im lặng. Nên `ParallelRunner` dùng `threading.Thread` và **tạo `FlashWorker` bên trong chính thread chạy nó** → mọi emit thành direct call cùng thread, không mất tiến độ, và một thread sở hữu worker từ lúc sinh đến lúc drop nên không bao giờ chạm vào kiểu destruction cross-thread đứng sau failure mode thứ 5 (Phase 4.116). Callback của listener vì thế chạy trên worker thread → runner giữ output lock quanh mỗi lần gọi để hai channel không chen nửa dòng stdout của nhau.
+
+Hai quyết định nhỏ khác đáng ghi:
+
+- **`--verbose` chỉ quyết định việc in**, không quyết định việc thu trace. Report phải có trace đầy đủ dù không ai bật verbose — y như tab Trace của GUI vẫn tự đầy.
+- **Hai unit trỏ cùng một ECU thật (cùng channel + cùng Tx) bị chặn với exit 2.** GUI không gặp chuyện này vì mỗi panel gắn một channel riêng; CLI thì `--unit channel=0 --unit channel=0` là gõ được. Hai UDS session song song lên một ECU sẽ phá nhau và trông như lỗi hardware. Unit `virtual` được miễn (mỗi unit có bus + simulator riêng) nên `--count 4` là cách thử nhanh tính đồng thời.
+- **Thứ tự ưu tiên CAN ID:** trong một unit `tx_id`/`rx_id` thắng `side`; nhưng `side` của unit luôn thắng `--tx-id`/`--rx-id` global — nếu thừa hưởng ID global thì mọi unit dùng chung một cặp ID và "flash Left + Right" thực ra chỉ flash một ECU hai lần.
+
+### Thay đổi
+
+- **`core/report.py`** (mới): `RunRecord` (gom config/datablock/step/trace/unit của một lần chạy) + `build_report_html()`, `write_trace_csv()` (6 cột khớp `_format_trace_row_cells()` của GUI), `write_json_summary()` (cho CI assert, khỏi parse HTML).
+- **`core/project_config.py`** (mới): đọc `.sfproj` ra giá trị CLI (`s0`/`s1`, `suzuki`/`generic`, bool CAN FD…). Giữ `PROJECT_FORMAT_VERSION` làm một nguồn duy nhất — **`gui/project_file.py` import lại từ đây** thay vì hai literal tự trôi. Lặp lại đúng hai dung sai của GUI: DLL đã bị move → về thuật toán built-in; "Active Security Access" không tick → không DLL.
+- **`core/flash_unit.py`** (mới): `FlashUnit` + parse `--unit "k=v,..."` / `--units-file`. Field sai tên bị **báo lỗi** chứ không ignore (gõ sai `serial_number=` mà bị bỏ qua thì sẽ flash sai ECU).
+- **`core/batch_runner.py`** (mới): `BatchRunner` — Identify rồi flash từng unit, một unit fail không dừng loạt (trừ `--stop-on-fail`), `pause_hook` trả `False` để dừng. Giữ lại guard chống "0 step = PASS giả" của `_start_flash_for_current_ecu()`.
+- **`core/parallel_runner.py`** (mới): `ParallelRunner` — N thread, security lock dùng chung, `abort_all()`, join theo slice 0.2 s để Ctrl+C được nhận ngay, kết quả trả về theo thứ tự unit (thread kết thúc thứ tự nào cũng được).
+- **`cli_gitlab.py`** (mới): nhóm `gitlab refs|jobs|artifact|packages|package`. Token từ `--token` hoặc `SFLASH_GITLAB_TOKEN` (ưu tiên env — không lọt vào shell history/`ps`). `--extract` giải nén và chỉ ra file firmware; `--print-firmware` in **chỉ** đường dẫn để nối thẳng `FW=$(... --print-firmware); cli.py flash "$FW"`.
+- **`cli.py`**: `file` của `flash` thành `nargs="*"`; `info` thành `nargs="+"`; thêm `batch`, `parallel`, nhóm `gitlab`; thêm `--project`, `--report`, `--trace-csv`, `--json-summary`, `--unit`, `--units-file`, `--count`, `--pause`, `--no-identify`, `--stop-on-fail`. Mọi option mà project có thể cấp đổi sang `default=None` để phân biệt "không truyền" với "truyền trùng default" → `_resolve_config()` lấp theo thứ tự **cờ > project > default**. Lỗi ghi report chỉ cảnh báo, **không đổi exit code** (flash đã xảy ra rồi).
+- **`README.md`**: viết lại hẳn mục CLI — bảng đối chiếu lệnh ↔ chức năng GUI, mục riêng cho `batch`/`parallel`/`gitlab`/`--project`/report, format file units.
+- **`CLAUDE.md`**: thêm rule **`core/` không được import `gui/`** kèm bảng đối chiếu 5 module `core/` ↔ mixin GUI tương ứng, và đoạn "Headless threading là bài toán khác" ghi lại kết quả probe 0/3 signal.
+
+### Đã kiểm tra
+
+- Chạy thật 4 lệnh mới trên Virtual ECU: `flash` 2 file → 15 step (4 Download), `batch --count 3` → PASS 3/0/0 exit 0, `parallel` 4 channel → PASS 4/0/0, wall clock **1.27 s** so với tổng 4×1.1 s → đồng thời thật; `gitlab --help` và 5 subcommand parse OK.
+- Report: HTML đủ 5 mục (có Units), trace CSV khớp header 6 cột của GUI, JSON có `result`/`unit_counts`/`units[].serial`.
+- `--project`: project `flash_sequence_index=1` → sequence generic; thêm `--sequence suzuki` → suzuki (cờ thắng project); project thiếu file firmware → exit 2 và liệt kê đủ.
+- Test mới: `test_cli_report.py` 14, `test_project_config.py` 21, `test_flash_unit.py` 30, `test_cli_batch_parallel.py` 19, `test_cli_gitlab.py` 25, `test_cli_commands.py` 28 → **137 test mới**, tất cả pass.
+- `test_project_config.py` đối chiếu map index → nghĩa **trực tiếp với thứ tự item trong `gui/main_window.ui`**: đảo thứ tự combo trong Designer sẽ fail test chứ không âm thầm flash sai Radar Side từ project đã lưu.
+
+## Phase 4.128: Security DLL Không Load Được Trên Bản `.exe` — Bóc Lỗi Thật Ra
+
+Báo lỗi thật từ máy Windows chạy bản PyInstaller:
+
+```
+[14:13:44] Connection failed: Failed to load security DLL: Failed to load
+dynlib/dll 'C:/Data/tranph9/_TOOL/ECU-Flashing-Tool-main/dist/SeedKey.dll'.
+Most likely this dynlib/dll was not found when the application was frozen.
+```
+
+**Câu đó không phải của app, mà của PyInstaller.** Hook ctypes của nó (`pyimod04_ctypes`) thay thế `ctypes.CDLL` trong bản frozen: trước tiên tìm file cùng tên trong bundle (`sys._MEIPASS`), và khi load thật thất bại **vì bất kỳ lý do gì** thì re-raise thành `PyInstallerImportError` với đúng một câu cố định "not found when the application was frozen". Với Security DLL — file **ngoài**, do operator chọn lúc chạy, cố ý không bundle — câu này gây hiểu nhầm thẳng vào hướng sai (tưởng lỗi đóng gói), còn nguyên nhân thật bị chôn ở exception bên dưới (`__cause__`).
+
+Ba nguyên nhân thật, theo thứ tự hay gặp:
+
+1. **Sai kiến trúc 32/64-bit.** DLL Seed&Key rất thường build 32-bit vì đi kèm bộ tool CANoe/CANape, còn SFlash chạy 64-bit → Windows trả `WinError 193` ("not a valid Win32 application"). Đây là loại lỗi mà chọn lại file bao nhiêu lần cũng không hết, nên phải nói thẳng.
+2. **Thiếu DLL phụ thuộc** (`WinError 126`). `ctypes.CDLL(<đường dẫn tuyệt đối>)` **không** đưa thư mục chứa DLL vào search path, nên DLL link tới DLL nằm cạnh (hoặc VC++ runtime) vẫn fail dù file operator chọn có thật.
+3. File không còn ở đó.
+
+**Sửa:** tách riêng `communication/security_dll.py` — đọc PE header bằng tay (3 lần read: `MZ`, `e_lfanew` ở 0x3C, `Machine` sau `PE\0\0`; không thêm dependency `pefile`, phải chạy được trong `.exe`), so với bitness của process, và:
+
+- Chặn DLL sai kiến trúc **trước khi** gọi OS, nên message giống nhau dù `WinError` có sống sót qua wrapper của PyInstaller hay không.
+- `os.add_dll_directory()` quanh lúc load (rồi `close()` để không đổi cách mọi lần load sau resolve) → DLL nằm cạnh nhau tìm thấy được.
+- Đi theo chuỗi `__cause__`/`__context__` tới exception gốc, in `WinError 126/193` kèm hướng xử lý cụ thể thay vì câu của PyInstaller.
+
+Thêm **pre-flight check ở cả 2 entry point** để không bao giờ chết ở bước SecurityAccess và bỏ ECU giữa session: `ConfigureTabMixin.security_access_start_error()` (GUI, chặn trước `prepare_flash_ui()`) và `cli._check_security_dll()` (CLI, exit 2 trước mọi traffic CAN). Cả hai chỉ kiểm tra khi dùng hardware thật — Virtual ECU không bao giờ load DLL.
+
+### Thay đổi
+
+- **`communication/security_dll.py`** (mới): `read_pe_machine()`, `describe_pe_machine()`, `bitness_mismatch()`, `host_bitness_name()`, `load_security_dll()`, `SecurityDllError`.
+- **`communication/uds_client.py`**: `load_security_dll()` gọi loader mới, map `SecurityDllError` → `UdsError` (giữ nguyên interface cho FlashWorker).
+- **`gui/configure_tab.py`**: `security_access_start_error()` thêm nhánh `bitness_mismatch()`.
+- **`cli.py`**: `_check_security_dll()` gọi từ `_resolve_config()` → phủ `flash`/`batch`/`parallel`/`test-connection` cùng lúc.
+- **`README.md`**: mục Security Access thêm yêu cầu cùng kiến trúc, cách xử lý WinError 126, và giải thích câu của PyInstaller là gì.
+
+Câu hỏi tiếp theo của user: "vậy chạy với DLL 32-bit thì không được hả?" — **không, và không phải vì app**: process 64-bit không bao giờ load được DLL 32-bit, đó là quy tắc của Windows. Quan trọng là **không được** khuyên "build SFlash bản 32-bit": Qt 6 không có bản Windows 32-bit nên PySide6 không cài được trên Python 32-bit → message trong `bitness_mismatch()` đã sửa lại cho đúng (xin bản x64 từ bên cấp DLL; nếu buộc phải dùng DLL 32-bit thì phải qua một process phụ 32-bit làm cầu nối — chưa implement, chỉ nêu ra).
+
+Thêm lệnh **`cli.py check-security-dll <path>`** để operator tự xác nhận trên máy Windows mà không cần chạy flash: in kiến trúc DLL, kiến trúc SFlash, thử load thật, và kiểm tra DLL có export `GenerateKeyExOpt`/`GenerateKeyEx` hay không (load được mà không có entry point thì vẫn vô dụng). Exit 0/1 để script dùng được. Không chạm CAN — an toàn khi ECU đang cắm và có điện.
+
+### Đã kiểm tra
+
+- `tests/test_security_dll.py` (mới, **30 test**): parse PE 32/64/ARM64, `e_lfanew` khác 0x80, file non-PE/cắt ngắn/không tồn tại → `None` (không raise, không chặn); chặn sai bitness **không gọi `ctypes.CDLL`**; lỗi gốc sống sót qua wrapper PyInstaller (assert có "WinError 126", **không** có "when the application was frozen"); WinError 193 → nói về kiến trúc; `add_dll_directory` được gọi đúng thư mục và `close()` sau đó; `add_dll_directory` lỗi vẫn load tiếp.
+- `tests/test_gui_smoke.py::TestSecurityAccessCheckbox` thêm 1 test (15/15 pass): DLL i386 giả + host 64-bit → `security_access_start_error()` chặn, message có "32-bit".
+- Thử tay với PE giả: 32-bit → chẩn đoán đúng; 64-bit (thân rác) → in lỗi `dlopen` thật kèm "the file does exist at ..."; file thiếu → "not found"; `sys.frozen=True` → thêm giải thích "not bundled".
+- CLI: `flash --hardware vector --security-dll /nonexistent/SeedKey.dll` → exit 2, báo trước khi chạm CAN.
+- `check-security-dll`: DLL 32-bit → exit 1 + "CANNOT LOAD"; file thiếu → exit 1; DLL load được + có `GenerateKeyExOpt` → exit 0; load được nhưng không export gì → exit 1; và test assert lệnh **không khởi tạo** `VirtualCanInterface`/`VectorCanInterface`.
+
+## Phase 4.129: Chữ Ký Security DLL — Sửa Mặc Định Sai Sẽ Crash Process
+
+Tiếp nối 4.128. User gửi thẳng 2 file DLL để kiểm tra, và phân tích PE ra một bug thứ hai, nặng hơn vụ 32-bit.
+
+**`SeedKey.dll` (bản đầu):** `machine 0x014c` → 32-bit (x86), PE32, import duy nhất `KERNEL32.dll`, export duy nhất `GenerateKeyEx`. Xác nhận nguyên nhân lỗi ở 4.128 là bitness, không phải thiếu dependency.
+
+**Nhưng dò tiếp vào thân hàm thì thấy chữ ký bị hiểu sai.** Lần theo thunk `jmp rel32` tới hàm thật, đọc prologue + cách truy cập tham số:
+
+- Bản x86 (RVA `0xbd40`): prologue `push ebp; mov ebp,esp; sub esp,0x1E4`, epilogue là `C3` (`ret` trần → **cdecl**, nên `CDLL` đúng), và truy cập `[ebp+0x08] [ebp+0x10] [ebp+0x18] [ebp+0x20]` → **ít nhất 7 tham số**.
+- Bản x64 `SeedKey64.dll` (RVA `0xa2a0`): prologue spill đủ 4 register arg và cho biết luôn kiểu — `mov [rsp+08],rcx` (64-bit → con trỏ), `mov [rsp+10],edx` (32-bit), `mov [rsp+18],r8d` (32-bit), `mov [rsp+20],r9` (64-bit → con trỏ). Frame `sub rsp,0x1B0` + 1 `push` → shift `0x1B8`, và trong thân hàm có đọc `[rsp+0x1e0]` (**arg5**) và `[rsp+0x1f0]` (**arg7**), **không** có `[rsp+0x1f8]` (arg8).
+
+Tức là cả hai bản đều là **chuẩn Vector/ASAM `GenerateKeyEx`, đúng 7 tham số, mảng byte**. Nhưng `load_security_dll()` lại coi tên `GenerateKeyEx` là loại **legacy 1 tham số** (`uint32 → uint32`), và chỉ dùng chữ ký 7-tham-số cho tên `GenerateKeyExOpt`. Gọi hàm 7 tham số với 1 tham số thì args 2–7 — trong đó có con trỏ `ioKeyArray` — đọc rác từ register/stack rồi **ghi key qua con trỏ rác**: access violation, không phải "key sai".
+
+User xác nhận trên hardware thật ngay sau đó, với bản code cũ: `Error: Security DLL expects a 4-byte seed but ECU sent 16 bytes` — chính là guard của nhánh uint32 chặn lại (may, vì nếu seed đúng 4 byte thì sẽ crash thật). Đồng thời cho thêm một dữ kiện: **ECU gửi seed 16 byte**, nên nhánh uint32 không bao giờ dùng được cho ECU này.
+
+**Sửa:** `load_security_dll(dll_path, function_name=, signature=, variant=)` với 3 hợp đồng rõ ràng — `vector` (7 tham số), `vector_opt` (8, thêm `const char* iOptions`), `uint32` (1). `signature="auto"` (mặc định) phân giải theo tên export: có `GenerateKeyExOpt` → `vector_opt`, còn lại `GenerateKeyEx` → **`vector`**. Đây là **đảo chiều mặc định cũ** cho tên `GenerateKeyEx`, và đảo như vậy mới an toàn hơn: DLL 1-tham-số bị gọi theo `vector` chỉ fail êm (cdecl/x64 bỏ qua tham số thừa; rc ≠ 0 hoặc `key_len == 0` → báo lỗi rõ ràng), trong khi DLL 7-tham-số bị gọi theo `uint32` thì ghi vào bộ nhớ rác. DLL kiểu `uint32` từ nay phải khai rõ.
+
+Thêm `variant=` cho tham số `iVariant` (trước bị hardcode `b""`) — DLL phục vụ nhiều ECU dùng chuỗi này để chọn thuật toán; `--security-dll-variant` ở CLI. Và guard `key_len == 0 or > max_key` → báo "impossible key length ... may expect a different calling contract" thay vì gửi key rỗng cho ECU.
+
+`check-security-dll` giờ in cả export table, import table, và hợp đồng mà `auto` sẽ chọn — phần chẩn đoán này chạy được **ngay cả khi không load được DLL** (ví dụ soi DLL Windows từ macOS), nên dùng được để trả lời "DLL này có export đúng tên không" mà không cần Dependency Walker.
+
+### Thay đổi
+
+- **`communication/uds_client.py`**: `SECURITY_DLL_*` constants; `load_security_dll(..., signature=, variant=)` tách thành `_load_vector_key_func()` (7/8 tham số) và `_load_uint32_key_func()` (1); thông báo lỗi seed 4-byte viết lại để chỉ vào **hợp đồng**, không chỉ vào DLL.
+- **`communication/security_dll.py`**: thêm `read_pe_exports()`, `read_pe_imports()` (đi theo RVA qua section table, không raise bao giờ).
+- **`core/flash_controller.py`**, **`core/test_connection.py`**, **`core/batch_runner.py`**, **`core/parallel_runner.py`**: tham số `security_dll_signature` + `security_dll_variant` xuyên suốt.
+- **`cli.py`**: `--security-dll-signature`, `--security-dll-variant`; `check-security-dll` in export/import/hợp đồng; dòng Summary của report ghi kèm hợp đồng đang dùng.
+- **`README.md`** + **`CLAUDE.md`**: bảng 3 hợp đồng và quy tắc phân giải `auto`.
+
+### Đã kiểm tra
+
+- `tests/test_security_dll.py` lên **44 test**: đọc export/import từ PE dựng tay (một section, export directory thật, import descriptor array) — gồm cả export bị decorate `_GenerateKeyEx@28` phải đọc nguyên văn (load được nhưng `getattr` không bao giờ thấy); `auto` chọn `vector` cho DLL chỉ export `GenerateKeyEx` (**regression của chính bug này**), chọn `vector_opt` khi có; `uint32` phải khai rõ; signature lạ bị từ chối; wrapper trả đúng byte DLL ghi; rc ≠ 0 → lỗi; `key_len` vô lý → lỗi; `iVariant` tới được DLL và mặc định rỗng; **seed 16 byte đi qua nguyên vẹn** (đúng ca của ECU thật).
+- Fake DLL trong test dùng `MagicMock(spec=[...])`: `MagicMock` trần trả lời mọi attribute nên "có export `GenerateKeyExOpt` không" luôn đúng → auto-detection sẽ không bao giờ được test (đúng bài học `NonCallableMagicMock` ở Phase 4.118).
+- `tests.test_uds_client`, `tests.test_flash_controller`, `tests.test_test_connection`, `tests.test_security_dll`: **102 test pass**.

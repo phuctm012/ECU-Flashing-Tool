@@ -28,6 +28,7 @@
 06_PYSIDE6/
 ├── main.py                    ← Entry point (GUI)
 ├── cli.py                     ← Entry point (Command Line Interface)
+├── cli_gitlab.py              ← Nhóm lệnh `cli.py gitlab ...` (artifact/package)
 ├── build.bat                  ← Build file .exe cho Windows (PyInstaller)
 │
 ├── resources/
@@ -54,7 +55,12 @@
 ├── core/                      ← Business logic
 │   ├── flash_controller.py    ← FlashWorker (QThread) — chạy flash sequence qua UDS
 │   ├── flash_sequence.py      ← Định nghĩa FlashStep + build_flash_sequence()
-│   └── test_connection.py     ← TestConnectionWorker (QThread) — session+security probe
+│   ├── test_connection.py     ← TestConnectionWorker (QThread) — session+security probe
+│   ├── batch_runner.py        ← BatchRunner — `cli.py batch`, flash tuần tự nhiều ECU
+│   ├── parallel_runner.py     ← ParallelRunner — `cli.py parallel`, nhiều ECU đồng thời
+│   ├── flash_unit.py          ← FlashUnit + parse `--unit`/`--units-file`
+│   ├── project_config.py      ← Đọc .sfproj headless (`--project`) + format version
+│   └── report.py              ← RunRecord + xuất HTML/CSV/JSON (`--report`...)
 │
 ├── communication/              ← CAN + UDS protocol layer
 │   ├── can_interface.py        ← Interface trừu tượng (send/receive/ISO-TP)
@@ -191,6 +197,32 @@ Nếu bỏ qua bước này, kết nối từ tool sẽ báo lỗi kiểu *"no c
 
 1. Tab **Configure → Communication** → bấm **"Refresh"** cạnh combo Hardware để quét lại thiết bị đang cắm, rồi chọn kênh tương ứng vừa xuất hiện. Combo mặc định chỉ có **"Virtual ECU Simulator"** — kênh thật chỉ hiện ra khi có hardware Vector thật sự được nhận diện *và* đã đăng ký ở bước B (không còn danh sách kênh giả cố định như trước).
 2. Nếu ECU yêu cầu thuật toán bảo mật riêng của OEM: tab **Configure → Flash Options** → mục **"Security Access"** → tick **"Active Security Access"** rồi chọn file DLL (Browse...). Không tick (mặc định) thì app dùng thuật toán seed/key dummy built-in, kể cả khi đã chọn DLL. Nếu tick mà chưa chọn DLL (hoặc file DLL không còn tồn tại), app **từ chối bắt đầu flash** trên hardware thật và báo lỗi — không âm thầm rơi về thuật toán dummy. Virtual ECU Simulator luôn dùng thuật toán dummy bất kể checkbox.
+
+   **DLL phải cùng kiến trúc (32/64-bit) với bản SFlash đang chạy.** DLL Seed&Key rất thường được build **32-bit** (vì đi kèm bộ tool CANoe/CANape), còn SFlash chạy Python/`.exe` 64-bit → Windows **không thể** load vào. Đây là quy tắc của OS, không phải giới hạn của app: một process 64-bit không bao giờ load được DLL 32-bit. App kiểm tra PE header của DLL **trước khi** bắt đầu flash và báo thẳng ra, thay vì để chết ở bước SecurityAccess và bỏ ECU ở giữa session — chọn lại file không giải quyết được gì.
+
+   Kiểm tra nhanh DLL là 32 hay 64-bit (không đụng tới ECU):
+
+   ```powershell
+   python cli.py check-security-dll C:\path\SeedKey.dll
+   ```
+
+   In ra kiến trúc DLL, kiến trúc của SFlash, thử load thật, và cho biết DLL có export `GenerateKeyExOpt`/`GenerateKeyEx` hay không. Exit `0` = dùng được, `1` = không.
+
+   **Chữ ký hàm (calling contract) phải khớp.** Có 3 kiểu DLL ngoài đời, gọi sai kiểu **không** chỉ ra key sai mà làm **crash process** (đọc tham số từ stack rác rồi ghi key qua con trỏ rác):
+
+   | `--security-dll-signature` | Hàm | Mô tả |
+   |---|---|---|
+   | `vector` | `GenerateKeyEx` | Chuẩn Vector/ASAM: **7 tham số**, truyền mảng byte, trả status code, key ghi vào buffer của caller |
+   | `vector_opt` | `GenerateKeyExOpt` | Biến thể ODX: như trên + `const char* iOptions` (**8 tham số**) |
+   | `uint32` | tên tuỳ ý | Hợp đồng cũ của project này: `uint32 seed → uint32 key` (**1 tham số**) |
+
+   Mặc định `auto`: có export `GenerateKeyExOpt` → `vector_opt`, còn lại `GenerateKeyEx` → `vector`. Đúng cho mọi DLL chuẩn Vector. Chỉ DLL kiểu `uint32` mới phải khai rõ bằng `--security-dll-signature uint32`.
+
+   Nếu DLL là 32-bit thì **chỉ có 2 hướng**: (a) xin bên cấp DLL bản **x64** — thường họ có cả hai; (b) dùng một process phụ 32-bit làm cầu nối (chưa implement — nói nếu bạn cần). Build SFlash thành 32-bit **không khả thi**: Qt 6/PySide6 không có bản Windows 32-bit nên không cài được trên Python 32-bit.
+
+   Nếu DLL đúng kiến trúc mà vẫn không load được, nguyên nhân hay gặp thứ hai là **thiếu DLL phụ thuộc** (WinError 126): copy đủ các DLL mà nó link tới vào cùng thư mục, kèm Visual C++ Runtime mà nó được build với. App tự thêm thư mục chứa DLL vào đường dẫn tìm kiếm khi load (`os.add_dll_directory`) nên DLL nằm cạnh nhau sẽ được tìm thấy.
+
+   **Lưu ý khi chạy bản `.exe`**: nếu thấy thông báo *"Failed to load dynlib/dll ... Most likely this dynlib/dll was not found when the application was frozen"* thì đó là câu của **PyInstaller**, không phải lỗi đóng gói — Security DLL là file ngoài, chọn lúc chạy, cố ý **không** bundle vào `.exe`. Từ bản này app đã bóc lỗi gốc ra và in nguyên nhân thật (sai 32/64-bit, thiếu DLL phụ thuộc, hay file không tồn tại) thay vì câu đó.
 3. Nếu ECU yêu cầu khai báo compression/encryption method trong RequestDownload: tab **Configure → Data**, bảng **Details** — 2 dòng **Compression Method**/**Encryption Method** giờ gõ trực tiếp được từ bàn phím (1 ký tự hex 0-F, mặc định 0 = None, chữ thường tự động chuyển thành chữ hoa) thay vì chỉ hiển thị, chỉ set nibble tương ứng trong byte `dataFormatIdentifier` gửi cho ECU, **không** tự nén/mã hóa dữ liệu firmware — file nạp vào phải đã ở đúng định dạng đó từ trước nếu chọn giá trị khác 0. Đây là 1 lựa chọn chung cho cả phiên flash, không đổi theo từng datablock nạp vào.
 4. Tester Serial Number ghi vào ECU khi flash (chỉ sequence **Suzuki**, bước "Write Tester Info", DID `0xF198`): tab **Configure → Flash Options** → mục **"Fingerprint"** → gõ hex trực tiếp vào **"Tester Serial Number"** (tối đa 20 ký tự hex = 10 byte, mặc định `00112233445566778899`, chữ thường tự động chuyển thành chữ hoa). Sequence **Generic** không dùng field này.
 5. Nạp file firmware và nhấn **Flash** như trên. Khuyến nghị chạy `test-connection` trước (xem mục [Command Line Interface](#command-line-interface-clipy)) để xác nhận đấu dây/channel/security đúng trước khi flash thật.
@@ -221,17 +253,35 @@ Nếu combo Hardware chỉ có "Virtual ECU Simulator" dù đã cắm hardware V
 
 ## Command Line Interface (`cli.py`)
 
-Chạy các chức năng chính của app từ command line — không cần mở GUI. Chạy được trên cả **Windows, macOS, Linux** (chỉ dùng thư viện chuẩn + PySide6, không phụ thuộc gì thêm ngoài `requirements.txt`).
+Chạy các chức năng chính của app từ command line — không cần mở GUI. Chạy được trên cả **Windows, macOS, Linux** (chỉ dùng thư viện chuẩn + PySide6; riêng nhóm lệnh `gitlab` cần thêm `python-gitlab`).
+
+CLI hiện **phủ đủ mọi chức năng của GUI**: Single Flash, Batch Flash, Parallel Flash, Test Connection, Load from GitLab, Export Report, và mở lại Project `.sfproj`.
+
+| Lệnh | Tương ứng trong GUI |
+|---|---|
+| `info` | Configure → Data (bảng Datablocks/Details) |
+| `list-hardware` | Configure → Communication → Refresh |
+| `flash` | Tab Single Flash |
+| `batch` | Tools → Mode → Batch Flash |
+| `parallel` | Tab Parallel Flash |
+| `test-connection` | Tools → Test Connection... |
+| `gitlab` | File → Load from GitLab... |
+| `--report` / `--trace-csv` | Tools → Export Report... / Trace → Save Log (CSV) |
+| `--project` | File → Open Project... |
 
 ```bash
-# Xem thông tin file firmware (không flash)
+# Xem thông tin file firmware (không flash) — nhiều file cũng được
 python cli.py info tests/sample.hex
+python cli.py info app.s19 calib.s19
 
 # Xem trước các bước sẽ chạy, không gửi gì tới ECU
 python cli.py flash tests/sample.hex --dry-run
 
 # Flash qua Virtual ECU Simulator (mặc định, không cần hardware)
 python cli.py flash tests/sample.hex
+
+# Flash nhiều datablock trong 1 lần (giống tick nhiều dòng ở bảng Datablocks)
+python cli.py flash app.s19 calib.s19 --sequence suzuki
 
 # Flash bằng Suzuki flash sequence, Radar Side S1
 python cli.py flash firmware.s3 --sequence suzuki --radar-side s1
@@ -249,14 +299,131 @@ python cli.py list-hardware
 
 # Xem đầy đủ option
 python cli.py flash --help
-python cli.py test-connection --help
+python cli.py batch --help
+python cli.py parallel --help
+python cli.py gitlab artifact --help
 ```
 
-Các cờ chính của `flash`/`test-connection` (dùng chung): `--hardware {virtual,vector}`, `--channel`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `--compression`/`--encryption` (nibble `dataFormatIdentifier` của RequestDownload, 0-15, mặc định 0 — chỉ khai báo định dạng cho ECU, không tự nén/mã hóa file), `--tester-serial <hex>` (payload WriteDataByIdentifier DID `0xF198`, chuỗi hex chẵn số ký tự, mặc định `00112233445566778899` — chỉ dùng cho sequence `suzuki`), `-q`/`--quiet`, `-v`/`--verbose`. Riêng `flash` có thêm `--base-address` (cho file `.bin`) và `--dry-run`. Mã thoát (exit code): `0` = thành công, `1` = abort/lỗi, `2` = lỗi tham số/parse file, `130` = bị ngắt (Ctrl+C) — thuận tiện để dùng trong script CI/automation.
+Các cờ chính dùng chung cho `flash`/`batch`/`parallel`/`test-connection`: `--hardware {virtual,vector}`, `--channel`, `--serial`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `--compression`/`--encryption` (nibble `dataFormatIdentifier` của RequestDownload, 0-15, mặc định 0 — chỉ khai báo định dạng cho ECU, không tự nén/mã hóa file), `--tester-serial <hex>` (payload WriteDataByIdentifier DID `0xF198`, chuỗi hex chẵn số ký tự, mặc định `00112233445566778899` — chỉ dùng cho sequence `suzuki`), `--project`, `--report`/`--trace-csv`/`--json-summary`, `-q`/`--quiet`, `-v`/`--verbose`. `flash`/`batch`/`parallel` có thêm `--base-address` (cho file `.bin`) và `--dry-run`.
+
+Mã thoát (exit code): `0` = thành công, `1` = abort/lỗi, `2` = lỗi tham số/parse file/project, `130` = bị ngắt (Ctrl+C) — thuận tiện để dùng trong script CI/automation. Với `batch`/`parallel`, exit `0` chỉ khi **mọi** unit đều PASS.
 
 **Lưu ý**: `--hardware vector` (Vector VN1640A/VN1630 thật) chỉ dùng được trên **Windows** vì driver Vector XL Driver Library chỉ có bản Windows. `--hardware virtual` (mặc định) chạy y hệt trên mọi hệ điều hành.
 
+### Xuất báo cáo: `--report` / `--trace-csv` / `--json-summary`
+
+Có trên cả 4 lệnh flash/test. Luôn được ghi **dù run thành công hay thất bại** — lúc fail mới là lúc cần report nhất. Nếu ghi file lỗi thì chỉ cảnh báo, không đổi exit code (flash đã xảy ra rồi).
+
+```bash
+python cli.py flash firmware.s3 --hardware vector --channel 0 \
+    --report report.html --trace-csv trace.csv --json-summary result.json
+```
+
+- `--report report.html` — báo cáo HTML đủ mục Summary / Firmware / Steps / Trace (và bảng Units cho `batch`/`parallel`), tương đương **Tools → Export Report...** của GUI.
+- `--trace-csv trace.csv` — đúng 6 cột như `docs/*_Report_Trace.csv`, giống hệt **Trace → chuột phải → Save Log (CSV)**. Trace được thu đầy đủ **không cần** `--verbose` (cờ đó chỉ quyết định có in ra màn hình hay không).
+- `--json-summary result.json` — bản tóm tắt máy đọc được (`result`, `duration_seconds`, `units`, `unit_counts`, `steps`, `firmware`…) để CI assert trực tiếp, không phải parse HTML hay scrape stdout.
+
+### Mở lại Project: `--project file.sfproj`
+
+Đọc đúng file `.sfproj` mà GUI ghi ra ở **File → Save Project As...**: danh sách firmware (chỉ các dòng đã tick), Radar Side, Flash Sequence, CAN/CAN FD, Security DLL (chỉ dùng nếu "Active Security Access" được tick), Compression/Encryption, Tester Serial Number.
+
+```bash
+# Dùng nguyên cấu hình đã lưu
+python cli.py flash --project line1.sfproj
+
+# Vẫn ghi đè được từng cờ — cờ truyền tay luôn thắng project
+python cli.py flash --project line1.sfproj --radar-side s1
+```
+
+Thứ tự ưu tiên: **cờ command line > project > giá trị mặc định**. Project thiếu file firmware thì thoát `2` và liệt kê **tất cả** file bị thiếu (không chết ở file đầu tiên).
+
+### `batch` — flash nhiều ECU lần lượt
+
+Bản CLI của **Tools → Mode → Batch Flash**: mỗi unit được Identify trước (lấy Serial Number cho log/report) rồi mới flash, một unit fail không làm dừng cả loạt.
+
+```bash
+# 5 ECU cùng cấu hình, chờ nhấn Enter giữa các lần để đổi ECU
+python cli.py batch firmware.s3 --hardware vector --channel 0 \
+    --count 5 --pause --report batch.html
+
+# Mỗi unit một cấu hình riêng
+python cli.py batch firmware.s3 \
+    --unit "name=Left,channel=0,side=s0" \
+    --unit "name=Right,channel=1,side=s1"
+
+# Hoặc khai báo trong file JSON
+python cli.py batch firmware.s3 --units-file line1_units.json
+```
+
+Cờ riêng: `--count N` (số unit cùng cấu hình), `--pause` (chờ Enter giữa các unit — **mặc định tắt** để script không bị treo ở stdin), `--no-identify` (bỏ bước Identify), `--stop-on-fail` (dừng ngay ở unit đầu tiên fail; mặc định chạy hết rồi báo cáo tất cả).
+
+### `parallel` — flash nhiều ECU cùng lúc
+
+Bản CLI của tab **Parallel Flash**: mỗi unit một thread + một channel CAN riêng, chạy đồng thời, và các lần tính key của Security DLL được **xếp hàng qua 1 lock dùng chung** y như GUI (DLL ngoài không chắc thread-safe).
+
+```bash
+python cli.py parallel firmware.s3 --hardware vector \
+    --unit "name=Left,channel=0,serial=123456,side=s0" \
+    --unit "name=Right,channel=1,serial=123456,side=s1" \
+    --report parallel.html
+```
+
+Hai unit trỏ vào **cùng một ECU thật** (cùng channel + cùng Tx ID) sẽ bị chặn với exit `2` — hai UDS session song song lên một ECU sẽ phá nhau và trông như lỗi hardware. GUI không gặp chuyện này vì mỗi panel gắn một channel riêng; CLI thì phải kiểm tra. Riêng unit `virtual` được phép trùng (mỗi unit có simulator riêng), tiện để thử nhanh tính đồng thời: `python cli.py parallel tests/sample.hex --count 4`.
+
+Ctrl+C = Abort All: mọi channel đang chạy được yêu cầu abort rồi mới thoát, không bỏ thread nào lại.
+
+### Cấu trúc file units (`--units-file`)
+
+Dùng chung cho cả `batch` và `parallel`. Là một list, hoặc một object có khóa `units` (hoặc `channels`):
+
+```json
+{
+  "comment": "Line 1 — 2 radar mỗi xe",
+  "units": [
+    { "name": "Left",  "hardware": "vector", "channel": 0, "serial": 123456, "side": "s0" },
+    { "name": "Right", "hardware": "vector", "channel": 1, "serial": 123456, "side": "s1" }
+  ]
+}
+```
+
+Các field: `name`, `hardware` (`virtual`/`vector`), `channel`, `serial`, `side` (`s0`/`s1`), `tx_id`, `rx_id`, `functional_id`. **Field nào không khai thì lấy từ cờ global của lệnh.** Sai tên field sẽ báo lỗi rõ ràng chứ không bị bỏ qua âm thầm (gõ sai `serial_number=` mà bị ignore thì sẽ flash sai ECU). Trong một unit, `tx_id`/`rx_id` thắng `side`; nhưng `side` của unit luôn thắng `--tx-id`/`--rx-id` global — nếu không thì mọi unit sẽ dùng chung một cặp CAN ID và "flash Left + Right" thực ra chỉ flash một ECU hai lần.
+
+### `gitlab` — tải firmware từ GitLab
+
+Bản CLI của **File → Load from GitLab...**. Cần `pip install python-gitlab`. Token lấy từ `--token` hoặc — nên dùng hơn — biến môi trường `SFLASH_GITLAB_TOKEN` (không lọt vào shell history và `ps`).
+
+```bash
+export SFLASH_GITLAB_TOKEN=glpat-xxxxxxxx
+
+# Liệt kê branch/tag của project (mặc định là repo artifact của team)
+python cli.py gitlab refs
+
+# Liệt kê job CI, chỉ job success (giống bảng Browse của GUI)
+python cli.py gitlab jobs --ref Release_DD_05_01_02 --success-only
+
+# Tải artifact của job success mới nhất trên 1 branch, giải nén luôn
+python cli.py gitlab artifact --ref main --job create_ffi_3p5mb_no_HTSM \
+    -o downloads --extract
+
+# Hoặc tải chính xác 1 job theo ID lấy từ `gitlab jobs`
+python cli.py gitlab artifact --job-id 9876543 -o downloads --extract
+
+# Package Registry
+python cli.py gitlab packages --package-name radar_fw
+python cli.py gitlab package  --package-name radar_fw --version 1.2.3 -o downloads
+```
+
+Nối thẳng tải-rồi-flash bằng `--print-firmware` (chỉ in ra đường dẫn file firmware trong archive, mỗi dòng một file):
+
+```bash
+FW=$(python cli.py gitlab artifact --ref main --job build -o downloads --print-firmware)
+python cli.py flash "$FW" --hardware vector --channel 0 --sequence suzuki
+```
+
+Cờ chung: `--gitlab-url`, `--gitlab-project` (mặc định lấy repo artifact/package của team trong `config/settings.py`), `--token`, `--no-ssl-verify` (instance self-hosted dùng certificate tự ký).
+
 ### `test-connection` — kiểm tra kết nối an toàn trước khi flash thật
+
 
 Chỉ thực hiện **Session Control** rồi đọc một số DID nhận diện ECU (SW Version, HW Version, Serial Number, Supplier SW Version, ECU SW Number — read-only) — **không bao giờ** đụng tới Programming Session, Security Access, Erase Memory, TransferData, hay bất kỳ lệnh ghi nào. Dùng để xác nhận đấu dây/CAN ID/ECU có phản hồi đúng trước khi tin tưởng chạy `flash` thật lên ECU (Security Access thật sự chỉ được test khi chạy `flash`).
 
@@ -348,6 +515,13 @@ python -m unittest tests.test_parsers -v
 | `test_flash_threading.py` | **Regression cho crash `QThread: Destroyed while thread is still running`** — chạy qua đúng `QThread` thật (`flash_button_clicked()` + `app.exec()`): 1 lần, lặp 5 lần, abort giữa chừng, đóng cửa sổ giữa chừng |
 | `test_gui_smoke.py` | Khởi tạo `MainWindow`, tồn tại widget, `get_can_config()` (Radar Side, channel, CAN FD), lưu log `.txt`/`.csv`, cảnh báo xung đột CAN bus, lọc datablock theo checkbox, Export Report, lưu/nạp profile (`QSettings`), wiring menu bar, File > Recent Files, menu Edit (Clear Information Log/Trace), Save/Open Project (`.sfproj`), Resize Window, Export Issue (`.txt`/`.zip` kèm firmware) |
 | `test_cli.py` | `cli.py` — `info`/`flash`/`list-hardware`/`test-connection`, `--dry-run`, Suzuki + Radar Side, `--quiet`/`--verbose`, cleanup khôi phục DTC/Comm, mã lỗi khi thiếu `python-can`/sai tham số |
+| `test_cli_commands.py` | Phần CLI bổ sung cho ngang bằng GUI — flash nhiều file, `--project` (thứ tự ưu tiên cờ > project > default), `--report`/`--trace-csv`/`--json-summary` (ghi cả khi fail, không đổi exit code khi ghi lỗi), `batch`, `parallel` |
+| `test_cli_batch_parallel.py` | `BatchRunner`/`ParallelRunner` end-to-end qua Virtual ECU — tuần tự đúng thứ tự, một unit fail không dừng loạt, `--stop-on-fail`, pause hook; **parallel thật sự đồng thời**, listener nhận được signal từ thread worker (regression cho "signal queued rồi mất vì không có event loop"), Security lock không bao giờ chồng lấn, Abort All |
+| `test_cli_gitlab.py` | `cli.py gitlab` — thứ tự lấy token (`--token` > `SFLASH_GITLAB_TOKEN`), `refs`/`jobs` (lọc `--success-only`), tải artifact theo ref+job hoặc job-id, giải nén + `--print-firmware`, Package Registry, `--no-ssl-verify` |
+| `test_cli_report.py` | `core/report.py` — 6 cột CSV trace khớp tab Trace của GUI, HTML đủ mục (Units chỉ hiện với batch/parallel), escape HTML, JSON summary |
+| `test_project_config.py` | `core/project_config.py` — map index combo → nghĩa (**đối chiếu trực tiếp thứ tự item trong `gui/main_window.ui`**), file thiếu/format version mới hơn, gate "Active Security Access", fallback Tester Serial |
+| `test_flash_unit.py` | `core/flash_unit.py` — parse `--unit`, đọc `--units-file`, và thứ tự ưu tiên CAN ID (`side` của unit thắng `--tx-id` global) |
+| `test_security_dll.py` | `communication/security_dll.py` — đọc PE header xác định 32/64-bit (không cần `pefile`/`dumpbin`), chặn DLL sai kiến trúc trước khi gọi OS, bóc lỗi gốc khỏi wrapper của PyInstaller, WinError 126/193, thêm thư mục DLL vào search path rồi nhả ra |
 | `test_vector_can.py` | `detect_running_vector_tools()` (nhận diện CANoe/CANalyzer/CANape qua `tasklist`, chỉ Windows) và field `is_on_bus` trong `detect_vector_channels()` |
 | `test_test_connection.py` | `TestConnectionWorker.run()` đồng bộ qua Virtual ECU — generic/suzuki, đọc ECU ID, không bao giờ gửi SID `0x34`/`0x36`, khôi phục Default session |
 | `test_test_connection_dialog.py` | **Regression cho deadlock trong `TestConnectionDialog.closeEvent()`** — chạy qua đúng `QThread` thật: 1 lần, lặp 5 lần, đóng dialog giữa chừng lúc đang probe |
