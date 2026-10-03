@@ -1,4 +1,4 @@
-# SFlash (v3.0)
+# SFlash (v3.1)
 
 Ứng dụng desktop (PySide6) để **flash firmware ECU** qua giao thức **UDS (ISO 14229)** trên bus CAN — hỗ trợ chạy với **ECU giả lập** (không cần phần cứng) hoặc với thiết bị **Vector VN1640A / VN1630** thật.
 
@@ -30,7 +30,9 @@
 ├── cli.py                     ← Entry point (Command Line Interface)
 ├── cli_gitlab.py              ← Nhóm lệnh `cli.py gitlab ...` (artifact/package)
 ├── build.bat                  ← Build file .exe cho GUI (PyInstaller)
-├── build_cli.bat              ← Build sflash-cli.exe (chỉ khi runner không có Python)
+├── build_cli.bat              ← Build SFlash_CLI.exe (chỉ khi runner không có Python)
+├── README_CLI.md              ← Hướng dẫn dùng SFlash_CLI.exe (đi kèm bản build, cho người không có repo)
+├── README_CLI_EN.md           ← Bản tiếng Anh của README_CLI.md
 │
 ├── resources/
 │   ├── style.qss               ← Theme QSS sáng toàn app ("Engineering Blue")
@@ -305,7 +307,7 @@ python cli.py parallel --help
 python cli.py gitlab artifact --help
 ```
 
-Các cờ chính dùng chung cho `flash`/`batch`/`parallel`/`test-connection`: `--hardware {virtual,vector}`, `--channel`, `--serial`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `--compression`/`--encryption` (nibble `dataFormatIdentifier` của RequestDownload, 0-15, mặc định 0 — chỉ khai báo định dạng cho ECU, không tự nén/mã hóa file), `--tester-serial <hex>` (payload WriteDataByIdentifier DID `0xF198`, chuỗi hex chẵn số ký tự, mặc định `00112233445566778899` — chỉ dùng cho sequence `suzuki`), `--project`, `--report`/`--trace-csv`/`--json-summary`, `--timeout`, `--security-dll-signature`, `--security-dll-variant`, `-q`/`--quiet`, `-v`/`--verbose`. `flash`/`batch`/`parallel` có thêm `--base-address` (cho file `.bin`) và `--dry-run`.
+Các cờ chính dùng chung cho `flash`/`batch`/`parallel`/`test-connection`: `--hardware {virtual,vector}`, `--channel`, `--serial`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `--compression`/`--encryption` (nibble `dataFormatIdentifier` của RequestDownload, 0-15, mặc định 0 — chỉ khai báo định dạng cho ECU, không tự nén/mã hóa file), `--tester-serial <hex>` (payload WriteDataByIdentifier DID `0xF198`, chuỗi hex chẵn số ký tự, mặc định `00112233445566778899` — chỉ dùng cho sequence `suzuki`), `--config`, `--project`, `--report`/`--trace-csv`/`--json-summary`, `--timeout`, `--security-dll-signature`, `--security-dll-variant`, `-q`/`--quiet`, `-v`/`--verbose`. `flash`/`batch`/`parallel` có thêm `--base-address` (cho file `.bin`) và `--dry-run`.
 
 Mã thoát (exit code): `0` thành công · `1` ECU trả lời nhưng sequence fail · `2` lỗi tham số/parse file/project · `3` không kết nối được ECU · `4` hết `--timeout` · `130` bị ngắt (Ctrl+C). Xem mục "Dùng trong CI/CD pipeline" bên dưới. Với `batch`/`parallel`, exit `0` chỉ khi **mọi** unit đều PASS.
 
@@ -323,6 +325,33 @@ python cli.py flash firmware.s3 --hardware vector --channel 0 \
 - `--report report.html` — báo cáo HTML đủ mục Summary / Firmware / Steps / Trace (và bảng Units cho `batch`/`parallel`), tương đương **Tools → Export Report...** của GUI.
 - `--trace-csv trace.csv` — đúng 6 cột như `docs/*_Report_Trace.csv`, giống hệt **Trace → chuột phải → Save Log (CSV)**. Trace được thu đầy đủ **không cần** `--verbose` (cờ đó chỉ quyết định có in ra màn hình hay không).
 - `--json-summary result.json` — bản tóm tắt máy đọc được (`result`, `duration_seconds`, `units`, `unit_counts`, `steps`, `firmware`…) để CI assert trực tiếp, không phải parse HTML hay scrape stdout.
+
+### Cấu hình toàn bộ bằng JSON: `--config file.json`
+
+Đặt **mọi** tham số của lệnh vào một file JSON, thay cho dòng lệnh dài. Key chính là tên tham số dài bỏ gạch đầu (`--json-summary` → `"json-summary"` hoặc `"json_summary"`).
+
+```json
+{
+  "comment": "Line 1 - radar trai",
+  "file": ["C:\\builds\\firmware.s19"],
+  "hardware": "vector", "channel": 0, "serial": 123456,
+  "sequence": "suzuki", "radar-side": "s0",
+  "security-dll": "C:\\tools\\SeedKey64.dll",
+  "timeout": 900,
+  "report": "report.html", "json-summary": "result.json"
+}
+```
+
+```bash
+python cli.py flash --config line1_left.json
+python cli.py flash --config line1_left.json --serial 999888   # ghi đè 1 giá trị
+```
+
+Khác với `.sfproj` (ảnh chụp phiên làm việc của GUI, chỉ lưu 11/26 setting mà tab Configure sở hữu), file này phủ **toàn bộ** tham số của lệnh — gồm cả những thứ chỉ có ở CLI: `timeout`, `bitrate`, đường dẫn report, `security-dll-signature`, `tx_id`/`rx_id`.
+
+Thứ tự ưu tiên: **cờ dòng lệnh > `--config` > `--project` > mặc định**. Danh sách key hợp lệ được lấy **trực tiếp từ argparse của lệnh đó**, nên format không bao giờ lệch khỏi các cờ thật — thêm cờ mới là file config hỗ trợ ngay. Gõ sai key → exit `2` kèm gợi ý key đúng, **không bao giờ bị bỏ qua âm thầm** (một key `timeout_s` bị nuốt nghĩa là lần chạy đó không có watchdog nào cả). Giá trị cũng được kiểm tra đúng như trên dòng lệnh: `"tx_id": "0x77A"` thành số, `"sequence": "bogus"` bị từ chối.
+
+Dùng được cho `flash`, `batch`, `parallel`, `test-connection`. Với `batch`/`parallel`, danh sách ECU nằm luôn trong file qua key `"unit"`.
 
 ### Mở lại Project: `--project file.sfproj`
 
@@ -476,7 +505,7 @@ flash_ecu:
 
 ```json
 {
-  "app": "SFlash", "version": "3.0", "command": "flash",
+  "app": "SFlash", "version": "3.1", "command": "flash",
   "result": "PASS", "duration_seconds": 42.1,
   "configuration": { "Hardware": "Vector channel 0", "Flash Sequence": "suzuki" },
   "firmware": [{ "file_name": "app.s19", "checksum": "0x1A2B3C4D", "total_size": 524288 }],
@@ -488,7 +517,17 @@ flash_ecu:
 
 `ecu_info` ghi lại **ECU nào đã nhận bản nào** — truy xuất nguồn gốc mà không cần đọc log. Lưu ý: sequence `suzuki` **cố tình không có bước ReadDataByIdentifier** (bám đúng trace thật), nên `ecu_info` sẽ rỗng khi flash bằng sequence đó. Muốn có thông tin ECU kèm theo thì chạy `test-connection --json-summary` trước, hoặc dùng `batch` (mỗi unit đều Identify trước khi flash và ghi `units[].ecu_info` + `units[].serial`).
 
-**Có cần build `cli.exe` không?** Thường là **không** — runner có sẵn Python env thì `python cli.py` nhẹ hơn, khởi động nhanh hơn, dễ debug hơn. Chỉ build khi runner là máy Windows trắng không có Python: chạy `build_cli.bat` (tạo `dist\sflash-cli\sflash-cli.exe`). Script này cố tình dùng `--console --onedir`, **khác** `build.bat` của GUI: `--windowed` sẽ tách console làm mất sạch stdout/stderr (pipeline không đọc được log), còn `--onefile` tự giải nén ra temp **mỗi lần chạy**. Lưu ý kích thước: `cli.py` import PySide6 (dùng cơ chế signal/slot) nên bundle kéo theo toàn bộ Qt, khoảng **150–250 MB**. Security DLL và Vector XL Driver vẫn là thứ bên ngoài, exe không gói chúng.
+Hướng dẫn dành riêng cho người dùng bản `.exe` (không có Python, không có repo) nằm ở **[`README_CLI.md`](README_CLI.md)**, bản tiếng Anh ở **[`README_CLI_EN.md`](README_CLI_EN.md)** — `build_cli.bat` tự copy cả hai vào thư mục build.
+
+**Có cần build `SFlash_CLI.exe` không?** Thường là **không** — runner có sẵn Python env thì `python cli.py` nhẹ hơn, khởi động nhanh hơn, dễ debug hơn. Chỉ build khi runner là máy Windows trắng không có Python: chạy `build_cli.bat` (tạo `dist\SFlash_CLI\SFlash_CLI.exe`).
+
+Script này cố tình dùng `--console --onedir`, **khác** `build.bat` của GUI: `--windowed` sẽ tách console làm mất sạch stdout/stderr (pipeline không đọc được log), còn `--onefile` tự giải nén ra temp **mỗi lần chạy**.
+
+**Về kích thước:** CLI chỉ dùng `PySide6.QtCore` — các worker là `QObject` báo tiến trình qua `Signal`. Nó **không tạo `QApplication`** và không bao giờ import `QtWidgets`/`QtGui`, vì mọi lệnh đều chạy worker trên chính thread sở hữu worker đó nên `emit` là direct call, không cần event loop. Nhờ vậy bundle chỉ mang khoảng 1/3 phần Qt so với bản GUI (đo trong env dev: QtCore ~23 MB, so với ~82 MB nếu kéo theo QtGui + QtWidgets). Ước tính rất thô cho exe: khoảng **40–70 MB** — hãy kiểm tra số thật sau khi build, con số này chưa đo trên Windows.
+
+Nếu một ngày exe phình to bất thường, thứ cần kiểm tra đầu tiên là có ai vô tình thêm lại import `PySide6.QtWidgets` (hoặc import từ `gui/`) vào đường import của CLI hay không — `tests/test_cli_no_qt_gui.py` tồn tại để fail đúng lúc đó.
+
+Security DLL và Vector XL Driver vẫn là thứ bên ngoài, exe không gói chúng.
 
 ### `test-connection` — kiểm tra kết nối an toàn trước khi flash thật
 
@@ -586,6 +625,8 @@ python -m unittest tests.test_parsers -v
 | `test_cli_commands.py` | Phần CLI bổ sung cho ngang bằng GUI — flash nhiều file, `--project` (thứ tự ưu tiên cờ > project > default), `--report`/`--trace-csv`/`--json-summary` (ghi cả khi fail, không đổi exit code khi ghi lỗi), `batch`, `parallel` |
 | `test_cli_batch_parallel.py` | `BatchRunner`/`ParallelRunner` end-to-end qua Virtual ECU — tuần tự đúng thứ tự, một unit fail không dừng loạt, `--stop-on-fail`, pause hook; **parallel thật sự đồng thời**, listener nhận được signal từ thread worker (regression cho "signal queued rồi mất vì không có event loop"), Security lock không bao giờ chồng lấn, Abort All |
 | `test_cli_gitlab.py` | `cli.py gitlab` — thứ tự lấy token (`--token` > `SFLASH_GITLAB_TOKEN`), `refs`/`jobs` (lọc `--success-only`), tải artifact theo ref+job hoặc job-id, giải nén + `--print-firmware`, Package Registry, `--no-ssl-verify` |
+| `test_cli_config.py` | `--config` — key lấy từ chính argparse (test bảo đảm "mọi setting đều cấu hình được"), thứ tự ưu tiên cờ > config > project, chuyển kiểu qua `type` của option, từ chối key sai kèm gợi ý, JSON hỏng/thiếu file |
+| `test_cli_no_qt_gui.py` | CLI phải ở lại mức `QtCore` — chạy từng lệnh trong **subprocess riêng** và assert `QtWidgets`/`QtGui` không được load, không có application object nào được tạo; kèm kiểm tra tĩnh `cli.py`/`core/` không import `gui/` |
 | `test_cli_report.py` | `core/report.py` — 6 cột CSV trace khớp tab Trace của GUI, HTML đủ mục (Units chỉ hiện với batch/parallel), escape HTML, JSON summary |
 | `test_project_config.py` | `core/project_config.py` — map index combo → nghĩa (**đối chiếu trực tiếp thứ tự item trong `gui/main_window.ui`**), file thiếu/format version mới hơn, gate "Active Security Access", fallback Tester Serial |
 | `test_flash_unit.py` | `core/flash_unit.py` — parse `--unit`, đọc `--units-file`, và thứ tự ưu tiên CAN ID (`side` của unit thắng `--tx-id` global) |

@@ -14,7 +14,8 @@ REM both of which would break a CLI if copied from it:
 REM
 REM   --console (not --windowed). --windowed detaches the
 REM   process from its console, so stdout/stderr go nowhere and
-REM   a pipeline sees no log and no error text at all.
+REM   a pipeline sees no log and no error text at all. It would
+REM   also drag QtGui/QtWidgets back in, undoing the size win.
 REM
 REM   --onedir (not --onefile). --onefile self-extracts the whole
 REM   bundle to a temp folder on EVERY launch. For a GUI started
@@ -22,10 +23,22 @@ REM   once that is a one-off delay; for a pipeline step invoked
 REM   repeatedly it is paid every time, and antivirus rescans the
 REM   extracted files each run.
 REM
-REM Size warning: cli.py imports PySide6 (it uses Qt's signal/
-REM slot mechanism, not widgets), so the bundle carries all of
-REM Qt - expect roughly 150-250 MB. That is the price of a
-REM Python-free machine; it is not a packaging mistake.
+REM Size: cli.py pulls in PySide6.QtCore only - the workers it
+REM drives are QObjects reporting progress through Signals. It
+REM creates no QApplication and never imports QtWidgets/QtGui,
+REM so the bundle carries roughly a third of the Qt payload the
+REM GUI build needs. Measured in the dev env: QtCore ~23 MB of
+REM Qt, against ~82 MB if QtGui and QtWidgets came along. With
+REM the Python runtime on top, expect very roughly 40-70 MB
+REM rather than the 100-150 MB this used to produce. Treat
+REM those as estimates and check the real output - they are not
+REM measured on Windows.
+REM
+REM If a future change makes this exe much bigger, the first
+REM thing to check is whether something re-introduced an import
+REM of PySide6.QtWidgets (or QtGui) into the CLI's import graph.
+REM tests/test_cli_no_qt_gui.py exists to fail when that
+REM happens.
 REM
 REM What is NOT bundled, by design:
 REM   * The Security Access DLL. It is chosen at run time and
@@ -44,7 +57,7 @@ setlocal
 
 cd /d "%~dp0"
 
-set CLI_NAME=sflash-cli
+set CLI_NAME=SFlash_CLI
 
 echo ==================================================
 echo  %CLI_NAME% - Build CLI .exe
@@ -99,10 +112,24 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+REM The person who gets this folder has no repo to read, so the
+REM guides ship next to the .exe - Vietnamese and English.
+for %%G in (README_CLI.md README_CLI_EN.md) do (
+    if exist "%%G" (
+        copy /y "%%G" "dist\%CLI_NAME%\%%G" >nul
+        echo Copied %%G into dist\%CLI_NAME%\
+    ) else (
+        echo [WARN] %%G not found - it will be missing from the
+        echo        built folder.
+    )
+)
+
 echo.
 echo ==================================================
 echo  Build OK: dist\%CLI_NAME%\%CLI_NAME%.exe
 echo  Copy the whole dist\%CLI_NAME%\ folder, not just the .exe.
+echo  Usage guide: dist\%CLI_NAME%\README_CLI.md ^(VI^)
+echo               dist\%CLI_NAME%\README_CLI_EN.md ^(EN^)
 echo.
 echo  Smoke test it before trusting a pipeline to it:
 echo    dist\%CLI_NAME%\%CLI_NAME%.exe --version

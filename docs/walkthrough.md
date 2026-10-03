@@ -2960,3 +2960,78 @@ Bẫy bắt được khi viết test: `test-connection` **không** gọi `FlashW
 - **Full protocol lần 1 fail 2 test** — và đúng loại fail mong muốn: `test_cli.py` có 2 literal `self.assertEqual(code, 1)` khẳng định hợp đồng **cũ** cho `--hardware vector`. Đổi thành `cli.EXIT_NO_ECU` kèm comment giải thích vì sao tách mã, đúng bài học Phase 4.126 (literal pixel/số trần trong test sẽ trôi; viết bằng hằng số có tên). Nhân tiện đổi luôn `2` → `cli.EXIT_USAGE` ở test kế bên.
 - Protocol cuối: **full suite 742 test OK** (2 skipped, 1175 s), **threading 37/37**, **stress 74/74 checkpoint / 6 section / 60 s / 0 cảnh báo Qt / PASS**.
 - Ghi chú vận hành: lần chạy stress trước đó mất 1398 s còn lần này 60 s — chênh lệch là do máy đang chạy song song full suite + OneDrive sync, không phải regression. Đừng dùng con số elapsed của stress để suy ra hiệu năng.
+
+## Phase 4.132: CLI Bỏ `QApplication` — Giảm 2/3 Phần Qt Phải Đóng Gói
+
+User hỏi "vì sao `cli.py` lại bundle Qt". Câu trả lời có hai nửa, và nửa thứ hai hoá ra là một khoản lãng phí sửa được.
+
+**Nửa bắt buộc:** `FlashWorker` và `TestConnectionWorker` **là `QObject`**, báo tiến trình qua `Signal`. CLI dùng đúng hai worker đó chứ không viết lại — đấy là thứ bảo đảm CLI và GUI flash giống hệt nhau. Nên `PySide6.QtCore` là không tránh được, trừ khi viết tầng worker thứ hai và chấp nhận hai đường code trôi khỏi nhau.
+
+**Nửa lãng phí:** `cli.py` import `QtWidgets` chỉ để lấy **một class** `QApplication` — và `QtWidgets` kéo theo `QtGui`. Lý do lịch sử (ghi trong CLAUDE.md) là Qt chỉ cho một instance họ `QCoreApplication` mỗi process, mà `tests/test_cli.py` và `tests/test_gui_smoke.py` chạy chung process, nên nếu CLI tạo `QCoreApplication` trước thì mọi `QApplication` sau đó fail.
+
+**Đo trước khi sửa** (env dev, macOS): cả gói PySide6 là 1.1 GB nhưng `cli.py` chỉ load **3 module Qt** — `QtCore`, `QtGui`, `QtWidgets`; `QtWebEngineCore` (588 MB) không hề được đụng tới. Chi phí: QtCore ~23 MB (binding + framework), QtGui ~30 MB, QtWidgets ~29 MB → **~82 MB, trong đó ~59 MB là vì một class không dùng tới**.
+
+**Kiểm chứng trước khi đổi kiến trúc:** dựng `FlashWorker` và chạy hết sequence mà **không tạo application object nào** → nhận đủ 13/13 signal, `flash_finished` tới nơi, `QtWidgets`/`QtGui` không được load. Lý do: trong CLI, worker và listener luôn ở **cùng thread** (lệnh tuần tự trên main thread; mỗi channel của `parallel` trên chính thread đã tạo worker của nó), nên mọi `emit` là direct call — không cần event loop, không cần app.
+
+**Sửa:** bỏ hẳn `from PySide6.QtWidgets import QApplication` và 4 dòng `app = QApplication.instance() or QApplication(sys.argv)` (biến `app` vốn **chưa từng được dùng** sau khi gán). Không tạo gì cả còn **an toàn hơn** cái lý do lịch sử: CLI không tạo app thì không bao giờ tạo nhầm loại trước.
+
+Đổi tên exe `sflash-cli` → **`SFlash_CLI`** theo yêu cầu.
+
+### Thay đổi
+
+- **`cli.py`**: bỏ import `QtWidgets` và 4 lần tạo `QApplication`; docstring đầu file ghi rõ vì sao không cần app và vì sao điều đó quan trọng.
+- **`tests/test_cli_no_qt_gui.py`** (mới): khoá hành vi lại.
+- **`build_cli.bat`**: `CLI_NAME=SFlash_CLI`, ghi chú kích thước sửa lại theo số đo thật.
+- **`README.md`**, **`CLAUDE.md`**: thay đoạn "dùng QApplication vì..." bằng quy tắc mới và lý do.
+
+### Đã kiểm tra
+
+- Cả 4 lệnh (`flash`, `test-connection`, `batch`, `parallel`) chạy trong **subprocess sạch**: exit 0, `qt_loaded = ['PySide6.QtCore']`, không có application object.
+- `tests/test_cli_no_qt_gui.py`: **7 test pass**. Mỗi lệnh chạy trong subprocess **riêng** — bắt buộc, vì dưới `unittest discover` thì GUI test đã nạp `QtWidgets` vào process rồi, assert trên `sys.modules` tại chỗ sẽ luôn fail. Kèm 2 test tĩnh: `cli.py`/`core/` không import `gui/`, và `cli.py` không import `QtWidgets`.
+- Lý do phải có test này: khi ai đó thêm lại `QApplication` "cho chắc", hoặc import một helper từ `gui/`, **không có gì fail cả** — CLI vẫn chạy đúng, chỉ có exe phình ra. Không ai phát hiện được cho tới lúc build.
+
+Kèm theo, user yêu cầu thêm **`README_CLI.md`** — hướng dẫn viết cho người nhận bản `.exe`: không có Python, không có repo, nên tài liệu phải **đứng độc lập** chứ không trỏ ngược về `README.md`. Mọi ví dụ viết bằng `.\SFlash_CLI.exe ...` (kèm `^` nối dòng của CMD/PowerShell) thay vì `python cli.py ...`, có bảng exit code dùng được trong script (`$LASTEXITCODE`), và mục xử lý sự cố gom đúng các lỗi **đã gặp thật** trong phiên này: DLL 32-bit, WinError 126, câu "not found when the application was frozen" của PyInstaller, NRC 0x35 thiếu `iVariant`, và lỗi sai chữ ký hàm. `build_cli.bat` tự copy file này vào `dist\SFlash_CLI\` để người nhận có luôn tài liệu bên cạnh exe.
+
+## Phase 4.133: `--config file.json` — Cấu Hình Toàn Bộ Một Lệnh Bằng Một File
+
+User hỏi chạy `SFlash_CLI.exe` có cấu hình **toàn bộ** setting bằng JSON được không. Đo trước khi trả lời: lệnh `flash` nhận **26 setting**, `.sfproj` chỉ cấp được **11** (`hardware`, `channel`, `serial`, `radar_side`, `sequence`, `can_fd`, `security_dll`, `compression`, `encryption`, `tester_serial`, `file`). 15 cái còn lại — trong đó có đúng những thứ pipeline cần nhất: `timeout`, `bitrate`, `tx_id`/`rx_id`, 3 đường dẫn report, `security_dll_signature`, `security_dll_variant` — vẫn phải gõ tay. Nên câu trả lời là **chưa**, và làm cho được.
+
+**Quyết định thiết kế quan trọng nhất: schema lấy từ chính argparse, không viết tay.** Key hợp lệ đọc từ `subparser._actions` của lệnh đang chạy. Nhờ vậy format **không bao giờ lệch khỏi các cờ thật**: thêm một cờ mới là file config hỗ trợ ngay, không phải sửa `core/run_config.py`. Lời hứa "mọi setting đều cấu hình được" được khoá bằng test chứ không phải bằng tài liệu.
+
+**Quyết định thứ hai: để argparse tự xử lý thứ tự ưu tiên.** Config được nạp **trước khi parse argv**, cài vào subparser bằng `set_defaults()`. Thế là cờ gõ tay tự động thắng (argparse vốn cho giá trị tường minh đè default), và cơ chế `default=None` sẵn có của `_resolve_config()` đẩy `--project` xuống dưới. Chuỗi **cờ > `--config` > `--project` > mặc định** không có một dòng code so sánh nào — đã kiểm chứng 3 hành vi argparse bằng probe trước khi viết: `set_defaults` trên subparser có tác dụng (kể cả với positional `nargs="*"`), giá trị CLI đè được default, và `store_true` đã bật từ config thì không tắt được từ CLI (giới hạn đã ghi vào tài liệu).
+
+Giá trị dạng chuỗi được đưa qua **chính `type` converter của option** và kiểm `choices`, nên `"tx_id": "0x77A"` ra số và `"tester_serial": "AABBCCDD"` ra bytes — nếu không, một `str` sẽ lọt xuống tận hàm dựng sequence rồi mới nổ.
+
+**Key sai là lỗi cứng, không bao giờ bỏ qua.** Dùng `difflib` gợi ý key đúng. Lý do nằm trong chính feature trước đó: một key `timeout_s` bị nuốt lặng lẽ nghĩa là lần chạy đó **không có watchdog nào cả** — đúng thứ `--timeout` sinh ra để ngăn.
+
+Viết test bắt được một kẽ hở: `--config` dùng với lệnh **không có** cờ đó (`info`, `list-hardware`, `check-security-dll`, `gitlab`) thì vẫn lọt vào nhánh kiểm tra key và báo "info does not accept 'timeout'" — đổ lỗi cho file trong khi file không sai. Sửa: kiểm tra subparser có action `config` hay không trước, rồi mới nói đúng nguyên nhân.
+
+### Thay đổi
+
+- **`core/run_config.py`** (mới): `load_run_config()` (JSON → dict, chuẩn hoá `--json-summary`/`json-summary`/`json_summary` về một key, bỏ `comment`, từ chối 2 cách viết cùng một key), `check_keys()` (gợi ý bằng `difflib`), `RunConfigError`.
+- **`cli.py`**: cờ `--config` trong `_add_can_args` (phủ `flash`/`batch`/`parallel`/`test-connection`); `_apply_run_config()`, `_subparser_for()`, `_config_actions()`, `_coerce_config_value()`; `main()` áp config trước khi parse.
+- **`README_CLI.md`** mục 4, **`README.md`** mục "Cấu hình toàn bộ bằng JSON", **`CLAUDE.md`** mục "CLI config files: three formats, one precedence chain".
+
+### Đã kiểm tra
+
+- `tests/test_cli_config.py` (mới, **26 test**): chạy trọn một lần flash chỉ bằng file; cờ CLI đè file; file đè `.sfproj`; chuyển kiểu `tx_id`/`tester_serial`; `store_true` từ file; danh sách unit của batch nằm trong file; key sai/choice sai/giá trị sai/JSON hỏng/thiếu file đều exit 2; `--config` trên lệnh không hỗ trợ báo đúng nguyên nhân; và **không dùng `--config` thì mọi thứ y như cũ**.
+- `TestEverySettingIsConfigurable` duyệt cả 4 lệnh, đối chiếu tập key với `_actions` của chính subparser, và liệt kê đích danh 12 setting quan trọng cho pipeline phải có mặt.
+- `tests.test_cli` + `tests.test_cli_commands` + `tests.test_cli_no_qt_gui`: **73 test pass**, không regression.
+
+Kèm theo phase này, user yêu cầu thêm **`README_CLI_EN.md`** — bản tiếng Anh của `README_CLI.md`, cho đồng nghiệp/nhà cung cấp không đọc tiếng Việt. Không dịch máy móc từng chữ mà giữ nguyên cấu trúc và lập luận: 11 mục, 17 mục con, 40 code block khớp nhau hoàn toàn (kiểm bằng đếm). Hai file trỏ chéo sang nhau ở đầu, và `build_cli.bat` copy **cả hai** vào `dist\SFlash_CLI\` — người nhận exe không có repo để tra cứu, nên tài liệu phải đi cùng bản build chứ không nằm lại trong repo.
+
+## Phase 4.134: Bump v3.0 → v3.1
+
+Đóng mốc toàn bộ công việc từ sau `v3.0`: CLI ngang bằng GUI (`batch`/`parallel`/`gitlab`/`--project`/report), chẩn đoán + sửa Security DLL (kiến trúc, chữ ký hàm, `iVariant`), hạ tầng pipeline (`--timeout`, mã thoát phân loại, `ecu_info`), CLI bỏ `QApplication` (giảm 2/3 phần Qt phải đóng gói), `--config` JSON, `SFlash_CLI.exe` + 2 bản hướng dẫn, và fix mục Data không sáng ở tab Configure.
+
+`APP_VERSION` là **một nguồn duy nhất** — tiêu đề cửa sổ, `cli.py --version`, header của report HTML và trường `version` trong JSON summary đều đọc từ đó, nên chỉ cần sửa `config/settings.py`. Những chỗ còn lại chỉ là chuỗi minh hoạ trong tài liệu.
+
+### Thay đổi
+
+- **`config/settings.py`**: `APP_VERSION = "3.1"`.
+- **`README.md`** (tiêu đề + ví dụ JSON summary), **`CLAUDE.md`** (dòng mô tả đầu file), **`README_CLI.md`** / **`README_CLI_EN.md`** (dòng kiểm tra cài đặt in ra `SFlash 3.1`).
+
+### Đã kiểm tra
+
+- `cli.py --version` → `SFlash 3.1`; `config.settings` → `SFlash 3.1`.
+- Không còn chuỗi `3.0` nào mang nghĩa phiên bản hiện tại (các tham chiếu `v3.0` trong lịch sử walkthrough giữ nguyên, đó là lịch sử).

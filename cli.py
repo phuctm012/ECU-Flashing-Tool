@@ -9,13 +9,26 @@
 # Vector hardware.
 #
 # Cross-platform (Windows/macOS/Linux) — uses only the
-# stdlib + PySide6. Uses QApplication (same as the GUI)
-# rather than QCoreApplication so the two never fight over
-# Qt's single-instance-per-process rule when both run in
-# the same process (e.g. the test suite). On a genuinely
-# headless Linux box (no X server / Wayland), set
-# QT_QPA_PLATFORM=offscreen before running this — standard
-# Qt practice, no GUI is actually shown either way.
+# stdlib + PySide6.
+#
+# Deliberately creates NO QCoreApplication/QApplication. The
+# workers it drives are QObjects that report progress through
+# Signals (core/flash_controller.py), but every CLI command
+# runs its worker on the thread that owns it — the sequential
+# commands on the main thread, each parallel channel on the
+# thread that constructed its own worker — so every emit is a
+# direct call. No event loop is involved, and nothing here
+# needs an application object; verified by
+# tests/test_cli_no_qt_gui.py, which also pins that
+# PySide6.QtWidgets/QtGui never get imported.
+#
+# That matters twice over. It keeps a frozen CLI down to
+# QtCore instead of dragging in QtGui + QtWidgets for one
+# unused class (roughly a third of the Qt payload instead of
+# all of it — see build_cli.bat), and it removes the
+# single-instance-per-process hazard entirely: the test suite
+# runs cli.py and real widgets in one process, and a CLI that
+# creates nothing can never create the wrong kind first.
 #
 # Usage:
 #   python cli.py info tests/sample.hex
@@ -44,8 +57,6 @@ import argparse
 import os
 import sys
 
-from PySide6.QtWidgets import QApplication
-
 from config.settings import (
     APP_NAME,
     APP_VERSION,
@@ -73,6 +84,11 @@ from core.flash_unit import (
 )
 from core.parallel_runner import ParallelRunner
 from core.project_config import ProjectFileError, load_project
+from core.run_config import (
+    RunConfigError,
+    check_keys,
+    load_run_config,
+)
 from core.report import (
     RESULT_ABORTED,
     RESULT_FAIL,
@@ -645,8 +661,6 @@ def cmd_flash(args):
             f"{' (CAN FD, data ' + str(args.data_bitrate) + ' bps)' if args.can_fd else ''}"
         )
 
-    app = QApplication.instance() or QApplication(sys.argv)
-
     record = RunRecord("flash", _config_rows(args))
     record.datablocks = datablocks
 
@@ -790,8 +804,6 @@ def cmd_test_connection(args):
             f"{' (CAN FD, data ' + str(args.data_bitrate) + ' bps)' if args.can_fd else ''}"
         )
         print()
-
-    app = QApplication.instance() or QApplication(sys.argv)
 
     record = RunRecord("test-connection", _config_rows(args))
 
@@ -1168,8 +1180,6 @@ def cmd_batch(args):
     if not args.quiet:
         _print_unit_table(units)
 
-    app = QApplication.instance() or QApplication(sys.argv)
-
     record = RunRecord("batch", _config_rows(args, units))
     record.datablocks = datablocks
     listener = _CliRunListener(args, record)
@@ -1255,8 +1265,6 @@ def cmd_parallel(args):
 
     if not args.quiet:
         _print_unit_table(units)
-
-    app = QApplication.instance() or QApplication(sys.argv)
 
     record = RunRecord("parallel", _config_rows(args, units))
     record.datablocks = datablocks
@@ -1545,6 +1553,16 @@ def _add_can_args(parser):
              "Suzuki sequence's 'Write Tester Info' step.",
     )
     parser.add_argument(
+        "--config", default=None, metavar="PATH",
+        help="JSON file holding any of this command's settings, "
+             "so a pipeline step or a bench setup is a file "
+             "instead of a long command line. Keys are the long "
+             "option names without the dashes (\"json-summary\" "
+             "or \"json_summary\"). A flag given on the command "
+             "line still wins over the file, and the file wins "
+             "over --project",
+    )
+    parser.add_argument(
         "--project", default=None,
         help="Load firmware list + configuration from a .sfproj "
              "saved by the GUI's File > Save Project As.... Any "
@@ -1773,9 +1791,147 @@ def build_arg_parser():
     return parser
 
 
+# ==================================================
+# --config
+# ==================================================
+#
+# The file is applied as the chosen subcommand's *defaults*
+# before argv is parsed, which is what makes the precedence
+# exact without any hand-written tie-breaking: an explicit flag
+# overrides a default, so command line > config file, and
+# _resolve_config()'s "was this left unset?" test then puts a
+# --project below both.
+#
+# The accepted keys are read off the subparser's own actions,
+# so the format can never drift from the flags — add an option
+# and the config supports it. Values are passed through the
+# option's own `type` converter when they arrive as strings, so
+# "tx_id": "0x77B" and "tester_serial": "00112233" mean exactly
+# what they mean on the command line.
+# ==================================================
+
+CONFIG_EXCLUDED_KEYS = ("help", "func", "config")
+
+
+def _subparser_for(parser, command):
+
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action.choices.get(command)
+    return None
+
+
+def _config_actions(subparser):
+    """{dest: action} for every setting the command accepts."""
+
+    return {
+        action.dest: action
+        for action in subparser._actions
+        if action.dest not in CONFIG_EXCLUDED_KEYS
+    }
+
+
+def _coerce_config_value(action, key, value):
+    """
+    Applies the option's own type converter to a string from
+    JSON, and checks its choices — so a config file is validated
+    the same way the command line is, instead of quietly
+    handing a str to code expecting bytes or an int.
+    """
+
+    converted = value
+
+    if action.type is not None and isinstance(value, str):
+        try:
+            converted = action.type(value)
+        except (argparse.ArgumentTypeError, ValueError, TypeError) as e:
+            raise RunConfigError(
+                f"Config setting {key!r}: {e}"
+            )
+
+    if action.choices is not None:
+        values = (
+            converted if isinstance(converted, list) else [converted]
+        )
+        for item in values:
+            if item not in action.choices:
+                raise RunConfigError(
+                    f"Config setting {key!r}: {item!r} is not one "
+                    f"of {', '.join(str(c) for c in action.choices)}"
+                )
+
+    return converted
+
+
+def _apply_run_config(parser, argv):
+    """
+    Finds --config in argv, loads it, and installs it as the
+    chosen subcommand's defaults. Returns None, or an exit code
+    if the file is unusable.
+    """
+
+    pre = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    pre.add_argument("--config")
+
+    try:
+        known, rest = pre.parse_known_args(argv)
+    except SystemExit:
+        # Malformed argv — let the real parser report it.
+        return None
+
+    if not known.config:
+        return None
+
+    command = next(
+        (token for token in rest if not token.startswith("-")), None
+    )
+    subparser = _subparser_for(parser, command)
+
+    # Named a command that has no --config of its own (info,
+    # list-hardware, check-security-dll, gitlab). Say that,
+    # rather than validating the file against that command's
+    # flags and reporting a confusing key error — the file is
+    # not the problem.
+    takes_config = subparser is not None and any(
+        action.dest == "config" for action in subparser._actions
+    )
+
+    if not takes_config:
+        print(
+            f"--config needs a command that accepts it "
+            f"(flash, batch, parallel, test-connection), "
+            f"got {command!r}.",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    actions = _config_actions(subparser)
+
+    try:
+        config = load_run_config(known.config)
+        check_keys(config, set(actions), command)
+        config = {
+            key: _coerce_config_value(actions[key], key, value)
+            for key, value in config.items()
+        }
+    except RunConfigError as e:
+        print(f"Config error: {e}", file=sys.stderr)
+        return EXIT_USAGE
+
+    subparser.set_defaults(**config)
+    return None
+
+
 def main(argv=None):
 
     parser = build_arg_parser()
+
+    exit_code = _apply_run_config(
+        parser, list(sys.argv[1:] if argv is None else argv)
+    )
+    if exit_code is not None:
+        return exit_code
+
     args = parser.parse_args(argv)
     return args.func(args)
 
