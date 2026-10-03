@@ -29,7 +29,8 @@
 ├── main.py                    ← Entry point (GUI)
 ├── cli.py                     ← Entry point (Command Line Interface)
 ├── cli_gitlab.py              ← Nhóm lệnh `cli.py gitlab ...` (artifact/package)
-├── build.bat                  ← Build file .exe cho Windows (PyInstaller)
+├── build.bat                  ← Build file .exe cho GUI (PyInstaller)
+├── build_cli.bat              ← Build sflash-cli.exe (chỉ khi runner không có Python)
 │
 ├── resources/
 │   ├── style.qss               ← Theme QSS sáng toàn app ("Engineering Blue")
@@ -304,9 +305,9 @@ python cli.py parallel --help
 python cli.py gitlab artifact --help
 ```
 
-Các cờ chính dùng chung cho `flash`/`batch`/`parallel`/`test-connection`: `--hardware {virtual,vector}`, `--channel`, `--serial`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `--compression`/`--encryption` (nibble `dataFormatIdentifier` của RequestDownload, 0-15, mặc định 0 — chỉ khai báo định dạng cho ECU, không tự nén/mã hóa file), `--tester-serial <hex>` (payload WriteDataByIdentifier DID `0xF198`, chuỗi hex chẵn số ký tự, mặc định `00112233445566778899` — chỉ dùng cho sequence `suzuki`), `--project`, `--report`/`--trace-csv`/`--json-summary`, `-q`/`--quiet`, `-v`/`--verbose`. `flash`/`batch`/`parallel` có thêm `--base-address` (cho file `.bin`) và `--dry-run`.
+Các cờ chính dùng chung cho `flash`/`batch`/`parallel`/`test-connection`: `--hardware {virtual,vector}`, `--channel`, `--serial`, `--sequence {generic,suzuki}` (mặc định **`suzuki`**), `--radar-side {s0,s1}`, `--tx-id`/`--rx-id` (ghi đè Radar Side), `--bitrate`, `--can-fd`, `--data-bitrate`, `--security-dll <path>`, `--compression`/`--encryption` (nibble `dataFormatIdentifier` của RequestDownload, 0-15, mặc định 0 — chỉ khai báo định dạng cho ECU, không tự nén/mã hóa file), `--tester-serial <hex>` (payload WriteDataByIdentifier DID `0xF198`, chuỗi hex chẵn số ký tự, mặc định `00112233445566778899` — chỉ dùng cho sequence `suzuki`), `--project`, `--report`/`--trace-csv`/`--json-summary`, `--timeout`, `--security-dll-signature`, `--security-dll-variant`, `-q`/`--quiet`, `-v`/`--verbose`. `flash`/`batch`/`parallel` có thêm `--base-address` (cho file `.bin`) và `--dry-run`.
 
-Mã thoát (exit code): `0` = thành công, `1` = abort/lỗi, `2` = lỗi tham số/parse file/project, `130` = bị ngắt (Ctrl+C) — thuận tiện để dùng trong script CI/automation. Với `batch`/`parallel`, exit `0` chỉ khi **mọi** unit đều PASS.
+Mã thoát (exit code): `0` thành công · `1` ECU trả lời nhưng sequence fail · `2` lỗi tham số/parse file/project · `3` không kết nối được ECU · `4` hết `--timeout` · `130` bị ngắt (Ctrl+C). Xem mục "Dùng trong CI/CD pipeline" bên dưới. Với `batch`/`parallel`, exit `0` chỉ khi **mọi** unit đều PASS.
 
 **Lưu ý**: `--hardware vector` (Vector VN1640A/VN1630 thật) chỉ dùng được trên **Windows** vì driver Vector XL Driver Library chỉ có bản Windows. `--hardware virtual` (mặc định) chạy y hệt trên mọi hệ điều hành.
 
@@ -421,6 +422,73 @@ python cli.py flash "$FW" --hardware vector --channel 0 --sequence suzuki
 ```
 
 Cờ chung: `--gitlab-url`, `--gitlab-project` (mặc định lấy repo artifact/package của team trong `config/settings.py`), `--token`, `--no-ssl-verify` (instance self-hosted dùng certificate tự ký).
+
+### Dùng trong CI/CD pipeline
+
+CLI được thiết kế để chạy không người trông: **không bao giờ hỏi tương tác** (cảnh báo xung đột CANoe chỉ in ra `stderr` rồi chạy tiếp; `--pause` mặc định tắt), token GitLab lấy từ biến môi trường, và mọi kết quả đều có artifact máy đọc được.
+
+**Mã thoát tách theo loại lỗi** — để pipeline retry lỗi hạ tầng mà không retry lỗi thật:
+
+| Code | Nghĩa | Pipeline nên làm gì |
+|---|---|---|
+| `0` | Thành công | đi tiếp |
+| `1` | ECU trả lời nhưng sequence fail | **fail job** — lỗi thật, retry vô ích |
+| `2` | Sai tham số / không đọc được file, project | fail job, sửa cấu hình |
+| `3` | Không kết nối được ECU | có thể retry (cáp, channel bận, driver) |
+| `4` | Hết `--timeout` | có thể retry, nhưng xem report trước |
+| `130` | Bị ngắt (Ctrl+C) | — |
+
+**`--timeout <giây>`: bắt buộc nên dùng trong pipeline.** Không có nó thì một lần chạy **không có trần thời gian**: một request đơn lẻ có thể chiếm tới `50 × 10s = 500 giây` khi ECU liên tục trả `0x78` ResponsePending. Job CI sẽ đứng im tới khi runner tự giết — **không kịp ghi report** và ECU bị bỏ giữa session. Timeout được kiểm tra **bên trong tầng UDS** (không phải watchdog thread, vì watchdog chỉ set được cờ abort và cờ đó chỉ đọc giữa các bước), nên nó cắt được cả request đang treo, rồi chạy đúng đường lỗi bình thường: `_cleanup()` phục hồi bus, report vẫn được ghi, exit `4`. Với `batch`/`parallel`, đây là ngân sách **cho mỗi unit/channel**.
+
+**Ví dụ `.gitlab-ci.yml`** (runner Windows có sẵn conda env + Vector XL Driver):
+
+```yaml
+flash_ecu:
+  stage: test
+  tags: [windows, vector-hw]
+  variables:
+    SFLASH_GITLAB_TOKEN: $CI_JOB_TOKEN
+  script:
+    # 1. Lấy firmware từ artifact của job build, in ra đường dẫn file firmware
+    - $FW = python cli.py gitlab artifact --ref $CI_COMMIT_REF_NAME
+            --job build_fw -o downloads --print-firmware
+    # 2. Kiểm tra DLL (nhanh, không đụng ECU) — fail sớm nếu sai kiến trúc
+    - python cli.py check-security-dll C:\tools\SeedKey64.dll
+    # 3. Probe an toàn trước; exit 3 = không thấy ECU
+    - python cli.py test-connection --hardware vector --channel 0 --serial 123456
+            --sequence suzuki --timeout 120 --quiet
+            --json-summary identify.json
+    # 4. Flash thật
+    - python cli.py flash "$FW" --hardware vector --channel 0 --serial 123456
+            --sequence suzuki --security-dll C:\tools\SeedKey64.dll
+            --timeout 900 --quiet
+            --report flash_report.html --json-summary flash_result.json
+            --trace-csv flash_trace.csv
+  artifacts:
+    when: always          # artifact quan trọng nhất đúng lúc job fail
+    paths: [flash_report.html, flash_result.json, flash_trace.csv, identify.json]
+  retry:
+    max: 2
+    when: runner_system_failure
+```
+
+**`--json-summary` để assert trong pipeline** — khỏi parse HTML hay scrape stdout:
+
+```json
+{
+  "app": "SFlash", "version": "3.0", "command": "flash",
+  "result": "PASS", "duration_seconds": 42.1,
+  "configuration": { "Hardware": "Vector channel 0", "Flash Sequence": "suzuki" },
+  "firmware": [{ "file_name": "app.s19", "checksum": "0x1A2B3C4D", "total_size": 524288 }],
+  "ecu_info": { "ECU Serial Number": "SN-...", "Vehicle Manufacturer ECU SW Version": "V1.0.0" },
+  "units": [], "unit_counts": { "PASS": 0, "FAIL": 0, "ABORTED": 0 },
+  "steps": [], "trace_row_count": 87
+}
+```
+
+`ecu_info` ghi lại **ECU nào đã nhận bản nào** — truy xuất nguồn gốc mà không cần đọc log. Lưu ý: sequence `suzuki` **cố tình không có bước ReadDataByIdentifier** (bám đúng trace thật), nên `ecu_info` sẽ rỗng khi flash bằng sequence đó. Muốn có thông tin ECU kèm theo thì chạy `test-connection --json-summary` trước, hoặc dùng `batch` (mỗi unit đều Identify trước khi flash và ghi `units[].ecu_info` + `units[].serial`).
+
+**Có cần build `cli.exe` không?** Thường là **không** — runner có sẵn Python env thì `python cli.py` nhẹ hơn, khởi động nhanh hơn, dễ debug hơn. Chỉ build khi runner là máy Windows trắng không có Python: chạy `build_cli.bat` (tạo `dist\sflash-cli\sflash-cli.exe`). Script này cố tình dùng `--console --onedir`, **khác** `build.bat` của GUI: `--windowed` sẽ tách console làm mất sạch stdout/stderr (pipeline không đọc được log), còn `--onefile` tự giải nén ra temp **mỗi lần chạy**. Lưu ý kích thước: `cli.py` import PySide6 (dùng cơ chế signal/slot) nên bundle kéo theo toàn bộ Qt, khoảng **150–250 MB**. Security DLL và Vector XL Driver vẫn là thứ bên ngoài, exe không gói chúng.
 
 ### `test-connection` — kiểm tra kết nối an toàn trước khi flash thật
 

@@ -231,7 +231,9 @@ class TestReportArtefacts(unittest.TestCase):
                 "flash", SAMPLE_HEX, "--hardware", "vector",
                 "--quiet", "--json-summary", summary,
             ])
-            self.assertEqual(code, 1)
+            # 3, not 1: an unreachable ECU is an infrastructure
+            # problem a pipeline may retry — see TestExitCodes.
+            self.assertEqual(code, cli.EXIT_NO_ECU)
             with open(summary, encoding="utf-8") as f:
                 data = json.load(f)
 
@@ -261,6 +263,159 @@ class TestReportArtefacts(unittest.TestCase):
         ])
         self.assertEqual(code, 0)
         self.assertIn("could not write", out.lower())
+
+
+# ==================================================
+# Pipeline support: exit codes, --timeout, ECU info
+# ==================================================
+
+class TestExitCodes(unittest.TestCase):
+    """
+    A pipeline retries an infrastructure problem but not a
+    genuine failure, so the two must not share an exit code.
+    """
+
+    def test_success_is_zero(self):
+        code, _ = _run_cli(["flash", SAMPLE_HEX, "--quiet"])
+        self.assertEqual(code, cli.EXIT_OK)
+
+    def test_unreachable_ecu_is_three_not_one(self):
+        # python-can is not installed in the test env, so
+        # --hardware vector cannot connect — the same shape as a
+        # cable pulled out or a channel already taken.
+        code, out = _run_cli([
+            "flash", SAMPLE_HEX, "--hardware", "vector", "--quiet",
+        ])
+        self.assertEqual(code, cli.EXIT_NO_ECU)
+        self.assertIn("not reachable", out.lower())
+
+    def test_test_connection_unreachable_is_three(self):
+        code, _ = _run_cli([
+            "test-connection", "--hardware", "vector", "--quiet",
+        ])
+        self.assertEqual(code, cli.EXIT_NO_ECU)
+
+    def test_bad_arguments_stay_two(self):
+        code, _ = _run_cli(["flash", "/nonexistent/x.hex"])
+        self.assertEqual(code, cli.EXIT_USAGE)
+
+    def test_the_codes_are_distinct(self):
+        codes = [
+            cli.EXIT_OK, cli.EXIT_FLASH_FAILED, cli.EXIT_USAGE,
+            cli.EXIT_NO_ECU, cli.EXIT_TIMEOUT,
+            cli.EXIT_INTERRUPTED,
+        ]
+        self.assertEqual(len(codes), len(set(codes)))
+
+
+class TestRunTimeout(unittest.TestCase):
+
+    def test_an_expired_timeout_exits_four(self):
+        # Enforced inside UdsClient, not by a watchdog thread: a
+        # watchdog can only set the abort flag, which is read
+        # between steps, while one request can hold the bus for
+        # max_pending * p2_star_timeout.
+        code, out = _run_cli([
+            "flash", SAMPLE_HEX, "--quiet", "--timeout", "0.001",
+        ])
+        self.assertEqual(code, cli.EXIT_TIMEOUT)
+        self.assertIn("timed out", out.lower())
+
+    def test_a_timeout_still_writes_the_report(self):
+        # The whole point: a job killed by the CI runner leaves
+        # no evidence, so SFlash must produce its own first.
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = os.path.join(tmp, "t.json")
+            code, _ = _run_cli([
+                "flash", SAMPLE_HEX, "--quiet",
+                "--timeout", "0.001", "--json-summary", summary,
+            ])
+            self.assertEqual(code, cli.EXIT_TIMEOUT)
+            with open(summary, encoding="utf-8") as f:
+                data = json.load(f)
+
+        self.assertEqual(data["result"], "FAIL")
+
+    def test_a_generous_timeout_does_not_interfere(self):
+        code, _ = _run_cli([
+            "flash", SAMPLE_HEX, "--quiet", "--timeout", "600",
+        ])
+        self.assertEqual(code, cli.EXIT_OK)
+
+    def test_test_connection_honours_the_timeout(self):
+        code, _ = _run_cli([
+            "test-connection", "--quiet", "--timeout", "0.001",
+        ])
+        self.assertEqual(code, cli.EXIT_TIMEOUT)
+
+    def test_batch_applies_the_timeout_per_unit(self):
+        code, out = _run_cli([
+            "batch", SAMPLE_HEX, "--count", "2", "--quiet",
+            "--timeout", "0.001",
+        ])
+        self.assertNotEqual(code, cli.EXIT_OK)
+        # Both units still get a row — the series is reported,
+        # not abandoned.
+        self.assertIn("FAIL 2", out)
+
+
+class TestEcuInfoInTheSummary(unittest.TestCase):
+
+    def test_test_connection_records_what_it_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = os.path.join(tmp, "tc.json")
+            code, _ = _run_cli([
+                "test-connection", "--quiet",
+                "--json-summary", summary,
+            ])
+            self.assertEqual(code, cli.EXIT_OK)
+            with open(summary, encoding="utf-8") as f:
+                data = json.load(f)
+
+        self.assertIn("ECU Serial Number", data["ecu_info"])
+        self.assertTrue(data["ecu_info"]["ECU Serial Number"])
+
+    def test_the_generic_flash_sequence_records_its_did_reads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = os.path.join(tmp, "g.json")
+            _run_cli([
+                "flash", SAMPLE_HEX, "--sequence", "generic",
+                "--quiet", "--json-summary", summary,
+            ])
+            with open(summary, encoding="utf-8") as f:
+                data = json.load(f)
+
+        self.assertIn("Serial Number", data["ecu_info"])
+
+    def test_the_suzuki_sequence_has_no_did_reads_to_record(self):
+        # Not a bug: SUZUKI_SLP1_FLASH_SEQUENCE deliberately has
+        # no ReadDataByIdentifier steps (it mirrors a real trace).
+        # A pipeline that wants the ECU's identity alongside a
+        # Suzuki flash runs test-connection first, or uses batch.
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = os.path.join(tmp, "s.json")
+            _run_cli([
+                "flash", SAMPLE_HEX, "--sequence", "suzuki",
+                "--quiet", "--json-summary", summary,
+            ])
+            with open(summary, encoding="utf-8") as f:
+                data = json.load(f)
+
+        self.assertEqual(data["ecu_info"], {})
+
+    def test_batch_records_identification_per_unit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = os.path.join(tmp, "b.json")
+            _run_cli([
+                "batch", SAMPLE_HEX, "--count", "2", "--quiet",
+                "--json-summary", summary,
+            ])
+            with open(summary, encoding="utf-8") as f:
+                data = json.load(f)
+
+        for unit in data["units"]:
+            self.assertIn("ECU Serial Number", unit["ecu_info"])
+            self.assertTrue(unit["serial"])
 
 
 # ==================================================

@@ -57,6 +57,7 @@ class FlashWorker(QObject):
         security_dll_path=None,
         security_dll_signature="auto",
         security_dll_variant="",
+        run_timeout=None,
         security_lock=None,
         keepalive_functional=False,
         can_channel=0,
@@ -88,6 +89,16 @@ class FlashWorker(QObject):
         # UdsClient.load_security_dll(); "" suits a
         # single-purpose DLL.
         self._security_dll_variant = security_dll_variant
+
+        # Whole-run watchdog in seconds (cli.py's --timeout), or
+        # None. Enforced inside UdsClient rather than by a timer
+        # thread — see UdsDeadlineError for why.
+        self._run_timeout = run_timeout
+        self._deadline = None
+
+        # Why the run failed, for cli.py's exit code:
+        # None / "connection" / "timeout" / "flash" / "aborted".
+        self.failure_kind = None
         self._security_lock = security_lock
         self._keepalive_functional = keepalive_functional
 
@@ -125,9 +136,30 @@ class FlashWorker(QObject):
     # Run
     # ==========================================
 
+    def arm_deadline(self):
+        """
+        Start the --timeout budget. run() calls this itself; a
+        caller that drives _setup_uds_client() directly instead
+        of run() (core/test_connection.py, cli.py's
+        test-connection) has to call it, or the timeout covers
+        nothing.
+        """
+
+        if self._run_timeout:
+            self._deadline = (
+                time.monotonic() + self._run_timeout
+            )
+            if self._uds_client is not None:
+                self._uds_client.set_deadline(self._deadline)
+
+        return self._deadline
+
     def run(self):
 
         self._flash_start_time = time.time()
+        self.failure_kind = None
+
+        self.arm_deadline()
 
         self.information_message.emit(
             "Starting Flash..."
@@ -147,6 +179,7 @@ class FlashWorker(QObject):
             try:
                 self._setup_uds_client()
             except Exception as e:
+                self.failure_kind = "connection"
                 self.information_message.emit(
                     f"Connection failed: {e}"
                 )
@@ -221,6 +254,7 @@ class FlashWorker(QObject):
                     "Flash sequence aborted."
                 )
 
+                self.failure_kind = self.failure_kind or "aborted"
                 self.information_message.emit(
                     "Flash aborted by user."
                 )
@@ -249,6 +283,7 @@ class FlashWorker(QObject):
 
             if not success:
 
+                self.failure_kind = self.failure_kind or "flash"
                 self.information_message.emit(
                     f"Step failed: {step.description}"
                 )
@@ -351,6 +386,9 @@ class FlashWorker(QObject):
             trace_callback=self._on_uds_trace,
             functional_id=self._functional_id,
         )
+
+        if self._deadline is not None:
+            self._uds_client.set_deadline(self._deadline)
 
         # Load external Security Access DLL, if configured.
         # Not applicable to the Virtual ECU Simulator, which
@@ -528,6 +566,11 @@ class FlashWorker(QObject):
             return True
 
         except Exception as e:
+
+            from communication.uds_client import UdsDeadlineError
+
+            if isinstance(e, UdsDeadlineError):
+                self.failure_kind = "timeout"
 
             self.trace_message.emit(
                 f"Error: {e}"

@@ -75,6 +75,11 @@ class RunRecord:
         self.steps = []
         self.trace_rows = []
         self.units = []
+        # ECU identification read during the run (serial number,
+        # SW/HW versions). In the JSON summary so a pipeline can
+        # record which ECU got which build without scraping
+        # stdout.
+        self.ecu_info = {}
         self.result = None
         self.started_at = datetime.now()
         self.finished_at = None
@@ -91,8 +96,12 @@ class RunRecord:
     def add_trace_row(self, row):
         self.trace_rows.append(dict(row))
 
+    def add_ecu_info(self, info):
+        if info:
+            self.ecu_info.update(info)
+
     def add_unit(self, name, result, duration=None, serial=None,
-                 reason=None):
+                 reason=None, ecu_info=None):
         self.units.append({
             "index": len(self.units) + 1,
             "name": name,
@@ -100,6 +109,7 @@ class RunRecord:
             "result": result,
             "duration": duration,
             "reason": reason or "",
+            "ecu_info": dict(ecu_info or {}),
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         })
 
@@ -209,6 +219,7 @@ def build_json_summary(record):
             {"timestamp": ts, "description": desc}
             for ts, desc in record.steps
         ],
+        "ecu_info": record.ecu_info,
         "units": record.units,
         "unit_counts": record.unit_counts(),
         "trace_row_count": len(record.trace_rows),
@@ -344,6 +355,17 @@ def _units_table(record):
     return f"<table>{header}{rows}</table>"
 
 
+def _ecu_table(record):
+
+    e = html.escape
+
+    rows = "".join(
+        f"<tr><td>{e(str(k))}</td><td>{e(str(v))}</td></tr>"
+        for k, v in record.ecu_info.items()
+    )
+    return f'<table class="summary">{rows}</table>'
+
+
 def _trace_table(record):
 
     e = html.escape
@@ -385,6 +407,11 @@ def build_report_html(record):
         if record.units else ""
     )
 
+    ecu_section = (
+        f"<h2>ECU Identification</h2>\n{_ecu_table(record)}\n"
+        if record.ecu_info else ""
+    )
+
     return f"""<!doctype html>
 <html>
 <head>
@@ -402,7 +429,7 @@ def build_report_html(record):
 <h2>Firmware</h2>
 {_datablocks_table(record)}
 
-{units_section}<h2>Steps</h2>
+{ecu_section}{units_section}<h2>Steps</h2>
 {_steps_table(record)}
 
 <h2>Trace</h2>

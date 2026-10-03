@@ -62,6 +62,7 @@ class ParallelRunner:
         security_dll_path=None,
         security_dll_signature="auto",
         security_dll_variant="",
+        run_timeout=None,
         bitrate=500000,
         can_fd=False,
         data_bitrate=2000000,
@@ -77,6 +78,9 @@ class ParallelRunner:
         self.security_dll_path = security_dll_path
         self.security_dll_signature = security_dll_signature
         self.security_dll_variant = security_dll_variant
+        # Each channel gets the full budget — they run at the
+        # same time, so the wall clock is one unit's worth.
+        self.run_timeout = run_timeout
         self.bitrate = bitrate
         self.can_fd = can_fd
         self.data_bitrate = data_bitrate
@@ -158,6 +162,7 @@ class ParallelRunner:
             security_dll_path=self.security_dll_path,
             security_dll_signature=self.security_dll_signature,
             security_dll_variant=self.security_dll_variant,
+            run_timeout=self.run_timeout,
             security_lock=self.security_lock,
             keepalive_functional=(self.sequence == "suzuki"),
             can_channel=unit.channel,
@@ -252,6 +257,7 @@ class ParallelRunner:
             "duration": duration,
             "serial": None,
             "reason": reason,
+            "ecu_info": {},
         }
 
         self._call("on_unit_finished", unit, result, duration, reason)

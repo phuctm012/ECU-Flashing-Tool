@@ -2925,3 +2925,38 @@ Stylesheet hoàn toàn bình thường — `QListWidget::item:selected` không p
 - Dựng `MainWindow` headless: `currentRow = 0`, `currentItem().text() = "Data"`, `item(0).isSelected() = True`, `stackedWidget.currentIndex() = 0`, trang là `pageData` → khớp.
 - `tests.test_gui_smoke`: **291 test pass** (gồm 2 test mới).
 - Full protocol chạy ngay trước đó trên commit cha `3ec4dd9`: **full suite 726 test OK** (2 skipped, 1484 s), **threading 37/37**, **stress 74/74 checkpoint / 6 section / 0 cảnh báo Qt / PASS**.
+
+## Phase 4.131: CLI Cho Pipeline — `--timeout`, Mã Thoát Theo Loại Lỗi, ECU Info, `build_cli.bat`
+
+User chuẩn bị tích hợp CLI vào pipeline và hỏi cần cải thiện gì, có cần build `cli.exe` không. Rà lại thì phần "chạy được trong CI" đã sẵn (không hỏi tương tác, `--quiet`, artifact HTML/CSV/JSON, token qua env, `--pause` mặc định tắt), nhưng còn 3 thiếu sót thật khi chạy **không người trông**. User chọn làm cả 3 + build script.
+
+**1. Không có trần thời gian — nghiêm trọng nhất.** `max_pending = 50` × `p2_star_timeout = 10s` nghĩa là **một request đơn lẻ** có thể chiếm tới 500 giây khi ECU liên tục trả `0x78`, và cả run thì không có giới hạn nào. Job CI sẽ đứng im tới khi runner tự giết — không kịp ghi report, ECU bị bỏ giữa session.
+
+Cách làm **không** chọn: watchdog thread gọi `request_abort()`. Cờ abort chỉ được đọc **giữa các bước**, nên nó không cắt được một request đang treo — đúng ca tệ nhất. Cách đã chọn: `UdsClient.set_deadline()` + `UdsDeadlineError`, kiểm tra trước mỗi lần gửi và trong **mỗi vòng lặp ResponsePending**. Hết hạn thì ném lỗi, đi đúng đường thất bại bình thường: `_cleanup()` phục hồi bus, report vẫn ghi, exit 4.
+
+Bẫy bắt được khi viết test: `test-connection` **không** gọi `FlashWorker.run()` mà gọi thẳng `_setup_uds_client()`, nên deadline không bao giờ được kích hoạt — `--timeout` phủ 0%. Test `test_test_connection_honours_the_timeout` fail đúng vào chỗ này. Sửa bằng `FlashWorker.arm_deadline()` làm một điểm duy nhất, gọi từ `run()`, từ `TestConnectionWorker.run()` và từ `cli.cmd_test_connection()`. Bẫy thứ hai: vòng đọc DID nuốt mọi exception thành `N/A` — nên `UdsDeadlineError` được re-raise xuyên qua handler đó, vì deadline không phải thuộc tính của một DID.
+
+**2. Mã thoát không phân loại.** Trước đây mọi thất bại đều là `1`, pipeline không phân biệt được "cáp chưa cắm" với "flash hỏng thật". Giờ: `3` = không kết nối được ECU (retry được), `4` = hết timeout, `1` = ECU trả lời nhưng sequence fail (retry vô ích). Phân loại lấy từ `failure_kind` set tại chính nơi đã biết lỗi gì, **không** match chuỗi thông báo.
+
+**3. `--json-summary` thiếu nhận dạng ECU.** Thêm `ecu_info` ở cấp run và `units[].ecu_info` cho batch — truy xuất "ECU nào nhận bản nào" mà không phải scrape stdout. Có một chi tiết dễ tưởng là bug nên ghi hẳn thành test: sequence `suzuki` **cố tình không có bước ReadDataByIdentifier** (bám trace thật), nên `ecu_info` rỗng khi flash bằng sequence đó — muốn có thì chạy `test-connection` trước, hoặc dùng `batch` (Identify mỗi unit).
+
+**4. `build_cli.bat`.** Khuyến nghị vẫn là `python cli.py` khi runner có Python env; script này cho máy Windows trắng. Hai khác biệt **cố ý** so với `build.bat` của GUI, copy nhầm là hỏng: `--console` (không `--windowed`, vì windowed tách console → mất sạch stdout/stderr, pipeline không thấy log) và `--onedir` (không `--onefile`, vì onefile tự giải nén ra temp **mỗi lần chạy**). Script cảnh báo nếu thiếu `python-can`/`python-gitlab` trong env, vì exe build ra sẽ vĩnh viễn không có chúng.
+
+### Thay đổi
+
+- **`communication/uds_client.py`**: `UdsDeadlineError`, `set_deadline()`, `_check_deadline()` gọi trước mỗi send và mỗi vòng ResponsePending.
+- **`core/flash_controller.py`**: `run_timeout=`, `arm_deadline()`, `failure_kind` (`connection`/`timeout`/`flash`/`aborted`).
+- **`core/test_connection.py`**: `run_timeout=`, `arm_deadline()`, `failure_kind`, re-raise `UdsDeadlineError` khỏi vòng đọc DID.
+- **`core/report.py`**: `RunRecord.ecu_info` + `add_ecu_info()`, `units[].ecu_info`, mục "ECU Identification" trong report HTML.
+- **`core/batch_runner.py`** / **`core/parallel_runner.py`**: `run_timeout` (ngân sách cho **mỗi** unit/channel), `_identify()` trả thêm `ecu_info`.
+- **`cli.py`**: hằng `EXIT_*` + `_exit_code_for()`, `--timeout`, ghi `ecu_info` vào record ở `flash`/`test-connection`/`batch`/`parallel`.
+- **`build_cli.bat`** (mới), **`README.md`** mục "Dùng trong CI/CD pipeline" (bảng exit code, `.gitlab-ci.yml` mẫu, giải thích vì sao thường không cần exe), **`CLAUDE.md`** mục "CLI exit codes and the run deadline".
+
+### Đã kiểm tra
+
+- `tests/test_cli_commands.py` lên **42 test**, thêm 13: exit code 0/2/3 đúng và **6 mã phân biệt nhau**; timeout hết hạn → exit 4 **và vẫn ghi report**; timeout rộng rãi không can thiệp; `test-connection` và `batch` đều tôn trọng timeout (batch vẫn báo cáo đủ 2 unit, không bỏ dở loạt); `ecu_info` có ở `test-connection` và sequence generic, **rỗng ở suzuki** (ghi rõ là cố ý), và `units[].ecu_info` + `units[].serial` có ở batch.
+- `tests.test_flash_controller` 21, `tests.test_test_connection` 7, `tests.test_cli_report` 14, `tests.test_cli_batch_parallel` 19 — pass.
+- Thử tay: flash thường exit 0; `--hardware vector` (không có python-can) exit 3; `--timeout 0.001` exit 4 kèm "Timed out after 0.001s".
+- **Full protocol lần 1 fail 2 test** — và đúng loại fail mong muốn: `test_cli.py` có 2 literal `self.assertEqual(code, 1)` khẳng định hợp đồng **cũ** cho `--hardware vector`. Đổi thành `cli.EXIT_NO_ECU` kèm comment giải thích vì sao tách mã, đúng bài học Phase 4.126 (literal pixel/số trần trong test sẽ trôi; viết bằng hằng số có tên). Nhân tiện đổi luôn `2` → `cli.EXIT_USAGE` ở test kế bên.
+- Protocol cuối: **full suite 742 test OK** (2 skipped, 1175 s), **threading 37/37**, **stress 74/74 checkpoint / 6 section / 60 s / 0 cảnh báo Qt / PASS**.
+- Ghi chú vận hành: lần chạy stress trước đó mất 1398 s còn lần này 60 s — chênh lệch là do máy đang chạy song song full suite + OneDrive sync, không phải regression. Đừng dùng con số elapsed của stress để suy ra hiệu năng.

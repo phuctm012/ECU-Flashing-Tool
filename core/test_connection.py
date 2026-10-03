@@ -21,7 +21,7 @@
 from PySide6.QtCore import QObject, Signal
 
 from core.flash_controller import FlashWorker
-from communication.uds_client import UdsClient
+from communication.uds_client import UdsClient, UdsDeadlineError
 
 TEST_CONNECTION_DIDS = [
     (UdsClient.DID_SUPPLIER_SW_VERSION, "System Supplier ECU SW Version"),
@@ -54,6 +54,7 @@ class TestConnectionWorker(QObject):
         security_dll_path=None,
         security_dll_signature="auto",
         security_dll_variant="",
+        run_timeout=None,
         functional=False,
         can_channel=0,
         can_serial=None,
@@ -77,6 +78,11 @@ class TestConnectionWorker(QObject):
         self._can_fd = can_fd
         self._can_data_bitrate = can_data_bitrate
         self._functional_id = functional_id
+        self._run_timeout = run_timeout
+
+        # None / "connection" / "timeout" / "probe" — read by
+        # cli.py for its exit code.
+        self.failure_kind = None
 
         # The FlashWorker whose _setup_uds_client()/_cleanup() run()
         # borrows. Built and wired HERE, on the thread that constructs
@@ -105,6 +111,7 @@ class TestConnectionWorker(QObject):
             can_fd=can_fd,
             can_data_bitrate=can_data_bitrate,
             functional_id=functional_id,
+            run_timeout=run_timeout,
         )
         self._worker.trace_message.connect(self.trace_message)
         self._worker.trace_row.connect(self.trace_row)
@@ -116,6 +123,12 @@ class TestConnectionWorker(QObject):
     def run(self):
 
         worker = self._worker
+        self.failure_kind = None
+
+        # FlashWorker.run() normally arms this; the probe calls
+        # _setup_uds_client() directly, so arm it here instead —
+        # otherwise --timeout would not cover a probe at all.
+        worker.arm_deadline()
 
         try:
             worker._setup_uds_client()
@@ -125,6 +138,7 @@ class TestConnectionWorker(QObject):
             # worker dies by refcount when run() returns, not on
             # some other thread's garbage collection.
             worker._cleanup()
+            self.failure_kind = "connection"
             self.finished.emit(False, f"Connection failed: {e}")
             return
 
@@ -166,6 +180,12 @@ class TestConnectionWorker(QObject):
                     self.step_message.emit(
                         f"Read DID 0x{did:04X}: {name} = {value}"
                     )
+                except UdsDeadlineError:
+                    # Per-DID failures are tolerated (an ECU may
+                    # simply not support one), but the run's
+                    # deadline is not a property of this DID —
+                    # let it end the probe.
+                    raise
                 except Exception as e:
                     info[name] = f"N/A ({e})"
                     self.step_message.emit(
@@ -175,6 +195,10 @@ class TestConnectionWorker(QObject):
 
         except Exception as e:
             ok = False
+            self.failure_kind = (
+                "timeout" if isinstance(e, UdsDeadlineError)
+                else "probe"
+            )
             message = f"Connection test FAILED: {e}"
 
         finally:

@@ -86,6 +86,34 @@ from cli_gitlab import add_gitlab_subparser
 
 
 # ==================================================
+# Exit codes
+# ==================================================
+#
+# Split by *kind* of failure so a pipeline can retry an
+# infrastructure problem (the ECU was not reachable, the run ran
+# out of time) without retrying a genuine one (the ECU answered
+# and the sequence failed). Anything that is not one of these is
+# a bug, not a result.
+# ==================================================
+
+EXIT_OK = 0
+EXIT_FLASH_FAILED = 1      # the ECU answered; the sequence failed
+EXIT_USAGE = 2             # bad arguments, unreadable file/project
+EXIT_NO_ECU = 3            # could not reach the ECU at all
+EXIT_TIMEOUT = 4           # --timeout ran out
+EXIT_INTERRUPTED = 130     # Ctrl+C
+
+FAILURE_EXIT_CODES = {
+    "connection": EXIT_NO_ECU,
+    "timeout": EXIT_TIMEOUT,
+}
+
+
+def _exit_code_for(failure_kind, default=EXIT_FLASH_FAILED):
+    return FAILURE_EXIT_CODES.get(failure_kind, default)
+
+
+# ==================================================
 # Helpers
 # ==================================================
 
@@ -629,6 +657,7 @@ def cmd_flash(args):
         security_dll_path=args.security_dll,
         security_dll_signature=args.security_dll_signature,
         security_dll_variant=args.security_dll_variant,
+        run_timeout=args.timeout,
         keepalive_functional=(args.sequence == "suzuki"),
         can_channel=args.channel,
         can_serial=args.serial,
@@ -670,6 +699,7 @@ def cmd_flash(args):
         print(f"      segment {seg_idx + 1}: {pct}% ({sent}/{total} bytes)")
 
     def on_ecu_info(info):
+        record.add_ecu_info(info)
         if args.quiet:
             return
         print("    --- ECU Identification ---")
@@ -700,18 +730,28 @@ def cmd_flash(args):
         print("\nInterrupted by user.", file=sys.stderr)
         record.finish(RESULT_ABORTED)
         _write_report_artefacts(args, record)
-        return 130
+        return EXIT_INTERRUPTED
 
     if result["finished"]:
         record.finish(RESULT_PASS)
         print("\nFlash completed successfully.")
         _write_report_artefacts(args, record)
-        return 0
+        return EXIT_OK
 
     record.finish(RESULT_FAIL)
-    print("\nFlash aborted / failed.", file=sys.stderr)
+    exit_code = _exit_code_for(worker.failure_kind)
+
+    if exit_code == EXIT_TIMEOUT:
+        print(
+            f"\nTimed out after {args.timeout}s.", file=sys.stderr
+        )
+    elif exit_code == EXIT_NO_ECU:
+        print("\nECU not reachable.", file=sys.stderr)
+    else:
+        print("\nFlash aborted / failed.", file=sys.stderr)
+
     _write_report_artefacts(args, record)
-    return 1
+    return exit_code
 
 
 # ==================================================
@@ -773,6 +813,7 @@ def cmd_test_connection(args):
         security_dll_path=args.security_dll,
         security_dll_signature=args.security_dll_signature,
         security_dll_variant=args.security_dll_variant,
+        run_timeout=args.timeout,
         can_channel=args.channel,
         can_serial=args.serial,
         can_tx_id=tx_id,
@@ -784,6 +825,10 @@ def cmd_test_connection(args):
     worker.trace_message.connect(on_trace_message)
     worker.trace_row.connect(on_trace_row)
 
+    # The probe drives _setup_uds_client() directly instead of
+    # FlashWorker.run(), so --timeout has to be armed by hand.
+    worker.arm_deadline()
+
     try:
         worker._setup_uds_client()
     except Exception as e:
@@ -791,10 +836,11 @@ def cmd_test_connection(args):
         record.add_step(f"Connection failed: {e}")
         record.finish(RESULT_FAIL)
         _write_report_artefacts(args, record)
-        return 1
+        return EXIT_NO_ECU
 
     uds = worker._uds_client
     ok = True
+    failure_kind = None
 
     def step(label):
         record.add_step(label)
@@ -819,6 +865,7 @@ def cmd_test_connection(args):
             uds.diagnostic_session_control(0x03)
             step("Extended Session")
 
+        from communication.uds_client import UdsDeadlineError
         from core.test_connection import TEST_CONNECTION_DIDS
         for did, name in TEST_CONNECTION_DIDS:
             try:
@@ -827,7 +874,12 @@ def cmd_test_connection(args):
                     value = data.decode("ascii").strip('\x00')
                 except (UnicodeDecodeError, ValueError):
                     value = data.hex().upper()
+                record.add_ecu_info({name: value})
                 step(f"Read DID 0x{did:04X}: {name} = {value}")
+            except UdsDeadlineError:
+                # A per-DID failure is tolerated; the run's
+                # deadline is not about this DID.
+                raise
             except Exception as e:
                 step(f"Read DID 0x{did:04X}: {name} = N/A")
                 if not args.quiet:
@@ -836,9 +888,15 @@ def cmd_test_connection(args):
     except KeyboardInterrupt:
         print("\nInterrupted by user.", file=sys.stderr)
         ok = False
+        failure_kind = "interrupted"
     except Exception as e:
+        from communication.uds_client import UdsDeadlineError
+
         print(f"\nConnection test FAILED: {e}", file=sys.stderr)
         ok = False
+        failure_kind = (
+            "timeout" if isinstance(e, UdsDeadlineError) else "probe"
+        )
 
     finally:
         # Best-effort cleanup: restore Default session (and
@@ -868,11 +926,14 @@ def cmd_test_connection(args):
         record.finish(RESULT_PASS)
         print("\nConnection test PASSED — ECU reachable.")
         _write_report_artefacts(args, record)
-        return 0
+        return EXIT_OK
 
     record.finish(RESULT_FAIL)
     _write_report_artefacts(args, record)
-    return 1
+
+    if failure_kind == "interrupted":
+        return EXIT_INTERRUPTED
+    return _exit_code_for(failure_kind)
 
 
 # ==================================================
@@ -1121,6 +1182,7 @@ def cmd_batch(args):
         security_dll_path=args.security_dll,
         security_dll_signature=args.security_dll_signature,
         security_dll_variant=args.security_dll_variant,
+        run_timeout=args.timeout,
         bitrate=args.bitrate,
         can_fd=args.can_fd,
         data_bitrate=args.data_bitrate,
@@ -1143,7 +1205,9 @@ def cmd_batch(args):
             entry["name"], entry["result"],
             duration=entry["duration"], serial=entry["serial"],
             reason=entry["reason"],
+            ecu_info=entry.get("ecu_info"),
         )
+        record.add_ecu_info(entry.get("ecu_info"))
 
     exit_code = _unit_summary(results)
     record.finish(RESULT_PASS if exit_code == 0 else RESULT_FAIL)
@@ -1206,6 +1270,7 @@ def cmd_parallel(args):
         security_dll_path=args.security_dll,
         security_dll_signature=args.security_dll_signature,
         security_dll_variant=args.security_dll_variant,
+        run_timeout=args.timeout,
         bitrate=args.bitrate,
         can_fd=args.can_fd,
         data_bitrate=args.data_bitrate,
@@ -1221,7 +1286,9 @@ def cmd_parallel(args):
             entry["name"], entry["result"],
             duration=entry["duration"], serial=entry["serial"],
             reason=entry["reason"],
+            ecu_info=entry.get("ecu_info"),
         )
+        record.add_ecu_info(entry.get("ecu_info"))
 
     exit_code = _unit_summary(results)
     record.finish(RESULT_PASS if exit_code == 0 else RESULT_FAIL)
@@ -1421,6 +1488,17 @@ def _add_can_args(parser):
         "--security-dll", default=None,
         help="Path to an external Security Access DLL (ctypes). "
              "If not given, uses the built-in dummy seed/key algorithm.",
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=None, metavar="SECONDS",
+        help="Give up after this many seconds and exit 4, still "
+             "writing any report asked for. Without it a run has "
+             "no upper bound: one request can legitimately take "
+             "up to 50 x the 10s ResponsePending timeout while "
+             "the ECU keeps answering 0x78, so an unattended job "
+             "can sit until the CI runner kills it — with no "
+             "report and the ECU left mid-session. For batch and "
+             "parallel this is the budget per unit/channel",
     )
     parser.add_argument(
         "--security-dll-signature",

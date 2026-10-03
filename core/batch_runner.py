@@ -93,6 +93,7 @@ class BatchRunner:
         security_dll_path=None,
         security_dll_signature="auto",
         security_dll_variant="",
+        run_timeout=None,
         bitrate=500000,
         can_fd=False,
         data_bitrate=2000000,
@@ -111,6 +112,11 @@ class BatchRunner:
         self.security_dll_path = security_dll_path
         self.security_dll_signature = security_dll_signature
         self.security_dll_variant = security_dll_variant
+        # Per-unit watchdog: each unit gets the full budget, so a
+        # 5-unit batch with --timeout 600 allows 600s each, not
+        # 120s each. A pipeline sets the limit it expects one ECU
+        # to need.
+        self.run_timeout = run_timeout
         self.bitrate = bitrate
         self.can_fd = can_fd
         self.data_bitrate = data_bitrate
@@ -158,7 +164,7 @@ class BatchRunner:
         """
         Runs the same read-only probe as Batch Flash's Identify
         step / `cli.py test-connection`. Returns
-        (passed, message, serial_or_None).
+        (passed, message, serial_or_None, ecu_info).
         """
 
         worker = TestConnectionWorker(
@@ -166,6 +172,7 @@ class BatchRunner:
             security_dll_path=self.security_dll_path,
             security_dll_signature=self.security_dll_signature,
             security_dll_variant=self.security_dll_variant,
+            run_timeout=self.run_timeout,
             functional=(self.sequence == "suzuki"),
             can_channel=unit.channel,
             can_serial=unit.serial,
@@ -214,7 +221,10 @@ class BatchRunner:
             outcome["passed"], outcome["message"], outcome["info"],
         )
 
-        return outcome["passed"], outcome["message"], serial
+        return (
+            outcome["passed"], outcome["message"], serial,
+            outcome["info"],
+        )
 
     # ==========================================
     # Flash one unit
@@ -233,6 +243,7 @@ class BatchRunner:
             security_dll_path=self.security_dll_path,
             security_dll_signature=self.security_dll_signature,
             security_dll_variant=self.security_dll_variant,
+            run_timeout=self.run_timeout,
             keepalive_functional=(self.sequence == "suzuki"),
             can_channel=unit.channel,
             can_serial=unit.serial,
@@ -333,8 +344,10 @@ class BatchRunner:
             result = None
             reason = ""
 
+            ecu_info = {}
+
             if self.identify:
-                passed, message, serial = self._identify(unit)
+                passed, message, serial, ecu_info = self._identify(unit)
                 if not passed:
                     result = RESULT_FAIL
                     reason = message or "Identify failed"
@@ -357,6 +370,7 @@ class BatchRunner:
                 "duration": duration,
                 "serial": serial,
                 "reason": reason,
+                "ecu_info": ecu_info,
             }
             self.results.append(record)
 

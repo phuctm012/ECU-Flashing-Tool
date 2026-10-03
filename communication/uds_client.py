@@ -119,6 +119,21 @@ class UdsTimeoutError(UdsError):
     pass
 
 
+class UdsDeadlineError(UdsTimeoutError):
+    """
+    Raised when the whole run's deadline passed (cli.py's
+    --timeout), as opposed to one request timing out.
+
+    Checked inside _send_request() rather than enforced by a
+    watchdog thread, because a watchdog can only set the abort
+    flag and that is only read between steps: a single request
+    can legitimately occupy up to max_pending * p2_star_timeout
+    (50 * 10s) while the ECU keeps answering ResponsePending, so
+    an unattended run had no upper bound at all. Raising here
+    lets the normal failure path run — _cleanup() restores the
+    bus and the report still gets written.
+    """
+
 class UdsClient:
     """
     High-level UDS client for ECU communication.
@@ -168,6 +183,11 @@ class UdsClient:
         self._can = can_interface
         self._p2_timeout = p2_timeout
         self._p2_star_timeout = p2_star_timeout
+
+        # Absolute time.monotonic() value after which any further
+        # request fails, or None for no limit. Set by
+        # FlashWorker from cli.py's --timeout.
+        self._deadline = None
         self._trace_callback = trace_callback
         self._max_retries = max_retries
         self._retry_delay = retry_delay
@@ -183,6 +203,26 @@ class UdsClient:
     # ==========================================
     # Core: Send & Receive
     # ==========================================
+
+    def set_deadline(self, deadline):
+        """
+        deadline: absolute time.monotonic() value, or None to
+        remove the limit.
+        """
+
+        self._deadline = deadline
+
+    def _check_deadline(self):
+
+        if self._deadline is None:
+            return
+
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise UdsDeadlineError(
+                "Run timeout reached — aborting before the next "
+                "UDS request"
+            )
 
     def _send_request(
         self,
@@ -253,6 +293,8 @@ class UdsClient:
         if self._tp_keepalive:
             self._tp_keepalive.pause()
 
+        self._check_deadline()
+
         try:
 
             # Trace TX
@@ -273,6 +315,11 @@ class UdsClient:
             max_pending = 50
 
             for _ in range(max_pending):
+
+                # A chatty ECU can hold a request open for
+                # max_pending * p2_star_timeout; the deadline has
+                # to be able to cut that short too.
+                self._check_deadline()
 
                 response = self._can.receive_isotp(
                     timeout=timeout

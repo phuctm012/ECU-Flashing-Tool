@@ -237,10 +237,15 @@ class TestCliTestConnection(unittest.TestCase):
         self.assertIn("SW Version", out)
 
     def test_vector_without_python_can_fails_gracefully(self):
+        # Exit 3, not 1: "could not reach the ECU" is an
+        # infrastructure problem a pipeline may retry, kept
+        # separate from "the ECU answered and the sequence
+        # failed". Asserted through the named constant so this
+        # literal cannot drift again.
         code, out = _run_cli([
             "test-connection", "--hardware", "vector",
         ])
-        self.assertEqual(code, 1)
+        self.assertEqual(code, cli.EXIT_NO_ECU)
         self.assertIn("connection failed", out.lower())
 
 
@@ -248,16 +253,18 @@ class TestCliFlashErrors(unittest.TestCase):
 
     def test_vector_without_python_can_fails_gracefully(self):
         # python-can isn't installed in the dev/test env — this
-        # must fail cleanly (exit 1, flash_aborted) not crash.
+        # must fail cleanly, not crash. Exit 3 (ECU unreachable),
+        # not 1 (the ECU answered and the flash failed): see
+        # tests/test_cli_commands.py::TestExitCodes.
         code, out = _run_cli([
             "flash", SAMPLE_HEX, "--hardware", "vector",
         ])
-        self.assertEqual(code, 1)
-        self.assertIn("aborted", out.lower())
+        self.assertEqual(code, cli.EXIT_NO_ECU)
+        self.assertIn("not reachable", out.lower())
 
     def test_bad_file_returns_error_code(self):
         code, out = _run_cli(["flash", "/nonexistent/file.hex"])
-        self.assertEqual(code, 2)
+        self.assertEqual(code, cli.EXIT_USAGE)
 
     def test_invalid_sequence_choice_raises_systemexit(self):
         with self.assertRaises(SystemExit) as ctx:
