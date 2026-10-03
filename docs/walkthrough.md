@@ -2903,3 +2903,25 @@ Thêm `variant=` cho tham số `iVariant` (trước bị hardcode `b""`) — DLL
 - `tests/test_security_dll.py` lên **44 test**: đọc export/import từ PE dựng tay (một section, export directory thật, import descriptor array) — gồm cả export bị decorate `_GenerateKeyEx@28` phải đọc nguyên văn (load được nhưng `getattr` không bao giờ thấy); `auto` chọn `vector` cho DLL chỉ export `GenerateKeyEx` (**regression của chính bug này**), chọn `vector_opt` khi có; `uint32` phải khai rõ; signature lạ bị từ chối; wrapper trả đúng byte DLL ghi; rc ≠ 0 → lỗi; `key_len` vô lý → lỗi; `iVariant` tới được DLL và mặc định rỗng; **seed 16 byte đi qua nguyên vẹn** (đúng ca của ECU thật).
 - Fake DLL trong test dùng `MagicMock(spec=[...])`: `MagicMock` trần trả lời mọi attribute nên "có export `GenerateKeyExOpt` không" luôn đúng → auto-detection sẽ không bao giờ được test (đúng bài học `NonCallableMagicMock` ở Phase 4.118).
 - `tests.test_uds_client`, `tests.test_flash_controller`, `tests.test_test_connection`, `tests.test_security_dll`: **102 test pass**.
+- **Xác thực trên ECU thật (quan trọng nhất):** user pull commit `3ec4dd9` về máy Windows, trỏ Security DLL vào `SeedKey64.dll` và flash thành công — hợp đồng `vector` với seed 16 byte, `iVariant` rỗng, không cần khai thêm option nào (mặc định `auto` tự chọn đúng). Đây là đường mà code cũ sẽ gọi hàm 7 tham số bằng 1 tham số, nên lần chạy thật này là bằng chứng kết luận cho cả Phase 4.128 và 4.129.
+
+## Phase 4.130: Configure — Mục "Data" Không Sáng Khi Mới Mở App
+
+User gửi 2 ảnh: vừa mở SFlash, vào tab Configure, **trang** Data đang hiện nhưng mục "Data" ở cột trái **không có nền xanh**; chỉ sau khi click một lần thì mới sáng.
+
+**Nguyên nhân:** trong `gui/main_window.ui`, `navListWidget` khai 4 item nhưng **không set `currentRow`** → lúc khởi động `currentRow()` là `-1`, không item nào được chọn. Trong khi `stackedWidget` lại hardcode `currentIndex = 0`. Hai widget lệch nhau: nội dung ở trang Data, thanh điều hướng không chỉ vào đâu cả. Chúng chỉ đồng bộ từ lần click đầu tiên, vì connection `currentRowChanged -> setCurrentIndex` chỉ chạy khi có thay đổi.
+
+Stylesheet hoàn toàn bình thường — `QListWidget::item:selected` không phân biệt active/inactive nên không phải vấn đề focus; đơn giản là **không có item nào để tô**.
+
+**Sửa trong `.ui` trước** đúng rule của repo: thêm `<property name="currentRow"><number>0</number></property>`, regenerate bằng `pyside6-uic`. Kiểm tra thứ tự code sinh ra: `setCurrentRow(0)` nằm ở dòng 836, **sau** connection ở dòng 833 và sau khi 4 `QListWidgetItem` đã được tạo (dòng 299-302) — nên signal vẫn bắn đúng và `stackedWidget` nhận được, không phải no-op.
+
+### Thay đổi
+
+- **`gui/main_window.ui`** (+ regenerate `gui/ui_main_window.py`): `navListWidget` có `currentRow = 0`.
+- **`tests/test_gui_smoke.py`**: 2 test — mục Data được chọn sẵn và khớp với trang đang hiện; và connection vẫn còn tác dụng sau khi `.ui` set sẵn currentRow.
+
+### Đã kiểm tra
+
+- Dựng `MainWindow` headless: `currentRow = 0`, `currentItem().text() = "Data"`, `item(0).isSelected() = True`, `stackedWidget.currentIndex() = 0`, trang là `pageData` → khớp.
+- `tests.test_gui_smoke`: **291 test pass** (gồm 2 test mới).
+- Full protocol chạy ngay trước đó trên commit cha `3ec4dd9`: **full suite 726 test OK** (2 skipped, 1484 s), **threading 37/37**, **stress 74/74 checkpoint / 6 section / 0 cảnh báo Qt / PASS**.

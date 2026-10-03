@@ -68,6 +68,36 @@ class TestMainWindowConstruction(unittest.TestCase):
             self.window.windowTitle(), f"{APP_NAME} v{APP_VERSION}"
         )
 
+    def test_configure_nav_starts_on_data_and_matches_the_page(self):
+        # navListWidget used to start with currentRow() == -1
+        # while stackedWidget was hardcoded to currentIndex 0:
+        # the Data page was showing, but nothing in the nav list
+        # was selected, so "Data" had no highlight until the
+        # first click. The two must agree from the start — the
+        # stylesheet has nothing to colour otherwise.
+        nav = self.window.ui.navListWidget
+        stack = self.window.ui.stackedWidget
+
+        self.assertEqual(nav.currentRow(), 0)
+        self.assertIsNotNone(nav.currentItem())
+        self.assertEqual(nav.currentItem().text(), "Data")
+        self.assertTrue(nav.item(0).isSelected())
+        self.assertEqual(stack.currentIndex(), nav.currentRow())
+        self.assertEqual(
+            stack.currentWidget().objectName(), "pageData"
+        )
+
+    def test_configure_nav_still_drives_the_stacked_widget(self):
+        # The .ui sets currentRow before the connection is made,
+        # so prove the signal wiring still works afterwards.
+        nav = self.window.ui.navListWidget
+        stack = self.window.ui.stackedWidget
+
+        nav.setCurrentRow(1)
+        self.assertEqual(stack.currentIndex(), 1)
+        nav.setCurrentRow(0)
+        self.assertEqual(stack.currentIndex(), 0)
+
     def test_window_icon_is_set(self):
         # docs/gui_todo.md item #12 — the app used to run with no
         # window/taskbar icon at all (windowIcon() null).

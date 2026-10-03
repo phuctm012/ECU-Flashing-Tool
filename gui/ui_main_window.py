@@ -833,6 +833,7 @@ class Ui_MainWindow(object):
         self.navListWidget.currentRowChanged.connect(self.stackedWidget.setCurrentIndex)
 
         self.tabWidget.setCurrentIndex(0)
+        self.navListWidget.setCurrentRow(0)
         self.stackedWidget.setCurrentIndex(0)
         self.outputTabWidget.setCurrentIndex(0)
 

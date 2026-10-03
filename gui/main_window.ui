@@ -317,6 +317,9 @@
              <height>16777215</height>
             </size>
            </property>
+           <property name="currentRow">
+            <number>0</number>
+           </property>
            <item>
             <property name="text">
              <string>Data</string>
