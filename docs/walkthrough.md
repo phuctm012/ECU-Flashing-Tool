@@ -3035,3 +3035,31 @@ Kèm theo phase này, user yêu cầu thêm **`README_CLI_EN.md`** — bản ti�
 
 - `cli.py --version` → `SFlash 3.1`; `config.settings` → `SFlash 3.1`.
 - Không còn chuỗi `3.0` nào mang nghĩa phiên bản hiện tại (các tham chiếu `v3.0` trong lịch sử walkthrough giữ nguyên, đó là lịch sử).
+
+## Phase 4.135: Tự Động Đóng Gói Source CLI (Không Kèm GUI) Khi `main` Thay Đổi
+
+User cần một file zip chứa đủ những gì để chạy `cli.py` và `build_cli.bat` cho mục đích riêng, **không có code giao diện**, và muốn file đó được tạo lại mỗi khi code merge vào `main`. Trong lúc làm, user bổ sung ba yêu cầu: zip **chỉ chứa code và `README_CLI_EN.md`**, không có tài liệu nào khác; zip **được push lên repo khi có thay đổi**; và zip nằm ở một thư mục riêng (`cli_package/`) thay vì `dist/`.
+
+**Phần tự động là git hook, không phải agent.** Agent Claude chỉ chạy khi được gọi, không tự phản ứng với sự kiện merge. Vì vậy việc build do một script cố định làm (`tools/build_cli_zip.py`), hook `.githooks/post-merge` gọi script đó, còn agent `cli-packager` dùng để build thủ công và chẩn đoán khi build lỗi.
+
+**Lấy file từ commit, không lấy từ working tree** (`git archive main`). Nhờ vậy code chưa commit hoặc code của branch khác không thể lọt vào zip. Với `core`/`communication`/`parsers`/`config`, script lấy *mọi file `.py` đang được tracked*, nên một module mới thêm vào tự có trong zip.
+
+**Chạy thử ngay trong thư mục đã giải nén trước khi ghi đè zip.** `--version`, `info`, `flash`, `test-connection --sequence suzuki`, `parallel --count 2` được chạy ở thư mục **không có `gui/`**, kèm một probe kiểm tra `gui`/`PySide6.QtWidgets`/`QtGui` không bị nạp. Nếu bước nào lỗi thì zip cũ được giữ nguyên. `tests/sample.hex` dùng cho smoke test được lấy từ commit ra một thư mục tạm *bên cạnh* gói, chứ không nằm trong zip.
+
+**Chỉ ghi lại zip khi nội dung khác.** Có push tự động thì đây là điều bắt buộc: nếu không, mỗi lần merge, kể cả merge chỉ sửa docs, đều sinh ra một commit zip mới chỉ vì timestamp. Zip được ghi với timestamp và mode cố định, rồi so với file cũ theo từng entry (tên + CRC). Hook so blob hash với `HEAD:<zip>` để quyết định có commit hay không.
+
+**Lỗi gặp khi thử: `fatal: cannot do a partial commit during a merge`.** Trong lúc `post-merge` chạy, git vẫn coi merge chưa kết thúc, nên `git commit -- <zip>` bị từ chối. Lỗi này nguy hiểm hơn vẻ ngoài: `git add` trước đó đã thành công, zip vẫn nằm staged, nên lần commit *tiếp theo* của user (ở bất kỳ branch nào) sẽ âm thầm mang theo zip. Bài thử đã bắt được đúng chuyện đó (zip lọt vào commit của branch `b`). Cách sửa: tạo commit bằng plumbing trên một **index tạm** (`read-tree HEAD` → `update-index --cacheinfo` → `write-tree` → `commit-tree` → `update-ref main <new> <old>`). Cách này không phụ thuộc trạng thái merge, không đụng tới những gì user đang stage, và `update-ref` có kèm giá trị cũ nên an toàn khi có race. Sau đó `git reset -- <zip>` để đồng bộ index thật với HEAD mới.
+
+**Sự cố trong lúc thử (đã khôi phục).** Một lệnh thử viết dạng `rm ... && ... && cd clone && ...` bị lỗi ngay ở `rm`, vì zsh báo "no matches found" cho glob, làm `cd` không chạy. Các lệnh sau đó đã chạy trên **repo thật**: tạo 3 branch `a`/`b`/`c`, sửa `core/report.py`, thêm một dòng vào walkthrough, và đặt `user.name`/`user.email` local. Không có commit, merge hay push nào xảy ra. Tất cả đã được khôi phục và kiểm tra lại. Từ đó các bài thử chạy trong một script `set -euo pipefail`, có kiểm tra `pwd` là thư mục clone trước khi làm bất cứ gì.
+
+### Thay đổi
+
+- **`tools/build_cli_zip.py`** (mới): đóng gói `--ref` (mặc định `main`) vào `cli_package/SFlash_CLI_source.zip` (thư mục này **được tracked**, khác với `dist/`). `ROOT_FILES` = `cli.py`, `cli_gitlab.py`, `build_cli.bat`, `requirements*.txt` (vì `build_cli.bat` chạy `pip install -r`), `README_CLI_EN.md`. Có hai lớp chặn cứng: `FORBIDDEN_PREFIXES` (`gui/`, `resources/`, `main.py`, `build.bat`) và `ALLOWED_NON_CODE` (mọi file không phải `.py` ngoài danh sách đều bị từ chối).
+- **`.githooks/post-merge`** (mới): chỉ chạy trên `main`. Build lại zip; nếu blob khác `HEAD:<zip>` thì commit **chỉ zip** rồi `git push origin main`. Có thể tắt push bằng `git config sflash.autopush false`. Python lấy theo thứ tự `$SFLASH_PYTHON` > `git config sflash.python` > `python` > `python3`. Hook luôn `exit 0`. Cần bật một lần cho mỗi clone: `git config core.hooksPath .githooks`. Lưu ý: push gửi `main` ở trạng thái local, nên **bao gồm cả merge** vừa làm nếu merge đó chưa được push.
+- **`.claude/agents/cli-packager.md`** (mới). **`tests/test_build_cli_zip.py`** (mới, 6 test). **`CLAUDE.md`**: thêm lệnh vào mục Commands.
+
+### Đã kiểm tra
+
+- Repo thật: 32 file từ `main` (`ddcc21c`), cả 6 bước smoke đều ok. Trong zip, ngoài các file `.py` chỉ có `README_CLI_EN.md`, `build_cli.bat`, `requirements.txt`, `requirements_build.txt`.
+- Thử end-to-end trên clone tạm, push vào một **bare repo đóng vai remote**: (A) merge thay đổi code → zip được commit và push, remote khớp local; (B) merge chỉ sửa docs → `Unchanged`, không commit; (C) merge code import `gui` → smoke fail, không commit, zip cũ giữ nguyên; (D) clone thứ hai `git pull` một merge làm ở nơi khác (giống PR merge trên GitHub) → zip được build lại và commit, working tree sạch.
+- `tests.test_build_cli_zip`: 6 test pass. Bộ test đầy đủ: **OK** (skipped=2). 4 module threading (`test_flash_threading`, `test_parallel_flash_threading`, `test_batch_flash_threading`, `test_test_connection_dialog`): **31 test pass**. `tools/stress_test.py`: **`STRESS_RESULT=PASS`**, exit 0, không có traceback hay cảnh báo QThread.

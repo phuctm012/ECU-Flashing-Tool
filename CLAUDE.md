@@ -41,6 +41,16 @@ pyside6-uic gui/main_window.ui -o gui/ui_main_window.py
 # Regenerate the screenshots embedded in docs/user_guide.html after a UI change
 # (drives the real app headlessly; --embed writes them back into the guide)
 python tools/capture_guide_screenshots.py --embed
+
+# Rebuild cli_package/SFlash_CLI_source.zip — CLI-only source (no gui/; the only
+# doc in it is README_CLI_EN.md), packaged from the main commit and smoke-tested
+# from the unpacked folder before replacing the old zip (rewritten only if its
+# contents changed). .githooks/post-merge runs this whenever main moves and, on a
+# change, commits ONLY the zip to main and pushes. Enable per clone:
+#   git config core.hooksPath .githooks
+#   git config sflash.python /path/to/pyside6/env/bin/python
+# (agent: .claude/agents/cli-packager.md)
+python tools/build_cli_zip.py
 ```
 
 There is no configured linter/formatter in this repo — don't invent lint commands.
