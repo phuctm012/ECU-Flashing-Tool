@@ -3063,3 +3063,15 @@ User cần một file zip chứa đủ những gì để chạy `cli.py` và `bu
 - Repo thật: 32 file từ `main` (`ddcc21c`), cả 6 bước smoke đều ok. Trong zip, ngoài các file `.py` chỉ có `README_CLI_EN.md`, `build_cli.bat`, `requirements.txt`, `requirements_build.txt`.
 - Thử end-to-end trên clone tạm, push vào một **bare repo đóng vai remote**: (A) merge thay đổi code → zip được commit và push, remote khớp local; (B) merge chỉ sửa docs → `Unchanged`, không commit; (C) merge code import `gui` → smoke fail, không commit, zip cũ giữ nguyên; (D) clone thứ hai `git pull` một merge làm ở nơi khác (giống PR merge trên GitHub) → zip được build lại và commit, working tree sạch.
 - `tests.test_build_cli_zip`: 6 test pass. Bộ test đầy đủ: **OK** (skipped=2). 4 module threading (`test_flash_threading`, `test_parallel_flash_threading`, `test_batch_flash_threading`, `test_test_connection_dialog`): **31 test pass**. `tools/stress_test.py`: **`STRESS_RESULT=PASS`**, exit 0, không có traceback hay cảnh báo QThread.
+
+## Phase 4.136: Merge `feature/sequential-batch-flash` Vào `main`
+
+User yêu cầu stress test rồi merge branch vào `main`. Branch chỉ hơn `main` đúng 1 commit (`7919752`, Phase 4.135); `main` local trùng với `origin/main` (`ddcc21c`), nên merge không có xung đột. Merge bằng `--no-ff` để lịch sử giữ lại mốc merge. Đây cũng là lần đầu hook `.githooks/post-merge` chạy thật trên repo. Vì branch không đổi code CLI nào (chỉ thêm `tools/`, test, docs, hook, agent), hook phải in ra `Unchanged` và không tạo commit zip nào.
+
+### Thay đổi
+
+- **`main`**: merge commit đưa Phase 4.135 vào.
+
+### Đã kiểm tra
+
+- Stress test đầy đủ ngay trước khi merge: `unittest discover` **781 test OK** (skipped=2); 4 module threading **31 test pass**; `tools/stress_test.py` **`STRESS_RESULT=PASS`**, 74 checkpoint, exit 0.
