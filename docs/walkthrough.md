@@ -3068,10 +3068,14 @@ User cần một file zip chứa đủ những gì để chạy `cli.py` và `bu
 
 User yêu cầu stress test rồi merge branch vào `main`. Branch chỉ hơn `main` đúng 1 commit (`7919752`, Phase 4.135); `main` local trùng với `origin/main` (`ddcc21c`), nên merge không có xung đột. Merge bằng `--no-ff` để lịch sử giữ lại mốc merge. Đây cũng là lần đầu hook `.githooks/post-merge` chạy thật trên repo. Vì branch không đổi code CLI nào (chỉ thêm `tools/`, test, docs, hook, agent), hook phải in ra `Unchanged` và không tạo commit zip nào.
 
+**Lỗi phát hiện khi merge: hook không chạy.** Git báo `hint: The '.githooks/post-merge' hook was ignored because it's not set as executable`. Repo này đặt `core.fileMode=false` (thường gặp với thư mục OneDrive), nên khi `git add`, git bỏ qua bit thực thi trên đĩa và ghi file hook là `100644`. Các bài thử ở Phase 4.135 không bắt được lỗi này, vì clone tạm nằm ngoài OneDrive (`core.fileMode=true`), còn file được `cp` vào giữ nguyên quyền thực thi. Cách sửa là `git update-index --chmod=+x`, ghi bit thực thi thẳng vào index để mọi clone nhận đúng `100755`. Sau đó hook được chạy bằng tay một lần cho chính merge này.
+
 ### Thay đổi
 
 - **`main`**: merge commit đưa Phase 4.135 vào.
+- **`.githooks/post-merge`**: mode `100644` → `100755` trong git.
 
 ### Đã kiểm tra
 
 - Stress test đầy đủ ngay trước khi merge: `unittest discover` **781 test OK** (skipped=2); 4 module threading **31 test pass**; `tools/stress_test.py` **`STRESS_RESULT=PASS`**, 74 checkpoint, exit 0.
+- Sau khi sửa mode: `git ls-files -s` cho ra `100755`; hook chạy bằng tay trên `main`: 32 file, cả 6 bước smoke đều ok, `Unchanged` (code CLI không đổi), không tạo commit zip — đúng như mong đợi.
