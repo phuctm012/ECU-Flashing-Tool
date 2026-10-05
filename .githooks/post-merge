@@ -1,0 +1,79 @@
+#!/bin/sh
+# Rebuild cli_package/SFlash_CLI_source.zip (CLI source only, no GUI code)
+# whenever main moves - "git merge" / "git pull" while main is checked out -
+# and, if its contents changed, commit it and push main.
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+# Interpreter used (needs PySide6 for the smoke test), first match wins:
+#   $SFLASH_PYTHON, git config sflash.python, python, python3
+# Commit but don't push:
+#   git config sflash.autopush false
+#
+# NOTE: the push sends main as it is locally - including the merge that
+# triggered this hook if it wasn't pushed yet.
+#
+# A post-merge hook cannot undo the merge, so this never fails it: a
+# broken build only prints an error and leaves the previous zip in place.
+
+ZIP=cli_package/SFlash_CLI_source.zip
+
+branch=$(git symbolic-ref --short -q HEAD)
+[ "$branch" = "main" ] || exit 0
+
+cd "$(git rev-parse --show-toplevel)" || exit 0
+
+py="${SFLASH_PYTHON:-$(git config --get sflash.python)}"
+if [ -z "$py" ]; then
+    py=$(command -v python || command -v python3)
+fi
+if [ -z "$py" ]; then
+    echo "[post-merge] No Python found - CLI zip not rebuilt." >&2
+    echo "             Set it with: git config sflash.python /path/to/python" >&2
+    exit 0
+fi
+
+echo "[post-merge] main updated - rebuilding the CLI source zip..."
+if ! "$py" tools/build_cli_zip.py --ref main; then
+    echo "[post-merge] CLI zip rebuild FAILED (see above) - nothing committed." >&2
+    exit 0
+fi
+
+new_blob=$(git hash-object -w -- "$ZIP")
+old_blob=$(git rev-parse -q --verify "HEAD:$ZIP" 2>/dev/null || true)
+if [ "$new_blob" = "$old_blob" ]; then
+    echo "[post-merge] CLI zip unchanged - nothing to commit."
+    exit 0
+fi
+
+# Commit only the zip, with plumbing on a throwaway index: "git commit -- path"
+# is refused here ("cannot do a partial commit during a merge" - git still
+# considers the merge in progress while post-merge runs), and this also
+# leaves whatever the user has staged out of the commit.
+head=$(git rev-parse HEAD)
+tmp_index=$(mktemp)
+rm -f "$tmp_index"
+if GIT_INDEX_FILE="$tmp_index" git read-tree "$head" \
+   && GIT_INDEX_FILE="$tmp_index" git update-index --add --cacheinfo "100644,$new_blob,$ZIP" \
+   && tree=$(GIT_INDEX_FILE="$tmp_index" git write-tree) \
+   && commit=$(git commit-tree "$tree" -p "$head" \
+                 -m "Update CLI source package ($(git rev-parse --short "$head"))") \
+   && git update-ref -m "post-merge: update CLI source package" refs/heads/main "$commit" "$head"
+then
+    rm -f "$tmp_index"
+    # Sync the real index's entry for the zip with the new HEAD.
+    git reset -q -- "$ZIP"
+    echo "[post-merge] Committed $ZIP ($(git rev-parse --short HEAD))."
+else
+    rm -f "$tmp_index"
+    echo "[post-merge] Commit of $ZIP failed." >&2
+    exit 0
+fi
+
+if [ "$(git config --get sflash.autopush)" = "false" ]; then
+    echo "[post-merge] sflash.autopush=false - not pushing."
+    exit 0
+fi
+git push origin main \
+    || echo "[post-merge] Push failed - the zip commit is local; push main later." >&2
+exit 0
